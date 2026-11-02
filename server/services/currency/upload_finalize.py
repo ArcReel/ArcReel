@@ -19,6 +19,7 @@ from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionM
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.mp4_faststart import ensure_faststart
 from lib.infra.thumbnail import extract_video_thumbnail
+from lib.material.storage import ContentVersion
 from lib.project.asset_derivatives import DerivativeSheetTarget
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import ProjectManager, get_project_manager
@@ -175,7 +176,8 @@ def install_manual_asset_sheet_upload(
     sheet_path: str,
     content: bytes,
     original_filename: str | None,
-) -> None:
+    on_commit: Callable[[ContentVersion], None] | None = None,
+) -> ContentVersion | None:
     """Install an author-uploaded asset sheet as finished content.
 
     For an existing asset the sheet bytes, its metadata pointer, a selected
@@ -183,7 +185,11 @@ def install_manual_asset_sheet_upload(
     The claim is resolved by the target-state planner, which projects an
     uploaded sheet's basis from the upload alone, so description and project
     style never enter it.  An asset that does not exist yet receives unclaimed
-    bytes only.
+    bytes only and ``None`` is returned.
+
+    ``on_commit`` runs last inside the same formal write with the new selected
+    content version; if it raises, the bytes, pointer, version and claim are all
+    restored.  Importing a provider asset records its link there.
     """
 
     bucket_key = ASSET_SPECS[asset_type].bucket_key
@@ -191,9 +197,17 @@ def install_manual_asset_sheet_upload(
     metadata: dict[str, str] = {"source": UPLOAD_VERSION_SOURCE}
     if original_filename:
         metadata["original_filename"] = original_filename
+    committed: list[ContentVersion] = []
 
     def _claim() -> None:
         register_current_resource_artifact(project_dir, resource_type=bucket_key, resource_id=name)
+        manager = VersionManager(project_dir)
+        content_version = manager.ensure_content_version(
+            bucket_key, name, manager.get_current_version(bucket_key, name)
+        )
+        if on_commit is not None:
+            on_commit(content_version)
+        committed.append(content_version)
 
     def _select_upload(target: Path) -> None:
         VersionManager(project_dir).commit_installed_version(
@@ -208,6 +222,7 @@ def install_manual_asset_sheet_upload(
         content,
         on_commit=_select_upload,
     )
+    return committed[0] if committed else None
 
 
 async def commit_manual_storyboard_upload(

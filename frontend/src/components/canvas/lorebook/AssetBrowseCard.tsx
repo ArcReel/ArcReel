@@ -219,9 +219,9 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                       <CloudUpload aria-hidden />
                       {t("assets:provider_asset_upload")}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setDialog("provider-assets")}>
+                    <DropdownMenuItem disabled={busy} onClick={() => openGuarded("provider-assets")}>
                       <CloudDownload aria-hidden />
-                      {t("assets:provider_asset_browse")}
+                      {t("assets:provider_asset_select_from_library")}
                     </DropdownMenuItem>
                     <DropdownMenuItem disabled={busy || !imageUrl} onClick={() => openGuarded("image-edit")}>
                       <PenLine aria-hidden />
@@ -280,7 +280,16 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             onChange={(event) => void handleUpload(event)}
           />
           {staleConfirm.dialog}
-          <ProviderAssetBrowserDialog open={dialog === "provider-assets"} onOpenChange={closeDialog} />
+          <ProviderAssetBrowserDialog
+            open={dialog === "provider-assets"}
+            onOpenChange={closeDialog}
+            projectName={projectName}
+            resourceType={VERSION_RESOURCE[type]}
+            resourceId={name}
+            onImported={async () => {
+              await onReload?.();
+            }}
+          />
           <ProviderAssetUploadDialog
             open={dialog === "provider-upload"}
             onOpenChange={closeDialog}

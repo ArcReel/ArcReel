@@ -34,9 +34,14 @@ from lib.workflow.workflow_state import WorkflowStateService
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
-from server.services.currency import upload_finalize
 from tests.factories import wav_bytes
-from tests.fakes import fail_project_json_write, use_artifact_registration, use_project_manager, use_text_generator
+from tests.fakes import (
+    fail_project_json_write,
+    use_artifact_registration,
+    use_project_manager,
+    use_text_generator,
+    use_upload_claim_registration,
+)
 
 
 class _FakeTextBackend:
@@ -600,7 +605,7 @@ class TestFilesRouter:
             def _fail(*_args, **_kwargs):
                 raise RuntimeError("injected manifest failure")
 
-            monkeypatch.setattr(upload_finalize, "register_current_resource_artifact", _fail)
+            use_upload_claim_registration(monkeypatch, _fail)
             failed = client.post(
                 "/api/v1/projects/demo/upload/character?name=Alice",
                 files={"file": ("replacement.png", _img_bytes("PNG", (0, 0, 255)), "image/png")},

@@ -549,8 +549,6 @@ Volcengine Ark and BytePlus provider asset libraries hold reviewed assets that g
 - **Asset library accounts**: the Access Key for the asset library control plane. It is stored separately from the inference API Key and needs asset library permissions. When adding an account, choose a site (Volcano Engine (China) or BytePlus (international)) and enter a project; the default project is `default`. The provider isolates assets by project, so the inference key must belong to the same project. Control-plane requests go only to the official address of the selected site, never to the inference key's Base URL.
 - **Inference key bindings**: for each Volcengine Ark key or custom provider, choose the asset library account it may use. After you change the inference key's secret or Base URL, or the account's site, project, or Access Key ID, the binding shows **Needs confirmation**, and that account's assets are not used until you confirm again. A binding only records that you confirmed the inference key and the account belong together; the provider still checks permissions on every call.
 
-Once an account is configured, choose **Browse provider asset library** from the more-actions menu on a project asset card to view the name, type, and availability of the assets in that account. Browsing is read-only; assets cannot be imported into ArcReel.
-
 Access Keys are entered only on the settings page and are shown with only their first and last few characters when read back.
 
 ### Upload Images to an Asset Library {#upload-to-asset-library}
@@ -564,6 +562,15 @@ Choose **Upload to provider asset library** from the more-actions menu on a proj
 - On the first upload, ArcReel creates an asset group named `ArcReel` in the account's project. The provider requires signing an authorization in its console before an asset group can be created; until then, uploads fail with the provider's error code.
 
 Relay copies in the bucket all live under the `arcreel-relay/` prefix and are cleaned up automatically by ArcReel. Once an upload has a result, its copy is kept for at least 1 hour after it was written and then deleted; if there is never a result, the copy is kept until 1 hour after the download URL expires. Failed deletions are retried automatically, and cleanup never touches other objects in the bucket. After you change the bucket or Endpoint of the object storage connection, relay copies left in the old bucket are no longer deleted automatically; remove them in the TOS console.
+
+### Select an Existing Image from an Asset Library {#select-from-asset-library}
+
+Choose **Select from provider asset library** from the more-actions menu on a project asset card to view the name, type, and availability of the assets in each account, and select an image that is already in the library to use as this asset image. Selecting does not require object storage.
+
+- Only image assets whose status is **Available** can be selected. ArcReel queries the asset from the provider, retrieves the original image from the access URL the provider returns, and saves it as a new version in the same way as an uploaded asset image: the new version appears in the version history, can be previewed and edited, and you can switch back to earlier versions.
+- The new version is automatically linked to the selected asset with an **Available** link that records the asset library account's site, region, and project. Earlier versions do not inherit this link.
+- If the original image cannot be retrieved, nothing is imported, for example when the asset was deleted on the provider side, the access URL has expired, or the network dropped. The original image must be PNG, JPEG, or WebP and no larger than 30 MB. When an import fails, the asset image keeps its previous version and no link is created; try again later or select another asset.
+- Original images larger than 2 MB are compressed before saving, the same as uploaded asset images.
 
 ## 13. Cost Tracking {#cost-tracking}
 

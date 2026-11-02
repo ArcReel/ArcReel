@@ -1,11 +1,13 @@
-"""上传图片到供应商素材库：入库任务、内容版本关联、状态查询与中转副本清理。
+"""供应商素材库与内容版本关联：上传入库、状态查询、中转副本清理，以及从素材库选择已有图片导入。
 
 真实编排：资产图经文件路由上传成版本，入库经关联路由创建，后台处理直接调用 ``ingest.run_once``。
-只替换两个外部边界：控制面请求经 respx 拦截（按 Action 分派），TOS SDK 在 ``create_sdk_client`` 换成内存桶。
+只替换外部边界：控制面请求与素材下载经 respx 拦截（控制面按 Action 分派），TOS SDK 在 ``create_sdk_client``
+换成内存桶，素材地址的主机解析换成固定的公网地址。
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -21,7 +23,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from tos.exceptions import TosServerError
 
-from lib.asset_library import ingest
+from lib.artifacts import version_manager
+from lib.asset_library import importing, ingest
 from lib.asset_library.links import account_scope, selected_link
 from lib.db import get_async_session
 from lib.db.base import utc_now
@@ -35,7 +38,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files, provider_asset_links, versions
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import use_project_manager
+from tests.fakes import use_project_manager, use_upload_claim_registration
 from tests.http_capture import capture_http, request_json
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
 
@@ -478,3 +481,192 @@ async def test_upload_requires_an_image_and_object_storage(api, sessions, bucket
     assert resp.status_code == 422
     assert "对象存储" in resp.json()["detail"]
     assert _panel(api)["links"] == []
+
+
+# ── 从素材库选择已有图片 ─────────────────────────────────────────────
+
+ASSET_URL = "https://ark-asset.cn-beijing.volcengine.example/asset-20261103-b.png"
+ASSET_SIGNATURE = "X-Tos-Signature=TEST-SIGNATURE-0003"
+IMPORT = f"{LINKS}/import"
+
+
+@pytest.fixture
+def public_dns(monkeypatch) -> None:
+    """素材地址的主机解析到公网地址；不发真实 DNS 查询。"""
+
+    async def _resolve(host: str, port: int) -> list[str]:
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(importing, "resolve_host", _resolve)
+
+
+def _active_image(url: str = f"{ASSET_URL}?{ASSET_SIGNATURE}", **overrides: Any) -> dict[str, Any]:
+    return {
+        "Status": "Active",
+        "AssetType": "Image",
+        "Name": "林夕-正面",
+        "GroupId": "group-team",
+        "URL": url,
+        **overrides,
+    }
+
+
+def _import(api: TestClient, account_id: int, asset_id: str = "asset-20261103-b") -> httpx.Response:
+    return api.post(
+        IMPORT,
+        json={"resource_type": "characters", "resource_id": "Alice", "account_id": account_id, "asset_id": asset_id},
+        headers={"Accept-Language": "zh"},
+    )
+
+
+def _versions(api: TestClient) -> dict[str, Any]:
+    resp = api.get("/api/v1/projects/demo/versions/characters/Alice")
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def _all_links(sessions) -> list[ProviderAssetLink]:
+    async with sessions() as session:
+        return list((await session.execute(select(ProviderAssetLink))).scalars())
+
+
+async def test_import_saves_provider_image_as_uploaded_version_with_active_link(
+    api, sessions, project, public_dns, caplog
+):
+    """导入闭环：取回素材原图保存为成品新版本，关联属于这个版本且可用；切回旧版本不继承关联。"""
+    caplog.set_level(logging.INFO)
+    account_id = await _configure(sessions, object_storage=False)  # 导入不经对象存储中转
+    image_a = solid_png_bytes((200, 10, 10), size=(400, 400))
+    image_b = solid_png_bytes((10, 10, 200), size=(400, 400))
+    _upload_sheet(api, image_a)
+    version_a = _panel(api)["content_version"]
+
+    control = ControlPlane(asset_status=[_active_image()])
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=control)
+        download = router.get(ASSET_URL).mock(return_value=httpx.Response(200, content=image_b))
+        resp = _import(api, account_id)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    # 只按 GetAsset 返回的地址取图，查询带账号的供应商项目
+    assert [b["ProjectName"] for b in control.actions("GetAsset")] == ["film"]
+    assert download.call_count == 1
+    assert ASSET_SIGNATURE in str(download.calls.last.request.url)
+
+    # 正式内容是素材原图，按手动上传成品记入版本历史
+    sheet = project.get_project_path("demo") / "characters" / "Alice.png"
+    assert sheet.read_bytes() == image_b
+    history = _versions(api)
+    assert history["current_version"] == 2
+    record = history["versions"][-1]
+    assert record["source"] == "manual_upload"
+    assert record["content_version_id"] == body["content_version"]["id"] != version_a["id"]
+
+    # 关联属于新内容版本，保留账号范围，可用于生成
+    link = body["link"]
+    assert (link["state"], link["usable"], link["provider_asset_id"]) == ("active", True, "asset-20261103-b")
+    assert (link["site"], link["region"], link["provider_project_name"]) == ("volcengine", "cn-beijing", "film")
+    assert link["content_version_id"] == body["content_version"]["id"]
+    stored = await _link(sessions, link["id"])
+    assert (stored.origin, stored.next_check_at) == ("import", None)
+    async with sessions() as session:
+        account = await AssetLibraryRepository(session).get_account(account_id)
+        assert account is not None
+        found = await selected_link(
+            session, project_name="demo", content_version_id=body["content_version"]["id"], scope=account_scope(account)
+        )
+    assert found is not None
+    assert found.id == link["id"]
+
+    # 切回 A：A 没有关联；再切回导入的版本，关联仍在
+    assert api.post("/api/v1/projects/demo/versions/characters/Alice/restore/1").status_code == 200
+    assert _panel(api)["links"] == []
+    assert api.post("/api/v1/projects/demo/versions/characters/Alice/restore/2").status_code == 200
+    assert [shown["id"] for shown in _panel(api)["links"]] == [link["id"]]
+
+    # 签名地址与控制面密钥不进响应与日志
+    assert ASSET_SIGNATURE not in resp.text
+    assert "TEST-SIGNATURE" not in caplog.text
+    assert SK not in caplog.text
+
+
+def _fail_claim(monkeypatch) -> None:
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("claim failed")
+
+    use_upload_claim_registration(monkeypatch, _raise)
+
+
+def _fail_after_link(monkeypatch) -> None:
+    """关联已落库之后，正式写入的收尾步骤失败。"""
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("activity failed")
+
+    monkeypatch.setattr(version_manager, "record_project_activity", _raise)
+
+
+@pytest.mark.parametrize(
+    ("status", "download", "status_code", "detail", "downloaded"),
+    [
+        pytest.param(_active_image(Status="Processing"), None, 422, "还不可用", False, id="not-active"),
+        pytest.param(_active_image(AssetType="Video"), None, 422, "只能选择图片", False, id="not-image"),
+        pytest.param(_active_image(URL=None), None, 502, "无法取回", False, id="no-url"),
+        pytest.param(
+            _active_image(url="https://127.0.0.1/asset.png?X-Tos-Signature=TEST-SIGNATURE-0003"),
+            None,
+            502,
+            "无法取回",
+            False,
+            id="internal-destination",
+        ),
+        pytest.param(_active_image(), httpx.Response(403), 502, "无法取回", True, id="download-denied"),
+        pytest.param(
+            _active_image(), httpx.Response(200, content=b"<html>expired</html>"), 422, "PNG", True, id="not-an-image"
+        ),
+    ],
+)
+async def test_import_that_cannot_get_real_content_is_refused(
+    api, sessions, public_dns, status, download, status_code, detail, downloaded
+):
+    """取不回实际内容或素材不可用：拒绝导入，原选中版本不变，不留下关联。"""
+    account_id = await _configure(sessions, object_storage=False)
+    _upload_sheet(api, solid_png_bytes((1, 2, 3), size=(400, 400)))
+    before = _versions(api)
+
+    control = ControlPlane(asset_status=[status])
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=control)
+        route = router.get(ASSET_URL).mock(return_value=download or httpx.Response(500))
+        resp = _import(api, account_id)
+    assert resp.status_code == status_code, resp.text
+    assert detail in resp.json()["detail"]
+    assert route.called is downloaded
+    assert "TEST-SIGNATURE" not in resp.text
+    assert _versions(api) == before
+    assert await _all_links(sessions) == []
+
+
+@pytest.mark.parametrize("fail", [_fail_claim, _fail_after_link], ids=["claim-fails", "fails-after-link-recorded"])
+async def test_import_commit_failure_keeps_selected_version_and_no_link(
+    api, sessions, project, public_dns, monkeypatch, fail
+):
+    """正式提交失败：资产图、版本历史保持原样，不显示导入成功，也不留下关联。"""
+    account_id = await _configure(sessions, object_storage=False)
+    image_a = solid_png_bytes((5, 5, 5), size=(400, 400))
+    _upload_sheet(api, image_a)
+    before = _versions(api)
+    fail(monkeypatch)
+
+    control = ControlPlane(asset_status=[_active_image()])
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=control)
+        router.get(ASSET_URL).mock(
+            return_value=httpx.Response(200, content=solid_png_bytes((9, 9, 9), size=(400, 400)))
+        )
+        with pytest.raises(RuntimeError):
+            _import(api, account_id)
+
+    assert (project.get_project_path("demo") / "characters" / "Alice.png").read_bytes() == image_a
+    assert _versions(api) == before
+    assert await _all_links(sessions) == []

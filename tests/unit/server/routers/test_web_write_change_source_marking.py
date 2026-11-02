@@ -98,6 +98,7 @@ _EXEMPT: dict[str, str] = {
     "end_frames:delete_end_frame": _SERVICE.format("server.services.project.end_frame"),
     "end_frames:select_end_frame": _SERVICE.format("server.services.project.end_frame"),
     "end_frames:upload_end_frame": _SERVICE.format("server.services.project.end_frame"),
+    "provider_asset_links:import_from_asset_library": _SERVICE.format("server.services.project.provider_asset_import"),
     "prompt_authoring:save_prompt_authoring_instructions": _SERVICE.format(
         "server.services.project.episode_instructions"
     ),

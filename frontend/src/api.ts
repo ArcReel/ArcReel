@@ -55,6 +55,7 @@ import type {
   AssetLibraryCredentialType,
   CreateAssetLibraryAccountPayload,
   ObjectStorageConnection,
+  ProviderAssetImportResult,
   ProviderAssetLink,
   ProviderAssetLinkPanel,
   ProviderAssetPage,
@@ -3571,6 +3572,17 @@ class API {
     body: { resource_type: string; resource_id: string; account_id: number },
   ): Promise<ProviderAssetLink> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/provider-asset-links`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** 从素材库选择一张可用的图片：取回原图保存为新版本，并为这个版本建立关联。 */
+  static async importProviderAsset(
+    projectName: string,
+    body: { resource_type: string; resource_id: string; account_id: number; asset_id: string },
+  ): Promise<ProviderAssetImportResult> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/provider-asset-links/import`, {
       method: "POST",
       body: JSON.stringify(body),
     });

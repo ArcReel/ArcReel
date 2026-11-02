@@ -21,7 +21,7 @@ from server.routers import versions as versions_router
 from server.services.currency import upload_finalize
 from server.services.tasks import formal_image_commit, reference_video_tasks
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import use_project_manager
+from tests.fakes import use_project_manager, use_upload_claim_registration
 
 
 def _write_thumbnail(thumbnail_path: Path, content: bytes) -> None:
@@ -373,9 +373,8 @@ class TestShotVideoUpload:
             return thumbnail_path
 
         monkeypatch.setattr(upload_finalize, "extract_video_thumbnail", _new_thumbnail)
-        monkeypatch.setattr(
-            upload_finalize,
-            "register_current_resource_artifact",
+        use_upload_claim_registration(
+            monkeypatch,
             lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("claim registration failed")),
         )
 
@@ -573,7 +572,7 @@ class TestReferenceUnitVideoUpload:
         def _fail_claim_registration(*_args, **_kwargs):
             raise RuntimeError("claim registration failed")
 
-        monkeypatch.setattr(upload_finalize, "register_current_resource_artifact", _fail_claim_registration)
+        use_upload_claim_registration(monkeypatch, _fail_claim_registration)
 
         with client:
             response = _upload_unit(client, content=b"new-video")

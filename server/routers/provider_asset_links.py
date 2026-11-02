@@ -1,4 +1,4 @@
-"""供应商素材关联 API：查看图片当前版本的关联与入库状态、上传到素材库、解除关联与刷新状态。
+"""供应商素材关联 API：查看图片当前版本的关联与入库状态、上传到素材库、从素材库选择已有图片、解除关联与刷新状态。
 
 上传只创建入库任务并立即返回，中转上传、提交与状态查询由后台循环推进（``lib.asset_library.ingest``），
 页面按返回的状态轮询，不等待供应商审核。领域规则在 ``lib.asset_library.links``，本路由只做参数与响应映射。
@@ -24,6 +24,7 @@ from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepos
 from lib.infra.api_errors import BadRequestError
 from lib.material.storage import CONTENT_DIGEST, CONTENT_VERSION_ID
 from lib.project.project_manager import get_project_manager
+from server.services.project.provider_asset_import import import_provider_asset
 
 router = APIRouter(prefix="/projects/{project_name}/provider-asset-links", tags=["Provider Asset Links"])
 
@@ -75,6 +76,15 @@ class UploadRequest(BaseModel):
     resource_type: str = Field(min_length=1, max_length=64)
     resource_id: str = Field(min_length=1, max_length=512)
     account_id: int
+
+
+class ImportRequest(UploadRequest):
+    asset_id: str = Field(min_length=1, max_length=256)
+
+
+class ImportResponse(BaseModel):
+    content_version: ContentVersionInfo
+    link: LinkResponse
 
 
 def link_response(link: ProviderAssetLink) -> LinkResponse:
@@ -166,6 +176,31 @@ async def upload_to_asset_library(
     await session.commit()
     wake_asset_ingest()
     return link_response(link)
+
+
+@router.post("/import", status_code=201, response_model=ImportResponse)
+async def import_from_asset_library(
+    project_name: str, body: ImportRequest, session: AsyncSession = Depends(get_async_session)
+) -> ImportResponse:
+    """从素材库选择一张可用的图片：取回原图保存为资产图的新版本，并为这个版本建立关联。
+
+    取不回内容或保存失败时不建立关联，原选中版本不变。
+    """
+    imported = await import_provider_asset(
+        session,
+        project_name=project_name,
+        resource_type=body.resource_type,
+        resource_id=body.resource_id,
+        account_id=body.account_id,
+        asset_id=body.asset_id,
+    )
+    content_version = imported.content_version
+    return ImportResponse(
+        content_version=ContentVersionInfo(
+            id=content_version.id, version=content_version.version, digest=content_version.digest
+        ),
+        link=link_response(imported.link),
+    )
 
 
 @router.delete("/{link_id}", status_code=204)

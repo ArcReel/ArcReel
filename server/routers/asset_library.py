@@ -20,15 +20,19 @@ from lib.asset_library.bindings import (
     list_bindable_credentials,
     list_binding_views,
 )
-from lib.asset_library.control_plane import AssetLibraryRequestError, ControlPlaneCredentials, list_assets
+from lib.asset_library.control_plane import (
+    AssetLibraryRequestError,
+    credentials_of,
+    list_assets,
+    request_failure_error,
+)
 from lib.asset_library.sites import DEFAULT_PROJECT_NAME, SITES, AssetLibrarySite, control_plane_host
 from lib.config.repository import mask_secret
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.models.asset_library import AssetLibraryAccount
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
-from lib.infra.api_errors import BadGatewayError, NotFoundError, UnprocessableError
-from lib.infra.logging_utils import redact_diagnostic_text
+from lib.infra.api_errors import NotFoundError, UnprocessableError
 
 router = APIRouter(prefix="/asset-library", tags=["Asset Library"])
 
@@ -268,14 +272,6 @@ async def delete_binding(
 
 # ── 浏览 ──────────────────────────────────────────────────────────
 
-_REQUEST_FAILURE_KEYS = {
-    "auth": "asset_library_request_auth_failed",
-    "denied": "asset_library_request_denied",
-    "throttled": "asset_library_request_throttled",
-    "network": "asset_library_request_unreachable",
-    "provider": "asset_library_request_failed",
-}
-
 
 @router.get("/accounts/{account_id}/assets", response_model=ProviderAssetListResponse)
 async def browse_assets(
@@ -286,23 +282,10 @@ async def browse_assets(
 ) -> ProviderAssetListResponse:
     """按账号的站点、区域与项目范围分页列出供应商素材库里的素材。"""
     account = await _get_account_or_404(AssetLibraryRepository(session), account_id)
-    credentials = ControlPlaneCredentials(
-        site=account.site,
-        region=account.region,
-        project_name=account.project_name,
-        access_key_id=account.access_key_id,
-        secret_access_key=account.secret_access_key,
-    )
     try:
-        result = await list_assets(credentials, page_number=page, page_size=page_size)
+        result = await list_assets(credentials_of(account), page_number=page, page_size=page_size)
     except AssetLibraryRequestError as exc:
-        diagnostic = {
-            "code": exc.code,
-            "status": exc.status_code,
-            "request_id": exc.request_id,
-            "message": redact_diagnostic_text(exc.message),
-        }
-        raise BadGatewayError(_REQUEST_FAILURE_KEYS[exc.kind]).with_diagnostic(diagnostic) from exc
+        raise request_failure_error(exc) from exc
     return ProviderAssetListResponse(
         items=[
             ProviderAssetResponse(

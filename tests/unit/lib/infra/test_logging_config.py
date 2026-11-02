@@ -1,5 +1,7 @@
 import logging
 
+import httpx
+
 from lib.infra.logging_config import _HANDLER_ATTR, setup_logging
 
 
@@ -47,6 +49,18 @@ class TestSetupLogging:
         root = logging.getLogger()
         our_handlers = [h for h in root.handlers if getattr(h, _HANDLER_ATTR, False)]
         assert len(our_handlers) == 1
+
+    def test_httpx_request_log_drops_signed_query(self, caplog):
+        setup_logging()
+        setup_logging()
+        httpx_logger = logging.getLogger("httpx")
+        # 重复调用不叠加过滤器
+        assert len([f for f in httpx_logger.filters if type(f).__name__ == "_StripUrlQueryFilter"]) == 1
+        url = httpx.URL("https://assets.example/a.png?X-Tos-Signature=TEST-SIGNATURE")
+        with caplog.at_level(logging.INFO, logger="httpx"):
+            httpx_logger.info('HTTP Request: %s %s "%s %d %s"', "GET", url, "HTTP/1.1", 200, "OK")
+        assert "https://assets.example/a.png" in caplog.text
+        assert "TEST-SIGNATURE" not in caplog.text
 
     def teardown_method(self):
         """每个测试后清理 root logger handlers。"""
