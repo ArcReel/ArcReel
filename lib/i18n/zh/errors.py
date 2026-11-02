@@ -813,4 +813,8 @@ MESSAGES = {
     "asset_library_request_throttled": "素材库请求过于频繁，稍后重试",
     "asset_library_request_unreachable": "无法连接素材库。检查网络后重试",
     "asset_library_request_failed": "素材库返回错误，未能取得素材列表",
+    "provider_asset_link_not_found": "素材库关联不存在，可能已被解除。刷新后再试",
+    "provider_asset_link_exists": "这张图片的当前版本在该素材库账号里已有关联或入库任务。先解除关联，再重新上传",
+    "provider_asset_upload_no_image": "这张图片还没有可上传的版本。先生成或上传图片",
+    "provider_asset_upload_needs_object_storage": "上传到素材库需要经你的对象存储中转。在设置的「素材库与存储」中配置对象存储后重试",
 }

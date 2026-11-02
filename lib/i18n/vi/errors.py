@@ -876,4 +876,8 @@ MESSAGES = {
     "asset_library_request_throttled": "Yêu cầu tới thư viện tư liệu quá dày. Hãy thử lại sau",
     "asset_library_request_unreachable": "Không thể kết nối thư viện tư liệu. Hãy kiểm tra mạng rồi thử lại",
     "asset_library_request_failed": "Thư viện tư liệu trả về lỗi nên không tải được danh sách tư liệu",
+    "provider_asset_link_not_found": "Liên kết thư viện tư liệu không còn tồn tại, có thể đã bị gỡ. Làm mới rồi thử lại",
+    "provider_asset_link_exists": "Phiên bản hiện tại của ảnh này đã có liên kết hoặc tác vụ tải lên cho tài khoản thư viện tư liệu này. Gỡ liên kết trước khi tải lên lại",
+    "provider_asset_upload_no_image": "Ảnh này chưa có phiên bản nào để tải lên. Hãy tạo hoặc tải ảnh lên trước",
+    "provider_asset_upload_needs_object_storage": "Tải lên thư viện tư liệu cần đi qua lưu trữ đối tượng của bạn. Cấu hình lưu trữ đối tượng trong mục Thư viện tư liệu và lưu trữ của Cài đặt rồi thử lại",
 }

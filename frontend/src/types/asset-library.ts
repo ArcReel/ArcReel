@@ -93,3 +93,51 @@ export interface ProviderAssetPage {
   page: number;
   page_size: number;
 }
+
+/**
+ * 供应商素材关联连同它的入库任务的状态：
+ * pending 等待中转上传与提交，submitting 已提交，processing 供应商处理中，active 可用，
+ * failed 失败，uncertain 提交结果不确定（后台按名称查回，不重新创建）。
+ */
+export type ProviderAssetLinkState = "pending" | "submitting" | "processing" | "active" | "failed" | "uncertain";
+
+/** 图片某个内容版本在一个素材库范围里的关联或入库任务。 */
+export interface ProviderAssetLink {
+  id: number;
+  content_version_id: string;
+  version: number;
+  account_id: number;
+  site: AssetLibrarySite;
+  region: string;
+  provider_project_name: string;
+  state: ProviderAssetLinkState;
+  selected: boolean;
+  /** 只有可用的关联才会用于生成。 */
+  usable: boolean;
+  provider_asset_id: string | null;
+  /** ArcReel 侧的失败（snake_case，如 relay_upload_failed）或供应商原样返回的错误码。 */
+  error_code: string | null;
+  error_message: string | null;
+  check_error: string | null;
+  /** 后台仍会自动查询；为 false 且状态未定时由用户手动刷新。 */
+  polling: boolean;
+  created_at: string | null;
+  submitted_at: string | null;
+  settled_at: string | null;
+}
+
+export interface ProviderAssetLinkAccount {
+  id: number;
+  name: string;
+  site: AssetLibrarySite;
+  region: string;
+  project_name: string;
+}
+
+/** 图片当前选中版本的素材库关联面板。 */
+export interface ProviderAssetLinkPanel {
+  content_version: { id: string | null; version: number; digest: string | null } | null;
+  object_storage_configured: boolean;
+  accounts: ProviderAssetLinkAccount[];
+  links: ProviderAssetLink[];
+}
