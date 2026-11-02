@@ -96,7 +96,7 @@ class ProviderAssetLink(TimestampMixin, Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     # 提交时内容版本的持久定位（项目内相对路径）；入库读取时按 content_digest 校验。
     locator_path: Mapped[str] = mapped_column(Text, nullable=False)
-    origin: Mapped[str] = mapped_column(String(16), nullable=False)  # "upload"
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)  # "upload" / "import"
     account_id: Mapped[int] = mapped_column(Integer, nullable=False)
     site: Mapped[str] = mapped_column(String(16), nullable=False)
     region: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -105,7 +105,7 @@ class ProviderAssetLink(TimestampMixin, Base):
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     provider_asset_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider_group_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 提交入库时的素材名称，请求结果不确定时按它在素材组里查回素材 ID。
+    # 提交入库时的素材名称，请求结果不确定时按它在素材组里查回素材 ID；导入的关联记录所选素材的名称。
     submit_name: Mapped[str] = mapped_column(String(64), nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

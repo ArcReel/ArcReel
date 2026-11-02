@@ -24,12 +24,17 @@ import hmac
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote
 
 import httpx
 
 from lib.asset_library.sites import ASSET_API_SERVICE, ASSET_API_VERSION, control_plane_host
+from lib.infra.api_errors import BadGatewayError
+from lib.infra.logging_utils import redact_diagnostic_text
+
+if TYPE_CHECKING:
+    from lib.db.models.asset_library import AssetLibraryAccount
 
 _TIMEOUT = httpx.Timeout(20.0, connect=10.0)
 # 素材库只有 AIGC 类素材组能经 CreateAsset 写入；真人认证（LivenessFace）素材组在供应商控制台管理。
@@ -60,6 +65,17 @@ class ControlPlaneCredentials:
     project_name: str
     access_key_id: str
     secret_access_key: str
+
+
+def credentials_of(account: AssetLibraryAccount) -> ControlPlaneCredentials:
+    """素材库账号的控制面凭证与资源范围。"""
+    return ControlPlaneCredentials(
+        site=account.site,
+        region=account.region,
+        project_name=account.project_name,
+        access_key_id=account.access_key_id,
+        secret_access_key=account.secret_access_key,
+    )
 
 
 class AssetLibraryRequestError(Exception):
@@ -166,6 +182,27 @@ def sign_request(
             f"HMAC-SHA256 Credential={access_key_id}/{scope}, SignedHeaders={signed_headers}, Signature={signature}"
         ),
     }
+
+
+_REQUEST_FAILURE_KEYS: dict[str, str] = {
+    "auth": "asset_library_request_auth_failed",
+    "denied": "asset_library_request_denied",
+    "throttled": "asset_library_request_throttled",
+    "network": "asset_library_request_unreachable",
+    "provider": "asset_library_request_failed",
+}
+
+
+def request_failure_error(exc: AssetLibraryRequestError) -> BadGatewayError:
+    """把控制面请求失败转成面向界面的错误：按分类选文案，供应商原文脱敏后放进诊断。"""
+    return BadGatewayError(_REQUEST_FAILURE_KEYS[exc.kind]).with_diagnostic(
+        {
+            "code": exc.code,
+            "status": exc.status_code,
+            "request_id": exc.request_id,
+            "message": redact_diagnostic_text(exc.message),
+        }
+    )
 
 
 def _error_kind(code: str, status_code: int | None) -> ErrorKind:
@@ -321,6 +358,37 @@ async def get_asset(
     result = await call_action(
         credentials, "GetAsset", {"Id": asset_id, "ProjectName": credentials.project_name}, client=client
     )
+    return _parse_detail(result, asset_id)
+
+
+@dataclass(frozen=True)
+class ProviderAssetDownload:
+    """GetAsset 的结果连同供应商返回的签名访问地址（官方文档写明有效期 12 小时）。
+
+    ``url`` 只用于立即取回素材内容，不回传前端、不写日志与异常文本，也不持久保存。
+    """
+
+    detail: ProviderAssetDetail
+    url: str | None
+
+    def __repr__(self) -> str:
+        return f"ProviderAssetDownload(detail={self.detail!r}, url={'<redacted>' if self.url else None})"
+
+
+async def get_asset_download(
+    credentials: ControlPlaneCredentials, asset_id: str, *, client: httpx.AsyncClient | None = None
+) -> ProviderAssetDownload:
+    """查询一个素材，并取出供应商返回的签名访问地址，供导入时取回实际内容。"""
+    result = await call_action(
+        credentials, "GetAsset", {"Id": asset_id, "ProjectName": credentials.project_name}, client=client
+    )
+    url = result.get("URL")
+    return ProviderAssetDownload(
+        detail=_parse_detail(result, asset_id), url=url if isinstance(url, str) and url.strip() else None
+    )
+
+
+def _parse_detail(result: dict[str, Any], asset_id: str) -> ProviderAssetDetail:
     error = result.get("Error")
     error_code = str(error.get("Code")) if isinstance(error, dict) and error.get("Code") else None
     error_message = str(error.get("Message")) if isinstance(error, dict) and error.get("Message") else None

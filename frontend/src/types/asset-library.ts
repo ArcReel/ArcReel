@@ -76,7 +76,7 @@ export interface AssetLibraryBindableCredential {
 
 export type ProviderAssetStatus = "active" | "processing" | "failed" | "unknown";
 
-/** 供应商素材库里的一条素材（只读浏览）。 */
+/** 供应商素材库里的一条素材。可用的图片素材可以选择导入。 */
 export interface ProviderAsset {
   id: string;
   name: string;
@@ -140,4 +140,10 @@ export interface ProviderAssetLinkPanel {
   object_storage_configured: boolean;
   accounts: ProviderAssetLinkAccount[];
   links: ProviderAssetLink[];
+}
+
+/** 从素材库选择已有图片的结果：保存得到的新版本与它的可用关联。 */
+export interface ProviderAssetImportResult {
+  content_version: { id: string; version: number; digest: string | null };
+  link: ProviderAssetLink;
 }

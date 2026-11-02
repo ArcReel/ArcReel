@@ -1134,6 +1134,7 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     monkeypatch.setattr("server.routers.reference_videos.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.versions.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.currency.upload_finalize.get_project_manager", for_pm)
+    monkeypatch.setattr("server.services.project.provider_asset_import.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.tasks.generation_context.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.tasks.generation_tasks.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.tasks.image_edit_tasks.get_project_manager", for_pm)
@@ -1181,6 +1182,14 @@ def use_artifact_registration(monkeypatch, register: Callable[..., Any]) -> None
     写盘出口在函数内晚导入 ``register_current_artifact_if_provable``，替换 ``artifact_activation`` 上的名字即生效。
     """
     monkeypatch.setattr("lib.artifacts.artifact_activation.register_current_artifact_if_provable", register)
+
+
+def use_upload_claim_registration(monkeypatch, register: Callable[..., Any]) -> None:
+    """用户上传成品的产物登记（``register_current_resource_artifact``）改调 *register*，用来注入登记失败。
+
+    上传与导入的正式写入在 ``server.services.currency.upload_finalize`` 里登记，提交钩子失败时整次写入回滚。
+    """
+    monkeypatch.setattr("server.services.currency.upload_finalize.register_current_resource_artifact", register)
 
 
 def use_provider_env(monkeypatch, load: Callable[..., Any]) -> None:

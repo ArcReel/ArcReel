@@ -9,6 +9,9 @@
 - ``failed``：入库失败，或 ArcReel 在提交前失败（此时供应商侧没有创建素材）；
 - ``uncertain``：提交请求的结果未知，还没有素材 ID。不重新创建，由后台按提交时的名称查回。
 
+从素材库导入已有图片（``origin="import"``）时，关联在导入保存的新内容版本上直接以 ``active`` 建立：
+导入只接受供应商已处理完成的图片素材，内容取自该素材本身，没有入库任务要推进。
+
 **选定**：同一项目、同一内容版本、同一调用范围（账号、站点、区域、供应商项目）至多一条 ``selected``
 记录，即生成时要用的关联或要等待的入库任务。选定只由用户的上传或解除关联改变；后台查询结果只更新状态
 事实，不改变选定，所以入库期间改选了另一张图片，结果仍归属提交时的内容版本，已解除的关系也不会因
@@ -31,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.artifacts.version_manager import VersionManager
 from lib.asset_library.bindings import AssetLibraryScope
+from lib.asset_library.control_plane import ProviderAssetDetail
 from lib.db.base import utc_now
 from lib.db.models.asset_library import AssetLibraryAccount, ProviderAssetLink
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
@@ -219,6 +223,68 @@ async def request_upload(
     return link
 
 
+async def record_imported_link(
+    session: AsyncSession,
+    *,
+    project_name: str,
+    content_version: ContentVersion,
+    account: AssetLibraryAccount,
+    asset: ProviderAssetDetail,
+    now: datetime | None = None,
+) -> ProviderAssetLink:
+    """为导入得到的内容版本建立与所选供应商素材的关联并选定它。不提交事务。
+
+    ``content_version`` 必须是用该素材的实际内容刚保存的新版本：关联证明的是本地内容与供应商素材对应，
+    不能把素材 ID 贴到另一张图片上。只有可用的图片素材能建立关联，其余状态在这里拒绝，不会留下
+    看似可用的记录。
+
+    Raises:
+        UnprocessableError: 素材不是图片、还不可用，或内容版本没有身份与摘要。
+        ConflictError: 该内容版本在账号范围里已有选定的关联或入库任务。
+    """
+    if asset.asset_type != "Image":
+        raise UnprocessableError("provider_asset_import_not_image")
+    if asset.status != "active":
+        raise UnprocessableError("provider_asset_import_not_active")
+    if content_version.id is None or content_version.digest is None:
+        raise UnprocessableError("provider_asset_upload_no_image")
+    scope = account_scope(account)
+    existing = await selected_link(
+        session, project_name=project_name, content_version_id=content_version.id, scope=scope
+    )
+    if existing is not None:
+        raise ConflictError("provider_asset_link_exists").with_diagnostic(
+            {"link_id": existing.id, "state": existing.state}
+        )
+    settled = now or utc_now()
+    material = content_version.material
+    link = ProviderAssetLink(
+        project_name=project_name,
+        content_version_id=content_version.id,
+        content_digest=content_version.digest,
+        resource_type=material.resource_type,
+        resource_id=material.resource_id,
+        version=content_version.version,
+        locator_path=content_version.locator.path,
+        origin="import",
+        account_id=scope.account_id,
+        site=scope.site,
+        region=scope.region,
+        provider_project_name=scope.project_name,
+        state="active",
+        provider_asset_id=asset.id,
+        provider_group_id=asset.group_id or None,
+        submit_name=(asset.name or asset.id)[:_NAME_LIMIT],
+        selected=True,
+        settled_at=settled,
+        next_check_at=None,
+        check_attempts=0,
+    )
+    session.add(link)
+    await session.flush()
+    return link
+
+
 async def release_link(session: AsyncSession, link: ProviderAssetLink, *, now: datetime | None = None) -> None:
     """解除关联：只解除当前选定关系，不删除 ArcReel 图片或供应商素材。不提交事务。
 
@@ -251,6 +317,7 @@ __all__ = [
     "asset_uri",
     "get_link",
     "is_usable",
+    "record_imported_link",
     "release_link",
     "request_recheck",
     "request_upload",

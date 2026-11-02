@@ -816,5 +816,10 @@ MESSAGES = {
     "provider_asset_link_not_found": "素材库关联不存在，可能已被解除。刷新后再试",
     "provider_asset_link_exists": "这张图片的当前版本在该素材库账号里已有关联或入库任务。先解除关联，再重新上传",
     "provider_asset_upload_no_image": "这张图片还没有可上传的版本。先生成或上传图片",
+    "provider_asset_import_not_image": "只能选择图片素材",
+    "provider_asset_import_not_active": "这个素材还不可用，没有导入。等供应商处理完成后再选择",
+    "provider_asset_import_download_failed": "无法取回这个素材的图片内容，没有导入。稍后重试，或在供应商控制台确认素材仍然存在",
+    "provider_asset_import_too_large": "素材图片超过 {max_mb} MB，没有导入",
+    "provider_asset_import_invalid_image": "素材内容不是可用的 PNG、JPEG 或 WebP 图片，没有导入",
     "provider_asset_upload_needs_object_storage": "上传到素材库需要经你的对象存储中转。在设置的「素材库与存储」中配置对象存储后重试",
 }

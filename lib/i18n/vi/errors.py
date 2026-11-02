@@ -879,5 +879,10 @@ MESSAGES = {
     "provider_asset_link_not_found": "Liên kết thư viện tư liệu không còn tồn tại, có thể đã bị gỡ. Làm mới rồi thử lại",
     "provider_asset_link_exists": "Phiên bản hiện tại của ảnh này đã có liên kết hoặc tác vụ tải lên cho tài khoản thư viện tư liệu này. Gỡ liên kết trước khi tải lên lại",
     "provider_asset_upload_no_image": "Ảnh này chưa có phiên bản nào để tải lên. Hãy tạo hoặc tải ảnh lên trước",
+    "provider_asset_import_not_image": "Chỉ có thể chọn tư liệu hình ảnh",
+    "provider_asset_import_not_active": "Tư liệu này chưa sẵn sàng nên chưa được nhập. Hãy chọn lại sau khi nhà cung cấp xử lý xong",
+    "provider_asset_import_download_failed": "Không lấy được nội dung ảnh của tư liệu này nên chưa nhập. Hãy thử lại sau hoặc kiểm tra trên bảng điều khiển của nhà cung cấp rằng tư liệu vẫn còn",
+    "provider_asset_import_too_large": "Ảnh tư liệu lớn hơn {max_mb} MB nên chưa được nhập",
+    "provider_asset_import_invalid_image": "Nội dung tư liệu không phải ảnh PNG, JPEG hoặc WebP hợp lệ nên chưa được nhập",
     "provider_asset_upload_needs_object_storage": "Tải lên thư viện tư liệu cần đi qua lưu trữ đối tượng của bạn. Cấu hình lưu trữ đối tượng trong mục Thư viện tư liệu và lưu trữ của Cài đặt rồi thử lại",
 }

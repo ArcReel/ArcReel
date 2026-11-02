@@ -20,7 +20,8 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { AssetLibraryAccount, ProviderAsset, ProviderAssetPage } from "@/types";
+import { useAppStore } from "@/stores/app-store";
+import type { AssetLibraryAccount, ProviderAsset, ProviderAssetImportResult, ProviderAssetPage } from "@/types";
 import { cn } from "cn";
 
 const PAGE_SIZE = 20;
@@ -49,22 +50,43 @@ type PageState =
   | { status: "error"; error: unknown }
   | { status: "ready"; page: ProviderAssetPage };
 
+export interface ProviderAssetBrowserDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  projectName: string;
+  /** 版本历史里的资源类型，如 `characters`。 */
+  resourceType: string;
+  resourceId: string;
+  /** 导入成功后调用，用于刷新资产图；对话框随后关闭。 */
+  onImported?: (result: ProviderAssetImportResult) => void | Promise<void>;
+}
+
+type ImportTarget = Omit<ProviderAssetBrowserDialogProps, "open" | "onOpenChange">;
+
 /**
- * 浏览供应商素材库：按所选素材库账号的站点、区域与项目范围分页列出素材的名称、类型与可用状态。
- * 只浏览，不导入；素材库账号在全局设置「素材库与存储」中配置。
+ * 从供应商素材库选择：按所选素材库账号的站点、区域与项目范围分页列出素材，选择一张可用的图片后，
+ * ArcReel 取回原图保存为这张资产图的新版本，并为该版本建立关联。素材库账号在全局设置「素材库与存储」中配置。
+ * 导入进行中不能关闭对话框，避免误以为已取消。
  */
-export function ProviderAssetBrowserDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function ProviderAssetBrowserDialog({ open, onOpenChange, ...target }: ProviderAssetBrowserDialogProps) {
   const { t } = useTranslation(["assets", "dashboard", "common"]);
+  const [importing, setImporting] = useState(false);
+  const handleOpenChange = (next: boolean) => {
+    if (!next && importing) return;
+    onOpenChange(next);
+  };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{t("provider_asset_dialog_title")}</DialogTitle>
           <DialogDescription>{t("provider_asset_dialog_desc")}</DialogDescription>
         </DialogHeader>
-        {open && <BrowserBody />}
+        {open && (
+          <BrowserBody target={target} onImportingChange={setImporting} onDone={() => onOpenChange(false)} />
+        )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" disabled={importing} onClick={() => onOpenChange(false)}>
             {t("common:close")}
           </Button>
         </DialogFooter>
@@ -73,13 +95,27 @@ export function ProviderAssetBrowserDialog({ open, onOpenChange }: { open: boole
   );
 }
 
-function BrowserBody() {
+function selectable(asset: ProviderAsset): boolean {
+  return asset.asset_type === "Image" && asset.status === "active";
+}
+
+function BrowserBody({
+  target,
+  onImportingChange,
+  onDone,
+}: {
+  target: ImportTarget;
+  onImportingChange: (importing: boolean) => void;
+  onDone: () => void;
+}) {
   const { t } = useTranslation(["assets", "dashboard", "common"]);
   const accountLabelId = useId();
   const [accounts, setAccounts] = useState<AccountsState>({ status: "loading" });
   const [accountId, setAccountId] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [page, setPage] = useState<PageState>({ status: "idle" });
+  const [importingId, setImportingId] = useState<string | null>(null);
+  const [importError, setImportError] = useState<unknown>(null);
 
   const accountsController = useRef<AbortController | null>(null);
   const fetchAccounts = useCallback(async () => {
@@ -127,6 +163,36 @@ function BrowserBody() {
     return () => pageController.current?.abort();
   }, [accountId, pageNumber, fetchPage]);
 
+  const handleSelect = async (asset: ProviderAsset) => {
+    if (accountId === null || importingId !== null) return;
+    setImportingId(asset.id);
+    setImportError(null);
+    onImportingChange(true);
+    let result: ProviderAssetImportResult;
+    try {
+      result = await API.importProviderAsset(target.projectName, {
+        resource_type: target.resourceType,
+        resource_id: target.resourceId,
+        account_id: accountId,
+        asset_id: asset.id,
+      });
+    } catch (error) {
+      // 导入失败时原选中版本不变，错误留在对话框里，可以换一张素材重试
+      setImportError(error);
+      setImportingId(null);
+      onImportingChange(false);
+      return;
+    }
+    useAppStore.getState().pushToast(t("provider_asset_import_done", { version: result.content_version.version }), "success");
+    try {
+      // 刷新失败由调用方自行提示；导入已经成功，不再显示为导入错误
+      await target.onImported?.(result);
+    } finally {
+      onImportingChange(false);
+      onDone();
+    }
+  };
+
   if (accounts.status === "loading") {
     return (
       <DialogBody>
@@ -173,6 +239,7 @@ function BrowserBody() {
           <Select
             items={accountItems}
             value={accountId === null ? null : String(accountId)}
+            disabled={importingId !== null}
             onValueChange={(next) => {
               if (next === null) return;
               setAccountId(Number(next));
@@ -191,6 +258,8 @@ function BrowserBody() {
             </SelectContent>
           </Select>
         </div>
+
+        {importError !== null && <RequestErrorNotice error={importError} />}
 
         {page.status === "loading" || page.status === "idle" ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -220,6 +289,9 @@ function BrowserBody() {
                     <TableHead>{t("provider_asset_col_name")}</TableHead>
                     <TableHead className="w-24">{t("provider_asset_col_type")}</TableHead>
                     <TableHead className="w-40">{t("provider_asset_col_status")}</TableHead>
+                    <TableHead className="w-24">
+                      <span className="sr-only">{t("provider_asset_col_action")}</span>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -247,6 +319,20 @@ function BrowserBody() {
                           )}
                         </div>
                       </TableCell>
+                      <TableCell className="text-right">
+                        {selectable(asset) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={importingId !== null}
+                            aria-label={t("provider_asset_select_named", { name: asset.name || asset.id })}
+                            onClick={() => void handleSelect(asset)}
+                          >
+                            {importingId === asset.id && <Loader2 aria-hidden className="animate-spin" />}
+                            {importingId === asset.id ? t("provider_asset_importing") : t("provider_asset_select")}
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -260,7 +346,7 @@ function BrowserBody() {
                 variant="outline"
                 size="icon-sm"
                 aria-label={t("provider_asset_prev_page")}
-                disabled={pageNumber <= 1}
+                disabled={pageNumber <= 1 || importingId !== null}
                 onClick={() => setPageNumber((n) => Math.max(1, n - 1))}
               >
                 <ChevronLeft aria-hidden />
@@ -269,7 +355,7 @@ function BrowserBody() {
                 variant="outline"
                 size="icon-sm"
                 aria-label={t("provider_asset_next_page")}
-                disabled={pageNumber >= pages}
+                disabled={pageNumber >= pages || importingId !== null}
                 onClick={() => setPageNumber((n) => n + 1)}
               >
                 <ChevronRight aria-hidden />

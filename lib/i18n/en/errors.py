@@ -877,5 +877,10 @@ MESSAGES = {
     "provider_asset_link_not_found": "This asset library link no longer exists; it may have been removed. Refresh and try again",
     "provider_asset_link_exists": "The current version of this image already has a link or upload in progress for this asset library account. Unlink it before uploading again",
     "provider_asset_upload_no_image": "This image has no version to upload yet. Generate or upload an image first",
+    "provider_asset_import_not_image": "Only image assets can be selected",
+    "provider_asset_import_not_active": "This asset is not available yet and was not imported. Select it after the provider finishes processing",
+    "provider_asset_import_download_failed": "Couldn't retrieve this asset's image, so it was not imported. Try again later, or check in the provider console that the asset still exists",
+    "provider_asset_import_too_large": "The asset image is larger than {max_mb} MB and was not imported",
+    "provider_asset_import_invalid_image": "The asset is not a usable PNG, JPEG, or WebP image and was not imported",
     "provider_asset_upload_needs_object_storage": "Uploading to an asset library goes through your own object storage. Configure object storage under Asset library & storage in Settings, then try again",
 }
