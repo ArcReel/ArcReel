@@ -71,6 +71,7 @@ from server.routers import (
     agent_config,
     agent_memory,
     api_keys,
+    asset_library,
     asset_sheets,
     assets,
     assistant,
@@ -92,6 +93,7 @@ from server.routers import (
     grids,
     market,
     market_submissions,
+    object_storage,
     official_service,
     onboarding,
     presentations,
@@ -791,6 +793,10 @@ app.include_router(
     provider_models.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"]
 )
 app.include_router(catalog.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["模型目录"])
+app.include_router(object_storage.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["对象存储"])
+app.include_router(
+    asset_library.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商素材库"]
+)
 app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统配置"])
 app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统"])
 app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["API Key 管理"])

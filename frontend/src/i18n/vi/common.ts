@@ -87,4 +87,5 @@ export default {
   'item_position_of_total': '{{position}} / {{total}}',
   'item_internal_id': 'Mã nội bộ {{id}}',
   'item_agent_ref': '{{label}} (ID {{id}})',
+  "error_details": "Chi tiết",
 } satisfies Record<keyof typeof enCommon, string>;

@@ -48,6 +48,16 @@ import type {
   OnboardingStatus,
   SystemConfigPatch,
   ApiKeyInfo,
+  AssetLibraryAccount,
+  AssetLibraryAccountList,
+  AssetLibraryBindableCredential,
+  AssetLibraryBindingStatus,
+  AssetLibraryCredentialType,
+  CreateAssetLibraryAccountPayload,
+  ObjectStorageConnection,
+  ProviderAssetPage,
+  SaveObjectStorageConnectionPayload,
+  UpdateAssetLibraryAccountPayload,
   CreateApiKeyResponse,
   ProviderInfo,
   CatalogEntryHit,
@@ -3468,6 +3478,76 @@ class API {
     return this.request(`/providers/${encodeURIComponent(id)}/test${params}`, {
       method: "POST",
     });
+  }
+
+  // ==================== 对象存储与供应商素材库 ====================
+
+  static async getObjectStorageConnection(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ connection: ObjectStorageConnection | null }> {
+    return this.request("/object-storage/connection", { signal: options.signal });
+  }
+
+  static async saveObjectStorageConnection(data: SaveObjectStorageConnectionPayload): Promise<ObjectStorageConnection> {
+    return this.request("/object-storage/connection", { method: "PUT", body: JSON.stringify(data) });
+  }
+
+  static async deleteObjectStorageConnection(): Promise<void> {
+    return this.request("/object-storage/connection", { method: "DELETE" });
+  }
+
+  static async checkObjectStorageConnection(): Promise<{ success: boolean }> {
+    return this.request("/object-storage/connection/test", { method: "POST" });
+  }
+
+  static async listAssetLibraryAccounts(options: { signal?: AbortSignal } = {}): Promise<AssetLibraryAccountList> {
+    return this.request("/asset-library/accounts", { signal: options.signal });
+  }
+
+  static async createAssetLibraryAccount(data: CreateAssetLibraryAccountPayload): Promise<AssetLibraryAccount> {
+    return this.request("/asset-library/accounts", { method: "POST", body: JSON.stringify(data) });
+  }
+
+  static async updateAssetLibraryAccount(
+    accountId: number,
+    data: UpdateAssetLibraryAccountPayload,
+  ): Promise<AssetLibraryAccount> {
+    return this.request(`/asset-library/accounts/${accountId}`, { method: "PATCH", body: JSON.stringify(data) });
+  }
+
+  static async deleteAssetLibraryAccount(accountId: number): Promise<void> {
+    return this.request(`/asset-library/accounts/${accountId}`, { method: "DELETE" });
+  }
+
+  static async listAssetLibraryBindings(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ credentials: AssetLibraryBindableCredential[] }> {
+    return this.request("/asset-library/bindings", { signal: options.signal });
+  }
+
+  /** 按推理凭证与账号的当前内容确认绑定；首次绑定、改绑与重新确认都走这里。 */
+  static async confirmAssetLibraryBinding(
+    credentialType: AssetLibraryCredentialType,
+    credentialId: number,
+    accountId: number,
+  ): Promise<{ account_id: number; status: AssetLibraryBindingStatus }> {
+    return this.request(`/asset-library/bindings/${credentialType}/${credentialId}`, {
+      method: "PUT",
+      body: JSON.stringify({ account_id: accountId }),
+    });
+  }
+
+  static async deleteAssetLibraryBinding(credentialType: AssetLibraryCredentialType, credentialId: number): Promise<void> {
+    return this.request(`/asset-library/bindings/${credentialType}/${credentialId}`, { method: "DELETE" });
+  }
+
+  static async listProviderAssets(
+    accountId: number,
+    params: { page: number; pageSize: number },
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ProviderAssetPage> {
+    const query = new URLSearchParams({ page: String(params.page), page_size: String(params.pageSize) });
+    return this.request(`/asset-library/accounts/${accountId}/assets?${query.toString()}`, { signal: options.signal });
   }
 
   // ==================== Provider 凭证管理 API ====================

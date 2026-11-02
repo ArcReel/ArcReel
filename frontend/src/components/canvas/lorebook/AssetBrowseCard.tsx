@@ -1,6 +1,7 @@
 import { memo, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  CloudDownload,
   Combine,
   History,
   ImageUp,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import { API } from "@/api";
 import { AddToLibraryDialog, type LibraryImportPreview } from "@/components/assets/AddToLibraryDialog";
+import { ProviderAssetBrowserDialog } from "@/components/assets/ProviderAssetBrowserDialog";
 import { ASSET_SHEET_TYPE_ICON } from "@/components/assets/asset-type-icons";
 import { CrossfadeImage } from "@/components/canvas/shared/CrossfadeImage";
 import { ImageEditDialog } from "@/components/canvas/timeline/ImageEditButton";
@@ -41,7 +43,7 @@ import { ProjectAssetDeleteDialog } from "./ProjectAssetDeleteDialog";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
 import type { AssetSheetStatusRow } from "@/types";
 
-type DialogKey = "image-edit" | "versions" | "library" | "merge" | "delete";
+type DialogKey = "image-edit" | "versions" | "library" | "merge" | "delete" | "provider-assets";
 
 export interface AssetBrowseCardProps {
   projectName: string;
@@ -211,6 +213,10 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                       <ImageUp aria-hidden />
                       {t("assets:upload_sheet")}
                     </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setDialog("provider-assets")}>
+                      <CloudDownload aria-hidden />
+                      {t("assets:provider_asset_browse")}
+                    </DropdownMenuItem>
                     <DropdownMenuItem disabled={busy || !imageUrl} onClick={() => openGuarded("image-edit")}>
                       <PenLine aria-hidden />
                       {t("dashboard:image_edit_action")}
@@ -268,6 +274,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             onChange={(event) => void handleUpload(event)}
           />
           {staleConfirm.dialog}
+          <ProviderAssetBrowserDialog open={dialog === "provider-assets"} onOpenChange={closeDialog} />
           <ImageEditDialog
             open={dialog === "image-edit"}
             onOpenChange={closeDialog}

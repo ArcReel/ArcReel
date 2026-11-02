@@ -541,7 +541,19 @@ Recommended key rotation procedure:
 5. Delete or deactivate the old Key;
 6. Update the secret-management records.
 
-## 12. Cost Tracking {#cost-tracking}
+## 12. Object Storage and Provider Asset Libraries {#object-storage-and-asset-library}
+
+Volcengine Ark and BytePlus provider asset libraries hold reviewed assets that generation requests reference as `asset://`. The **Asset library & storage** section of the global settings manages three settings related to the asset library. All three are optional; local projects keep working without them.
+
+- **Object storage**: your own TOS bucket, configured with region, Endpoint, bucket name, and Access Key. Saving the connection does not change where images are stored; images stay local. Enter a TOS Endpoint (such as `tos-cn-beijing.volces.com`); S3-compatible Endpoints that start with `tos-s3-` are not supported. After saving, use **Test connection** to confirm that the credentials can reach the bucket.
+- **Asset library accounts**: the Access Key for the asset library control plane. It is stored separately from the inference API Key and needs asset library permissions. When adding an account, choose a site (Volcano Engine (China) or BytePlus (international)) and enter a project; the default project is `default`. The provider isolates assets by project, so the inference key must belong to the same project. Control-plane requests go only to the official address of the selected site, never to the inference key's Base URL.
+- **Inference key bindings**: for each Volcengine Ark key or custom provider, choose the asset library account it may use. After you change the inference key's secret or Base URL, or the account's site, project, or Access Key ID, the binding shows **Needs confirmation**, and that account's assets are not used until you confirm again. A binding only records that you confirmed the inference key and the account belong together; the provider still checks permissions on every call.
+
+Once an account is configured, choose **Browse provider asset library** from the more-actions menu on a project asset card to view the name, type, and availability of the assets in that account. Browsing is read-only for now; assets cannot be imported into ArcReel.
+
+Access Keys are entered only on the settings page and are shown with only their first and last few characters when read back.
+
+## 13. Cost Tracking {#cost-tracking}
 
 ArcReel can record costs by provider and media type, but keep in mind:
 
@@ -593,7 +605,7 @@ Use ArcReel's cost tracking for:
 
 It is not a substitute for the provider's official invoice.
 
-## 13. Troubleshooting {#troubleshooting}
+## 14. Troubleshooting {#troubleshooting}
 
 ### Connection Test Fails {#connection-test-failed}
 
@@ -639,7 +651,7 @@ Check:
 - Whether the pricing table needs to be updated;
 - Whether the provider changed its billing model.
 
-## 14. Documentation Update Principles {#doc-update-principles}
+## 15. Documentation Update Principles {#doc-update-principles}
 
 Provider models change frequently, so:
 
