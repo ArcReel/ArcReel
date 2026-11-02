@@ -363,7 +363,7 @@ export default {
   "provider_asset_link_failure_provider": "Nhà cung cấp chưa hoàn tất nhập tư liệu ({{reason}}). Gỡ liên kết để tải lên lại.",
   "provider_asset_link_failure_unlinked_before_submit": "Đã gỡ liên kết trước khi gửi nên chưa gửi gì.",
   "provider_asset_link_failure_account_missing": "Tài khoản thư viện tư liệu đã bị xóa nên chưa gửi gì.",
-  "provider_asset_link_failure_account_scope_changed": "Trang, khu vực hoặc dự án của tài khoản đã thay đổi nên chưa gửi gì.",
+  "provider_asset_link_failure_account_scope_changed": "Access Key, trang, khu vực hoặc dự án của tài khoản đã thay đổi nên chưa gửi gì.",
   "provider_asset_link_failure_object_storage_missing": "Kết nối lưu trữ đối tượng đã bị xóa nên chưa gửi gì.",
   "provider_asset_link_failure_content_unavailable": "Không tìm thấy tệp phiên bản ảnh nên chưa gửi gì.",
   "provider_asset_link_failure_content_changed": "Tệp phiên bản ảnh không còn khớp với bản ghi nên chưa gửi gì.",

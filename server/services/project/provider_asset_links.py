@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.artifacts.version_manager import VersionManager
 from lib.asset_library import links as link_service
+from lib.asset_library.bindings import account_scope, scope_key
 from lib.asset_library.control_plane import (
     AssetLibraryRequestError,
     credentials_of,
@@ -36,6 +37,8 @@ class LinkResponse(BaseModel):
     content_version_id: str
     version: int
     account_id: int
+    #: 提交或导入时的调用范围；与 :class:`AccountSummary` 的同名字段相等才表示同一范围。
+    scope_key: str
     site: str
     region: str
     provider_project_name: str
@@ -55,6 +58,8 @@ class LinkResponse(BaseModel):
 
 class AccountSummary(BaseModel):
     id: int
+    #: 账号按当前内容覆盖的范围；账号换成另一个云账号的 Access Key 后随之变化，旧关联不再与它相等。
+    scope_key: str
     name: str
     site: str
     region: str
@@ -96,6 +101,7 @@ def link_response(link: ProviderAssetLink) -> LinkResponse:
         content_version_id=link.content_version_id,
         version=link.version,
         account_id=link.account_id,
+        scope_key=scope_key(link_service.scope_of(link)),
         site=link.site,
         region=link.region,
         provider_project_name=link.provider_project_name,
@@ -153,7 +159,14 @@ async def load_link_panel(
         content_version=content_version,
         object_storage_configured=await ObjectStorageConnectionRepository(session).get() is not None,
         accounts=[
-            AccountSummary(id=a.id, name=a.name, site=a.site, region=a.region, project_name=a.project_name)
+            AccountSummary(
+                id=a.id,
+                scope_key=scope_key(account_scope(a)),
+                name=a.name,
+                site=a.site,
+                region=a.region,
+                project_name=a.project_name,
+            )
             for a in accounts
         ],
         links=links,

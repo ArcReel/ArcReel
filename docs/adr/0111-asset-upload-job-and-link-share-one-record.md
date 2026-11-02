@@ -14,4 +14,4 @@ status: accepted
 
 ## 后果
 
-用户重新上传前需要先解除关联，多一步操作，但每条结果都能追溯到提交时的内容版本与范围。项目删除与恢复时，关联随任务、调用记录一起改挂墓碑名，同名新项目不会继承。范围与验收见 [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559)。
+用户重新上传前需要先解除关联，多一步操作，但每条结果都能追溯到提交时的内容版本与范围。项目删除与恢复时，关联随任务、调用记录一起改挂墓碑名，同名新项目不会继承。调用范围的组成由 [ADR 0115](0115-provider-asset-link-scope-frozen-by-cloud-account-identity.md) 修订：以冻结的云账号身份代替账号记录 ID。范围与验收见 [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559)。

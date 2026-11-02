@@ -363,7 +363,7 @@ export default {
   "provider_asset_link_failure_provider": "供应商未完成入库（{{reason}}）。解除关联后可以重新上传。",
   "provider_asset_link_failure_unlinked_before_submit": "上传前已解除关联，没有提交入库。",
   "provider_asset_link_failure_account_missing": "素材库账号已删除，没有提交入库。",
-  "provider_asset_link_failure_account_scope_changed": "素材库账号的站点、区域或项目已修改，没有提交入库。",
+  "provider_asset_link_failure_account_scope_changed": "素材库账号的 Access Key、站点、区域或项目已修改，没有提交入库。",
   "provider_asset_link_failure_object_storage_missing": "对象存储连接已删除，没有提交入库。",
   "provider_asset_link_failure_content_unavailable": "图片版本文件不存在，没有提交入库。",
   "provider_asset_link_failure_content_changed": "图片版本文件与记录不一致，没有提交入库。",

@@ -14,7 +14,9 @@ async def test_same_name_project_after_delete_inherits_no_records(tmp_path, monk
     manager = ProjectManager(tmp_path)
     manager.create_project("demo")
     old = await seed_project_records(db_factory)
-    scope = AssetLibraryScope(account_id=1, site="volcengine", region="cn-beijing", project_name="film")
+    scope = AssetLibraryScope(
+        account_id=1, account_identity="TEST-identity", site="volcengine", region="cn-beijing", project_name="film"
+    )
     async with db_factory() as session:
         session.add(
             ProviderAssetLink(
@@ -27,6 +29,7 @@ async def test_same_name_project_after_delete_inherits_no_records(tmp_path, monk
                 locator_path="versions/characters/Alice_v1.png",
                 origin="upload",
                 account_id=scope.account_id,
+                account_identity=scope.account_identity,
                 site=scope.site,
                 region=scope.region,
                 provider_project_name=scope.project_name,

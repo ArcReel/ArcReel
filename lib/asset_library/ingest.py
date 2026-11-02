@@ -21,10 +21,11 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.asset_library.bindings import account_identity
 from lib.asset_library.control_plane import (
     AssetLibraryRequestError,
-    ControlPlaneCredentials,
     create_asset,
+    credentials_of,
     ensure_asset_group,
     find_assets_by_name,
     get_asset,
@@ -96,6 +97,7 @@ class _LinkSnapshot:
     version: int
     locator_path: str
     account_id: int
+    account_identity: str
     site: str
     region: str
     provider_project_name: str
@@ -119,6 +121,7 @@ def _snapshot(link: ProviderAssetLink) -> _LinkSnapshot:
         version=link.version,
         locator_path=link.locator_path,
         account_id=link.account_id,
+        account_identity=link.account_identity,
         site=link.site,
         region=link.region,
         provider_project_name=link.provider_project_name,
@@ -132,20 +135,12 @@ def _snapshot(link: ProviderAssetLink) -> _LinkSnapshot:
     )
 
 
-def _credentials(account: AssetLibraryAccount) -> ControlPlaneCredentials:
-    return ControlPlaneCredentials(
-        site=account.site,
-        region=account.region,
-        project_name=account.project_name,
-        access_key_id=account.access_key_id,
-        secret_access_key=account.secret_access_key,
-    )
-
-
 def _account_matches(account: AssetLibraryAccount | None, link: _LinkSnapshot) -> bool:
-    """账号仍覆盖提交时的范围；账号被改到另一个站点、区域或项目后，不再用它查询或提交。"""
+    """账号仍覆盖提交时的范围；账号被换成另一个云账号的 Access Key，或改到另一个站点、区域、项目后，
+    不再用它提交或查询：新凭证推进旧任务会把素材建进另一个账号，或拿另一个账号的结果改写这条关联。"""
     return (
         account is not None
+        and account_identity(account.site, account.access_key_id) == link.account_identity
         and account.site == link.site
         and account.region == link.region
         and account.project_name == link.provider_project_name
@@ -251,7 +246,7 @@ async def _submit(
         return
     await mark_relay_signed(session_factory, relay_id, now + RELAY_URL_TTL)
 
-    credentials = _credentials(account)
+    credentials = credentials_of(account)
     try:
         group_id = await ensure_asset_group(credentials, ASSET_GROUP_NAME, description=_ASSET_GROUP_DESCRIPTION)
     except AssetLibraryRequestError as exc:
@@ -329,7 +324,7 @@ async def _check_processing(
     assert account is not None
     assert link.provider_asset_id is not None
     try:
-        detail = await get_asset(_credentials(account), link.provider_asset_id)
+        detail = await get_asset(credentials_of(account), link.provider_asset_id)
     except AssetLibraryRequestError as exc:
         await _update(
             session_factory,
@@ -375,7 +370,9 @@ async def _check_uncertain(
         return
     assert account is not None
     try:
-        found = await find_assets_by_name(_credentials(account), group_id=link.provider_group_id, name=link.submit_name)
+        found = await find_assets_by_name(
+            credentials_of(account), group_id=link.provider_group_id, name=link.submit_name
+        )
     except AssetLibraryRequestError as exc:
         await _update(
             session_factory,

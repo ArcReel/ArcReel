@@ -98,13 +98,9 @@ export function ProviderAssetUploadDialog({
   );
 }
 
+// 范围由服务端按云账号身份、站点、区域与项目计算：账号记录换成另一个云账号的 Access Key 后，旧关联不再属于它
 function sameScope(link: ProviderAssetLink, account: ProviderAssetLinkAccount): boolean {
-  return (
-    link.account_id === account.id &&
-    link.site === account.site &&
-    link.region === account.region &&
-    link.provider_project_name === account.project_name
-  );
+  return link.scope_key === account.scope_key;
 }
 
 function UploadPanel({ projectName, resourceType, resourceId }: Omit<ProviderAssetUploadDialogProps, "open" | "onOpenChange">) {
