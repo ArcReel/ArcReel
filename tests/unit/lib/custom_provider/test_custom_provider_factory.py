@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from lib.backends.provider_assets import InferenceCredentialRef
 from lib.custom_provider.backends import (
     CustomAudioBackend,
     CustomImageBackend,
@@ -67,6 +68,7 @@ def _make_provider(*, base_url: str = "https://api.example.com/v1", api_key: str
     p.base_url = base_url
     p.api_key = api_key
     p.provider_id = "custom-42"
+    p.id = 42
     return p
 
 
@@ -180,7 +182,7 @@ class TestEndpointDispatch:
         provider = _make_provider(base_url="https://relay.example.com")
         result, built = _built(provider, "doubao-seedance-2-0", "ark-seedance")
         assert isinstance(result, CustomVideoBackend)
-        # 仅 host → 补全 ark 协议挂载路径 /api/v3
+        # 仅 host → 补全 ark 协议挂载路径 /api/v3；素材库绑定按供应商记录与配置里的原始 Base URL 核对
         assert built == {
             "backend": "ArkVideoBackend",
             "kwargs": {
@@ -188,6 +190,9 @@ class TestEndpointDispatch:
                 "base_url": "https://relay.example.com/api/v3",
                 "model": "doubao-seedance-2-0",
                 "transport_layer": None,
+                "inference_credential": InferenceCredentialRef(
+                    credential_type="custom", credential_id=42, api_key="sk-test", base_url="https://relay.example.com"
+                ),
             },
         }
 

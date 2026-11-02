@@ -1775,6 +1775,60 @@ class TestReferenceCompressionSeam:
         assert backend.start_dims == (3000, 2000)  # FRAME 尺寸保持
         assert max(backend.ref_dims[0]) == 2048  # ARRAY 缩到长边 2048
 
+    async def test_provider_asset_slot_is_sent_as_reference_without_upload_or_compression(self, tmp_path):
+        """以素材引用发出的参考图不读内容、不压缩，在请求、序位与记账输入里都与原图片位置一一对应。"""
+        from unittest.mock import MagicMock
+
+        from lib.backends.video_backends.ark import ArkVideoBackend
+        from tests.fakes import captured_ark_clients
+
+        gen = _build_generator(tmp_path)
+        client = MagicMock()
+        client.content_generation.tasks.create.return_value = MagicMock(id="cgt-asset")
+        client.content_generation.tasks.get.side_effect = RuntimeError("stop after submit")
+        with captured_ark_clients("lib.backends.video_backends.ark", client):
+            gen._video_backend = ArkVideoBackend(api_key="TEST-ark-key", model="doubao-seedance-2-0-260128")
+        # 一张大到必须压缩的角色图以素材引用发出，场景图照常压缩后内嵌。
+        character = _noise_png(gen.project_path, "character.png", 3000, 3000)
+        scene = _noise_png(gen.project_path, "scene.png", 3000, 3000)
+
+        with pytest.raises(RuntimeError, match="stop after submit"):
+            await gen.generate_video_async(
+                prompt="@图片1 走进 @图片2",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                reference_images=[character, scene],
+                reference_image_asset_uris=["asset://asset-alice-1", None],
+            )
+
+        content = client.content_generation.tasks.create.call_args.kwargs["content"]
+        urls = [item["image_url"]["url"] for item in content if item["type"] == "image_url"]
+        assert urls[0] == "asset://asset-alice-1"
+        assert urls[1].startswith("data:image/jpeg;base64,")
+        assert gen.ledger.started[0]["inputs"]["reference_images"] == [
+            {"path": "character.png", "label": None, "role": "array", "provider_asset": "asset://asset-alice-1"},
+            {"path": "scene.png", "label": None, "role": "array"},
+        ]
+
+    async def test_provider_asset_reference_requires_a_backend_that_declares_it(self, tmp_path):
+        """不声明素材引用的 backend 会忽略这个字段、悄悄改发图片内容，故在提交前拒绝。"""
+        from arcreel_market_core.video_backend_contract import VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+        backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(max_reference_images=9))
+        gen._video_backend = backend
+        ref = _solid_png(tmp_path, "ref.png", 64, 64)
+
+        with pytest.raises(ValueError, match="provider asset"):
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                reference_images=[ref],
+                reference_image_asset_uris=["asset://asset-alice-1"],
+            )
+        assert backend.calls == []
+
     async def test_reference_audio_reaches_backend_unreordered(self, tmp_path):
         """参考音频原样透传到请求：gate 放行后若不下传，音频会在校验之后被静默丢弃。
 

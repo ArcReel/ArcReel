@@ -30,18 +30,30 @@ logger = logging.getLogger(__name__)
 ProviderMediaRole = Literal["reference_image", "reference_audio", "start_image", "end_image"]
 ReferenceGenerationType = Literal["i2v", "r2v"]
 
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 #: 版本记录 ``execution_checkpoint_schema_version`` 的当前值，供补写来源的迁移与写侧共用一个字面量。
 CHECKPOINT_SCHEMA_VERSION = _SCHEMA_VERSION
+#: 不再记录旁白交付事实、也还没有记录供应商素材引用的检查点。
+_NO_NARRATION_SCHEMA_VERSION = 4
 #: 带完整产物时效事实、并且仍记录旁白交付事实的检查点。
 _NARRATION_CURRENCY_SCHEMA_VERSION = 3
 _VISUAL_BASIS_SCHEMA_VERSION = 2
 _LEGACY_SCHEMA_VERSION = 1
 #: 带完整产物时效事实的检查点版本；版本记录按它们判断来源是否完整。
-CURRENCY_CHECKPOINT_SCHEMA_VERSIONS = frozenset({_NARRATION_CURRENCY_SCHEMA_VERSION, _SCHEMA_VERSION})
-_SUPPORTED_SCHEMA_VERSIONS = frozenset(
-    {_LEGACY_SCHEMA_VERSION, _VISUAL_BASIS_SCHEMA_VERSION, _NARRATION_CURRENCY_SCHEMA_VERSION, _SCHEMA_VERSION}
+CURRENCY_CHECKPOINT_SCHEMA_VERSIONS = frozenset(
+    {_NARRATION_CURRENCY_SCHEMA_VERSION, _NO_NARRATION_SCHEMA_VERSION, _SCHEMA_VERSION}
 )
+_SUPPORTED_SCHEMA_VERSIONS = frozenset(
+    {
+        _LEGACY_SCHEMA_VERSION,
+        _VISUAL_BASIS_SCHEMA_VERSION,
+        _NARRATION_CURRENCY_SCHEMA_VERSION,
+        _NO_NARRATION_SCHEMA_VERSION,
+        _SCHEMA_VERSION,
+    }
+)
+_PROVIDER_ASSET_URI_PREFIX = "asset://"
+
 _CHECKPOINT_KIND = "reference_video_submit"
 _STORYBOARD_CHECKPOINT_KIND = "storyboard_video_submit"
 _STAGING_MANIFEST_VERSION = 1
@@ -232,6 +244,48 @@ class StagedProviderMedia:
             sha256=raw["sha256"],
             size_bytes=raw["size_bytes"],
             target_index=raw["target_index"],
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderAssetReference:
+    """一张以供应商素材引用发出的参考图：``media_index`` 指向检查点 ``media`` 中的那一项。
+
+    暂存副本照常保存并记录摘要，素材引用只改变这张图片的传输形式；``content_version_id`` 是发出的字节对应的
+    内容版本，``asset_uri`` 是实际放进请求的引用。
+    """
+
+    media_index: int
+    content_version_id: str
+    asset_uri: str
+
+    _FIELDS = frozenset({"media_index", "content_version_id", "asset_uri"})
+
+    def __post_init__(self) -> None:
+        if not is_int(self.media_index, minimum=0):
+            raise ValueError("provider asset media_index must be a non-negative integer")
+        _require_nonempty_string(self.content_version_id, "content_version_id")
+        _require_nonempty_string(self.asset_uri, "asset_uri")
+        if not self.asset_uri.startswith(_PROVIDER_ASSET_URI_PREFIX) or self.asset_uri == _PROVIDER_ASSET_URI_PREFIX:
+            raise ValueError("provider asset reference must be an asset:// URI")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "media_index": self.media_index,
+            "content_version_id": self.content_version_id,
+            "asset_uri": self.asset_uri,
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> ProviderAssetReference:
+        if not isinstance(value, dict):
+            raise ValueError("provider asset reference must be an object")
+        raw = cast(dict[str, Any], value)
+        _require_exact_keys(raw, cls._FIELDS, "provider asset reference")
+        return cls(
+            media_index=raw["media_index"],
+            content_version_id=raw["content_version_id"],
+            asset_uri=raw["asset_uri"],
         )
 
 
@@ -467,6 +521,8 @@ class _VideoSubmissionCheckpoint:
     legacy_narration: dict[str, Any] | None
     media: tuple[StagedProviderMedia, ...]
     reference_audio_targets: tuple[int, ...] | None
+    #: schema v5 起记录：以供应商素材引用代替图片内容发出的参考图，按 ``media_index`` 升序。
+    provider_asset_references: tuple[ProviderAssetReference, ...]
     request_digest: str
 
     _LEGACY_FIELDS = frozenset(
@@ -499,7 +555,8 @@ class _VideoSubmissionCheckpoint:
     )
     _VISUAL_BASIS_FIELDS = _LEGACY_FIELDS | {"artifact_visual_basis"}
     _NARRATION_CURRENCY_FIELDS = _LEGACY_FIELDS | {"artifact_currency"}
-    _FIELDS = _NARRATION_CURRENCY_FIELDS - {"narration"}
+    _NO_NARRATION_FIELDS = _NARRATION_CURRENCY_FIELDS - {"narration"}
+    _FIELDS = _NO_NARRATION_FIELDS | {"provider_asset_references"}
 
     @property
     def artifact_episode(self) -> int | None:
@@ -582,11 +639,12 @@ class _VideoSubmissionCheckpoint:
                 raise ValueError("artifact currency visual kind does not match checkpoint kind")
         elif self.artifact_currency is not None:
             raise ValueError("older checkpoint cannot carry complete artifact currency facts")
-        if self.schema_version == _SCHEMA_VERSION:
+        if self.schema_version in (_NO_NARRATION_SCHEMA_VERSION, _SCHEMA_VERSION):
             if self.legacy_narration is not None:
                 raise ValueError("current checkpoint schema does not record narration delivery")
         elif not isinstance(self.legacy_narration, dict):
             raise ValueError("older checkpoint requires its recorded narration facts")
+        self._validate_provider_asset_references()
         if tuple(item.index for item in self.media) != tuple(range(len(self.media))):
             raise ValueError("provider media indexes must be contiguous and ordered")
         expected_prefix = f".arcreel/tasks/{self.task_id}/provider_media/"
@@ -619,6 +677,19 @@ class _VideoSubmissionCheckpoint:
         if self.request_digest != canonical_json_digest(self._request_digest_payload()):
             raise ValueError("request_digest does not match checkpoint request")
 
+    def _validate_provider_asset_references(self) -> None:
+        refs = self.provider_asset_references
+        if self.schema_version != _SCHEMA_VERSION:
+            if refs:
+                raise ValueError("older checkpoint cannot carry provider asset references")
+            return
+        indexes = tuple(ref.media_index for ref in refs)
+        if indexes != tuple(sorted(set(indexes))):
+            raise ValueError("provider asset references must be unique and ordered by media_index")
+        for index in indexes:
+            if index >= len(self.media) or self.media[index].role != "reference_image":
+                raise ValueError("provider asset reference must address a staged reference image")
+
     def _request_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
             "schema_version": self.schema_version,
@@ -648,6 +719,8 @@ class _VideoSubmissionCheckpoint:
         }
         if self.legacy_narration is not None:
             payload["narration"] = self.legacy_narration
+        if self.schema_version == _SCHEMA_VERSION:
+            payload["provider_asset_references"] = [ref.to_dict() for ref in self.provider_asset_references]
         if self.schema_version == _VISUAL_BASIS_SCHEMA_VERSION:
             assert self.legacy_artifact_visual_basis is not None
             payload["artifact_visual_basis"] = self.legacy_artifact_visual_basis.to_dict()
@@ -697,6 +770,7 @@ class _VideoSubmissionCheckpoint:
         artifact_currency: VideoArtifactCurrencyFacts,
         media: tuple[StagedProviderMedia, ...],
         reference_audio_targets: tuple[int, ...] | None,
+        provider_asset_references: tuple[ProviderAssetReference, ...] = (),
     ) -> Self:
         prompt_sha256 = _sha256_bytes(prompt.encode("utf-8"))
         values: dict[str, object] = {
@@ -723,6 +797,7 @@ class _VideoSubmissionCheckpoint:
             "artifact_currency": artifact_currency.to_dict(),
             "media": [item.to_dict() for item in media],
             "reference_audio_targets": list(reference_audio_targets) if reference_audio_targets is not None else None,
+            "provider_asset_references": [ref.to_dict() for ref in provider_asset_references],
         }
         request_digest = canonical_json_digest(values)
         return cls(
@@ -751,6 +826,7 @@ class _VideoSubmissionCheckpoint:
             legacy_narration=None,
             media=media,
             reference_audio_targets=reference_audio_targets,
+            provider_asset_references=provider_asset_references,
             request_digest=request_digest,
         )
 
@@ -781,6 +857,8 @@ class _VideoSubmissionCheckpoint:
                 if schema_version == _VISUAL_BASIS_SCHEMA_VERSION
                 else cls._NARRATION_CURRENCY_FIELDS
                 if schema_version == _NARRATION_CURRENCY_SCHEMA_VERSION
+                else cls._NO_NARRATION_FIELDS
+                if schema_version == _NO_NARRATION_SCHEMA_VERSION
                 else cls._FIELDS
             ),
             "checkpoint",
@@ -791,6 +869,9 @@ class _VideoSubmissionCheckpoint:
         media = raw["media"]
         if not isinstance(media, list):
             raise ValueError("checkpoint media must be an array")
+        asset_refs = raw.get("provider_asset_references", [])
+        if not isinstance(asset_refs, list):
+            raise ValueError("provider_asset_references must be an array")
         return cls(
             schema_version=raw["schema_version"],
             kind=raw["kind"],
@@ -825,6 +906,7 @@ class _VideoSubmissionCheckpoint:
             legacy_narration=raw.get("narration"),
             media=tuple(StagedProviderMedia.from_dict(item) for item in media),
             reference_audio_targets=tuple(targets) if targets is not None else None,
+            provider_asset_references=tuple(ProviderAssetReference.from_dict(item) for item in asset_refs),
             request_digest=raw["request_digest"],
         )
 
@@ -875,6 +957,10 @@ def checkpoint_version_metadata(checkpoint: VideoSubmissionCheckpoint) -> dict[s
             list(checkpoint.reference_audio_targets) if checkpoint.reference_audio_targets is not None else None
         ),
     }
+    if checkpoint.provider_asset_references:
+        metadata["execution_provider_asset_references"] = [
+            ref.to_dict() for ref in checkpoint.provider_asset_references
+        ]
     if checkpoint.schema_version == _VISUAL_BASIS_SCHEMA_VERSION:
         assert checkpoint.legacy_artifact_visual_basis is not None
         metadata["artifact_visual_basis"] = checkpoint.legacy_artifact_visual_basis.to_dict()
@@ -953,6 +1039,7 @@ def classify_video_resume_state(
 __all__ = [
     "CHECKPOINT_SCHEMA_VERSION",
     "CURRENCY_CHECKPOINT_SCHEMA_VERSIONS",
+    "ProviderAssetReference",
     "ProviderMediaInput",
     "ReferenceExecutionIdentityError",
     "ReferenceSubmissionCheckpoint",

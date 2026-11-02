@@ -885,4 +885,9 @@ MESSAGES = {
     "provider_asset_import_too_large": "Ảnh tư liệu lớn hơn {max_mb} MB nên chưa được nhập",
     "provider_asset_import_invalid_image": "Nội dung tư liệu không phải ảnh PNG, JPEG hoặc WebP hợp lệ nên chưa được nhập",
     "provider_asset_upload_needs_object_storage": "Tải lên thư viện tư liệu cần đi qua lưu trữ đối tượng của bạn. Cấu hình lưu trữ đối tượng trong mục Thư viện tư liệu và lưu trữ của Cài đặt rồi thử lại",
+    "provider_asset_link_processing": "Ảnh {index} ({name}) vẫn đang được nhập vào thư viện tư liệu của nhà cung cấp nên đã dừng tạo. Hãy tạo lại khi tư liệu đã sẵn sàng, hoặc gỡ liên kết trong mục Tải lên thư viện tư liệu nhà cung cấp trên thẻ tư liệu để gửi ảnh thường",
+    "provider_asset_link_failed": "Ảnh {index} ({name}) nhập vào thư viện tư liệu của nhà cung cấp thất bại ({error_code}) nên đã dừng tạo. Gỡ liên kết trong mục Tải lên thư viện tư liệu nhà cung cấp trên thẻ tư liệu rồi tải lên lại, hoặc gỡ liên kết để gửi ảnh thường",
+    "provider_input_image_rejected": "Nhà cung cấp không duyệt ảnh đầu vào của yêu cầu này ({error_code}). Bạn có thể tải các ảnh tư liệu liên quan lên thư viện tư liệu của nhà cung cấp rồi tạo lại khi tư liệu đã sẵn sàng",
+    "provider_input_image_rejected_at": "Nhà cung cấp không duyệt ảnh {index} ({name}) ({error_code}). Bạn có thể tải ảnh này lên thư viện tư liệu của nhà cung cấp từ thẻ tư liệu rồi tạo lại khi tư liệu đã sẵn sàng",
+    "provider_input_asset_rejected_at": "Nhà cung cấp từ chối ảnh {index} ({name}) được gửi dưới dạng tư liệu trong thư viện ({error_code}). Kiểm tra tư liệu trong bảng điều khiển của nhà cung cấp, hoặc gỡ liên kết và dùng ảnh khác",
 }

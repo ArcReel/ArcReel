@@ -114,6 +114,18 @@ VIDEO_REQUEST_FACTS_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
+# 生成时的供应商素材：适用关联尚未可用或入库失败（``lib.asset_library.generation_inputs``），以及供应商以
+# 输入图片未通过审核拒绝请求（``lib.backends.provider_assets``）。后者能确定被拒图片时带上图片编号与名称。
+PROVIDER_ASSET_FAILURE_CODES: frozenset[str] = frozenset(
+    {
+        "provider_asset_link_failed",
+        "provider_asset_link_processing",
+        "provider_input_asset_rejected_at",
+        "provider_input_image_rejected",
+        "provider_input_image_rejected_at",
+    }
+)
+
 # Stable failure code -> i18n errors key. The code is agent-facing and persisted
 # in the DB; the key resolves to zh/en/vi templates rendered at read time.
 FAILURE_CODE_KEYS: dict[str, str] = {
@@ -121,6 +133,7 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in REFERENCE_PROJECTION_FAILURE_CODES},
     **{code: code for code in GENERATION_INPUT_FAILURE_CODES},
     **{code: code for code in VIDEO_REQUEST_FACTS_FAILURE_CODES},
+    **{code: code for code in PROVIDER_ASSET_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
     # 内置供应商的模型引用不在模型清单中（已下架或改名）：引用原样保留，由用户重新选择。
     "model_not_in_provider_catalog": "model_not_in_provider_catalog",

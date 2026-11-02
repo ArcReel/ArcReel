@@ -822,4 +822,9 @@ MESSAGES = {
     "provider_asset_import_too_large": "素材图片超过 {max_mb} MB，没有导入",
     "provider_asset_import_invalid_image": "素材内容不是可用的 PNG、JPEG 或 WebP 图片，没有导入",
     "provider_asset_upload_needs_object_storage": "上传到素材库需要经你的对象存储中转。在设置的「素材库与存储」中配置对象存储后重试",
+    "provider_asset_link_processing": "图片{index}（{name}）在供应商素材库的入库尚未完成，已中止生成。等入库可用后重新生成，或在资产卡片的「上传到供应商素材库」中解除关联，改发普通图片",
+    "provider_asset_link_failed": "图片{index}（{name}）在供应商素材库的入库失败（{error_code}），已中止生成。在资产卡片的「上传到供应商素材库」中解除关联后重新上传，或解除关联后改发普通图片",
+    "provider_input_image_rejected": "供应商审核未通过这次请求的输入图片（{error_code}）。可以把相关资产图上传到供应商素材库，等入库可用后重新生成",
+    "provider_input_image_rejected_at": "供应商审核未通过图片{index}（{name}）（{error_code}）。可以在资产卡片中把这张图片上传到供应商素材库，等入库可用后重新生成",
+    "provider_input_asset_rejected_at": "供应商拒绝了以素材库素材发出的图片{index}（{name}）（{error_code}）。在供应商控制台检查该素材，或解除关联后改用其他图片",
 }

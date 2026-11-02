@@ -74,6 +74,8 @@ class ReferenceSpec:
 
     source: Path
     role: RefRole
+    # 这一项以供应商素材引用发出、不上传图片内容：不压缩、不计入字节预算，按原路径透传以保住序位。
+    provider_asset: bool = False
 
 
 @dataclass
@@ -239,7 +241,7 @@ def compressed_reference_payload(
     compressible_raws: list[bytes] = []
     compressible_roles: list[RefRole] = []
     for i, spec in enumerate(specs):
-        raw = _try_read_image(spec.source)
+        raw = None if spec.provider_asset else _try_read_image(spec.source)
         if raw is None:
             continue
         compressible_indices.append(i)

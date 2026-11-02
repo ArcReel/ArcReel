@@ -572,6 +572,18 @@ Choose **Select from provider asset library** from the more-actions menu on a pr
 - If the original image cannot be retrieved, nothing is imported, for example when the asset was deleted on the provider side, the access URL has expired, or the network dropped. The original image must be PNG, JPEG, or WebP and no larger than 30 MB. When an import fails, the asset image keeps its previous version and no link is created; try again later or select another asset.
 - Original images larger than 2 MB are compressed before saving, the same as uploaded asset images.
 
+### Use the Asset Library During Generation {#generate-with-asset-library}
+
+Before a reference-to-video request is submitted, ArcReel determines the inference credential the video channel actually uses for this call, finds the asset library account that credential is bound to with a confirmed binding, and then checks, image by image, whether the currently selected version of each reference image has a link in that account. Links created by uploading and by importing follow the same rules.
+
+- **The link is available**: the reference image is sent as an `asset://` asset reference, and the other reference images are sent as image content as usual. The number and order of reference images and the image numbering in the prompt stay the same.
+- **No applicable link**: the image content is sent as usual. This applies when the inference credential has no binding or its binding needs to be confirmed again, when the current version has never been uploaded or imported, and when the model does not accept asset references.
+- **The link is not yet available or ingestion failed**: when the link is in the **Waiting to upload**, **Submitting**, **Provider processing**, **Result unconfirmed**, or **Failed** state, generation fails immediately. ArcReel does not fall back to sending the image content and does not submit a request to the provider. The error names the image by its number: you can generate again once ingestion is available; when ingestion failed, the error includes the provider's error code. You can also unlink and send the plain image instead.
+
+Only reference images for the Seedance 2.0 and 2.5 model series on Volcano Engine Ark and BytePlus use asset references, This also applies to custom provider models that use the **Volcengine Ark (Seedance)** call endpoint with a model ID from these two series. First frames, last frames, storyboard images, and image generation still send image content. After switching the inference credential, ArcReel decides again based on the new credential's binding, and links in the previous account no longer apply.
+
+When the provider rejects a request because an input image failed moderation (error codes that start with `InputImageSensitiveContentDetected`, for example `InputImageSensitiveContentDetected.PrivacyInformation`), ArcReel does not upload automatically, does not retry generation, and does not switch providers. The error shows the provider's error code and suggests uploading the related asset image to the provider asset library and generating again once ingestion is available. The error names the image only when the request contains a single reference image and no first or last frame; when the provider error does not identify the image, ArcReel does not guess. When the rejected image was already sent as an asset reference, the error instead suggests checking that asset in the provider console.
+
 ## 13. Cost Tracking {#cost-tracking}
 
 ArcReel can record costs by provider and media type, but keep in mind:

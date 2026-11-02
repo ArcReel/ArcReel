@@ -234,6 +234,14 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "video_reference_images_required": GenerationAction.GENERATE_DEPENDENCY,
     "video_reference_images_unreadable": GenerationAction.GENERATE_DEPENDENCY,
     "video_reference_audio_unreadable": GenerationAction.GENERATE_DEPENDENCY,
+    # 素材库入库仍在处理：等入库有结果后重新生成，或解除关联改发普通图片。
+    "provider_asset_link_processing": GenerationAction.FIX_INPUT,
+    # 入库失败：解除关联后重新上传，或解除关联改发普通图片。
+    "provider_asset_link_failed": GenerationAction.FIX_INPUT,
+    # 供应商审核拒绝了输入图片：换图或上传到供应商素材库后再生成，原样重试只会被同样拒绝。
+    "provider_input_image_rejected": GenerationAction.FIX_INPUT,
+    "provider_input_image_rejected_at": GenerationAction.FIX_INPUT,
+    "provider_input_asset_rejected_at": GenerationAction.FIX_INPUT,
     # 项目已删除，产物无处可落，也没有可重试的对象。
     "project_deleted_during_task": GenerationAction.NONE,
     # 进程重启 / 恢复失败：任务本身没有内在缺陷，重试即可。
