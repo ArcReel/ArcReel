@@ -1,5 +1,6 @@
-"""资产图上传即成品：清单按上传本身认领，时效不随描述与画风变化。"""
+"""资产图上传即成品：清单按上传本身认领，时效不随描述与画风变化；每次提交是一个独立的内容版本。"""
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -182,3 +183,52 @@ def test_uploaded_sheet_stays_current_after_the_asset_is_renamed(tmp_path, monke
         ArtifactKey.asset_sheet("character", "Alicia"), artifact_path=sheet_path
     )
     assert comparison.status is ArtifactStatus.CURRENT
+
+
+def _history(project_dir: Path) -> dict:
+    return VersionManager(project_dir).get_versions("characters", "Alice")
+
+
+async def test_switching_back_to_an_uploaded_sheet_keeps_its_content_version(tmp_path, monkeypatch):
+    client, pm, project_dir = _client(monkeypatch, tmp_path, description="银发少女")
+    uploaded = solid_png_bytes((40, 160, 220))
+    with client:
+        _upload(client, uploaded)
+    [upload_record] = _history(project_dir)["versions"]
+    _serve_generation(monkeypatch, pm, SheetGenerator(project_dir, solid_png_bytes((90, 90, 90))))
+    await generation_tasks.execute_character_task("demo", "Alice", {})
+    use_project_manager(monkeypatch, pm)
+    generated_record = next(record for record in _history(project_dir)["versions"] if record["is_current"])
+
+    await versions.restore_resource_version("demo", "characters", "Alice", upload_record["version"])
+
+    history = _history(project_dir)
+    selected = next(record for record in history["versions"] if record["is_current"])
+    assert selected["content_version_id"] == upload_record["content_version_id"]
+    assert selected["content_digest"] == hashlib.sha256(uploaded).hexdigest()
+    assert generated_record["content_version_id"] != upload_record["content_version_id"]
+    assert (project_dir / pm.load_project("demo")["characters"]["Alice"]["character_sheet"]).read_bytes() == uploaded
+    assert [record["content_version_id"] for record in history["versions"]] == [
+        upload_record["content_version_id"],
+        generated_record["content_version_id"],
+    ]
+
+
+def test_same_bytes_uploaded_to_two_projects_are_separate_content_versions(tmp_path, monkeypatch):
+    client, pm, project_dir = _client(monkeypatch, tmp_path, description="银发少女")
+    pm.create_project("other")
+    pm.create_project_metadata("other", "Other", "Anime", "narration")
+    pm.add_character("other", "Alice", "银发少女")
+    content = solid_png_bytes((200, 120, 40))
+    with client:
+        _upload(client, content)
+        response = client.post(
+            "/api/v1/projects/other/upload/character?name=Alice",
+            files={"file": ("alice.png", content, "image/png")},
+        )
+        assert response.status_code == 200, response.text
+
+    [mine] = _history(project_dir)["versions"]
+    [theirs] = _history(pm.get_project_path("other"))["versions"]
+    assert mine["content_digest"] == theirs["content_digest"]
+    assert mine["content_version_id"] != theirs["content_version_id"]
