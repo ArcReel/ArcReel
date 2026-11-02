@@ -63,6 +63,7 @@ export function AssetLibraryBindingsBlock({
   }, [fetchBindings, reloadToken]);
 
   const apply = async (credential: AssetLibraryBindableCredential, accountId: number | null) => {
+    if (pending !== null) return;
     const key = credentialKey(credential);
     setPending(key);
     try {
@@ -138,7 +139,7 @@ export function AssetLibraryBindingsBlock({
                       <Select
                         items={accountItems}
                         value={binding ? String(binding.account_id) : UNBOUND}
-                        disabled={busy || accounts.length === 0}
+                        disabled={pending !== null || accounts.length === 0}
                         onValueChange={(next) => {
                           if (next === null) return;
                           void apply(credential, next === UNBOUND ? null : Number(next));
@@ -177,7 +178,12 @@ export function AssetLibraryBindingsBlock({
                           <span className="text-xs text-muted-foreground">
                             {t("asset_library_binding_needs_confirmation_hint")}
                           </span>
-                          <Button variant="outline" size="xs" onClick={() => void apply(credential, binding.account_id)}>
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            disabled={pending !== null}
+                            onClick={() => void apply(credential, binding.account_id)}
+                          >
                             <RefreshCw aria-hidden data-icon="inline-start" />
                             {t("asset_library_binding_reconfirm")}
                           </Button>

@@ -125,14 +125,13 @@ function UploadPanel({ projectName, resourceType, resourceId }: Omit<ProviderAss
       } catch (error) {
         if (controller.signal.aborted) return;
         // 轮询中的失败保留已显示的状态，下一轮再取；首次加载失败才换成错误提示
-        if (initial) setState({ status: "error", error });
+        setState((current) => initial ? { status: "error", error } : { ...current });
       }
     },
     [projectName, resourceType, resourceId],
   );
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开对话框时拉取关联状态后回写，属于受控的初始化加载
     void fetchPanel(true);
     return () => controllerRef.current?.abort();
   }, [fetchPanel]);

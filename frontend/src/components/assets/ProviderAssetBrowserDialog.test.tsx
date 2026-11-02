@@ -1,9 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { createDeferred } from "@/test/deferred";
 import type { AssetLibraryAccountList, ProviderAssetImportResult, ProviderAssetPage } from "@/types";
 
 import { ProviderAssetBrowserDialog } from "./ProviderAssetBrowserDialog";
@@ -59,6 +60,9 @@ function renderDialog(props: Partial<React.ComponentProps<typeof ProviderAssetBr
       projectName="demo"
       resourceType="characters"
       resourceId="林夕"
+      onImported={async () => "success"}
+      checkBusy={() => false}
+      onImportingChange={() => {}}
       {...props}
     />,
   );
@@ -144,7 +148,7 @@ describe("ProviderAssetBrowserDialog", () => {
     vi.spyOn(API, "listProviderAssets").mockResolvedValue(page(1, 2));
     const importAsset = vi.spyOn(API, "importProviderAsset").mockResolvedValue(IMPORTED);
     const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
-    const onImported = vi.fn();
+    const onImported = vi.fn().mockResolvedValue("success");
     const onOpenChange = vi.fn();
     const user = userEvent.setup();
     renderDialog({ onImported, onOpenChange });
@@ -178,5 +182,23 @@ describe("ProviderAssetBrowserDialog", () => {
     expect(onImported).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "选择 主角正面 1" })).toBeEnabled();
+  });
+
+  it("导入在途通知卡片占用，刷新失败不同时提示成功", async () => {
+    vi.spyOn(API, "listProviderAssets").mockResolvedValue(page(1, 2));
+    const imported = createDeferred<ProviderAssetImportResult>();
+    vi.spyOn(API, "importProviderAsset").mockReturnValue(imported.promise);
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    const onImportingChange = vi.fn();
+    const onOpenChange = vi.fn();
+    const user = userEvent.setup();
+    renderDialog({ onImported: async () => "failed", onImportingChange, onOpenChange });
+    await user.click(await screen.findByRole("button", { name: "选择 主角正面 1" }));
+    expect(onImportingChange).toHaveBeenLastCalledWith(true);
+    expect(screen.getByText("关闭", { selector: "button" })).toBeDisabled();
+    await act(async () => imported.resolve(IMPORTED));
+    expect(onImportingChange).toHaveBeenLastCalledWith(false);
+    expect(pushToast).not.toHaveBeenCalledWith(expect.anything(), "success");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

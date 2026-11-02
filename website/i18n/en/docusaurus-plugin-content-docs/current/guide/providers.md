@@ -570,7 +570,7 @@ Choose **Select from provider asset library** from the more-actions menu on a pr
 - Only image assets whose status is **Available** can be selected. ArcReel queries the asset from the provider, retrieves the original image from the access URL the provider returns, and saves it as a new version in the same way as an uploaded asset image: the new version appears in the version history, can be previewed and edited, and you can switch back to earlier versions.
 - The new version is automatically linked to the selected asset with an **Available** link that records the asset library account's site, region, and project. Earlier versions do not inherit this link.
 - If the original image cannot be retrieved, nothing is imported, for example when the asset was deleted on the provider side, the access URL has expired, or the network dropped. The original image must be PNG, JPEG, or WebP and no larger than 30 MB. When an import fails, the asset image keeps its previous version and no link is created; try again later or select another asset.
-- Original images larger than 2 MB are compressed before saving, the same as uploaded asset images.
+- Imports preserve the original image bytes without compression or re-encoding, so the saved version matches the provider asset.
 
 ### Use the Asset Library During Generation {#generate-with-asset-library}
 

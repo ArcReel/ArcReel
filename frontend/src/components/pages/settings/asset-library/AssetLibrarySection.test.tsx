@@ -1,8 +1,9 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import { createDeferred } from "@/test/deferred";
 import type { AssetLibraryAccountList, AssetLibraryBindableCredential } from "@/types";
 
 import { AssetLibrarySection } from "./AssetLibrarySection";
@@ -95,5 +96,21 @@ describe("AssetLibrarySection", () => {
     expect(screen.getByText("arcreel-relay")).toBeInTheDocument();
     expect(screen.getByText("TEST…0001")).toBeInTheDocument();
     expect(screen.queryByText("tos-secret-0001")).not.toBeInTheDocument();
+  });
+
+  it("一条绑定提交时其他行不能并发修改，完成后恢复", async () => {
+    vi.mocked(API.listAssetLibraryBindings).mockResolvedValue({
+      credentials: [STALE_BINDING, { ...STALE_BINDING, credential_id: 4, name: "Ark 备用 Key" }],
+    });
+    const confirmed = createDeferred<{ account_id: number; status: "confirmed" }>();
+    vi.spyOn(API, "confirmAssetLibraryBinding").mockReturnValue(confirmed.promise);
+    const user = userEvent.setup();
+    render(<AssetLibrarySection />);
+    const buttons = await screen.findAllByRole("button", { name: "重新确认" });
+    await user.click(buttons[0]);
+    expect(screen.getByRole("button", { name: "重新确认" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "「Ark 备用 Key」绑定的素材库账号" })).toBeDisabled();
+    await act(async () => confirmed.resolve({ account_id: 7, status: "confirmed" }));
+    expect(screen.getAllByRole("button", { name: "重新确认" })[1]).toBeEnabled();
   });
 });
