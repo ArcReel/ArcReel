@@ -225,6 +225,8 @@ GET /health
 curl -f http://localhost:1241/health
 ```
 
+该端点无需认证。官方镜像的响应带 `commit` 字段，值是构建镜像的 commit sha，可用来确认实例运行的版本；从源码直接运行时为 `null`。
+
 ### 4.2 查看日志 {#view-logs}
 
 ```bash

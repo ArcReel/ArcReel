@@ -303,6 +303,7 @@ def check_tool_versions(root: Path, out: list[Violation]) -> None:
 SUPPRESSION_SKIP_DIRS = frozenset(
     {
         ".git",
+        ".afk",
         ".venv",
         ".worktrees",
         ".claude",
