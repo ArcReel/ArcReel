@@ -55,6 +55,8 @@ import type {
   AssetLibraryCredentialType,
   CreateAssetLibraryAccountPayload,
   ObjectStorageConnection,
+  ProviderAssetLink,
+  ProviderAssetLinkPanel,
   ProviderAssetPage,
   SaveObjectStorageConnectionPayload,
   UpdateAssetLibraryAccountPayload,
@@ -3548,6 +3550,43 @@ class API {
   ): Promise<ProviderAssetPage> {
     const query = new URLSearchParams({ page: String(params.page), page_size: String(params.pageSize) });
     return this.request(`/asset-library/accounts/${accountId}/assets?${query.toString()}`, { signal: options.signal });
+  }
+
+  /** 图片当前选中版本在各个素材库范围里的关联与入库状态。 */
+  static async getProviderAssetLinks(
+    projectName: string,
+    resourceType: string,
+    resourceId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ProviderAssetLinkPanel> {
+    const query = new URLSearchParams({ resource_type: resourceType, resource_id: resourceId });
+    return this.request(`/projects/${encodeURIComponent(projectName)}/provider-asset-links?${query.toString()}`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 把图片当前选中的版本上传到素材库账号；立即返回入库任务，之后按状态轮询。 */
+  static async uploadToProviderAssetLibrary(
+    projectName: string,
+    body: { resource_type: string; resource_id: string; account_id: number },
+  ): Promise<ProviderAssetLink> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/provider-asset-links`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** 解除关联：只解除当前关系，不删除 ArcReel 图片或供应商素材。 */
+  static async unlinkProviderAsset(projectName: string, linkId: number): Promise<void> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/provider-asset-links/${linkId}`, {
+      method: "DELETE",
+    });
+  }
+
+  static async refreshProviderAssetLink(projectName: string, linkId: number): Promise<ProviderAssetLink> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/provider-asset-links/${linkId}/refresh`, {
+      method: "POST",
+    });
   }
 
   // ==================== Provider 凭证管理 API ====================

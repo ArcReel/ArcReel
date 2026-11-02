@@ -5,6 +5,14 @@
 
 - 签名：https://docs.volcengine.com/docs/6369/67269 、https://docs.byteplus.com/en/docs/byteplus-platform/reference-how-to-calculate-a-signature
 - ListAssets：https://docs.volcengine.com/docs/ark/list-assets-api 、https://docs.byteplus.com/en/docs/modelark/list-assets-api
+- CreateAsset / GetAsset：https://docs.volcengine.com/docs/ark/create-asset-api 、https://docs.volcengine.com/docs/ark/get-asset-api ；
+  BytePlus 对应 https://docs.byteplus.com/en/docs/modelark/create-asset-api 、https://docs.byteplus.com/en/docs/modelark/get-asset-api
+- CreateAssetGroup / ListAssetGroups：https://docs.volcengine.com/docs/ark/create-asset-group-api 、
+  https://docs.volcengine.com/docs/ark/list-asset-groups-api
+
+两站的 Action、Version 与字段名相同（2026-11-03 核对火山官方文档；BytePlus 文档页需要脚本渲染，按 BytePlus
+官方仓库 ``byteplus-sa/ark-mcp`` 的调用对照）。CreateAsset 只接受供应商可下载的 URL，异步处理且不承诺
+入库时长；返回的素材 ID 处于 ``Processing``，``GetAsset`` 返回 ``Active`` 后才可用。
 
 本模块只做协议：签名、发送与响应解析。Access Key 只进签名，不进日志与异常文本。
 """
@@ -55,7 +63,11 @@ class ControlPlaneCredentials:
 
 
 class AssetLibraryRequestError(Exception):
-    """控制面请求失败。``code`` / ``message`` 是供应商原文，``kind`` 是给界面选文案用的分类。"""
+    """控制面请求失败。``code`` / ``message`` 是供应商原文，``kind`` 是给界面选文案用的分类。
+
+    ``outcome_unknown`` 表示请求可能已被供应商执行：连接建立后超时、断开或供应商 5xx。对写操作，
+    这类失败不能当作「没有创建」重试。
+    """
 
     def __init__(
         self,
@@ -65,6 +77,7 @@ class AssetLibraryRequestError(Exception):
         message: str = "",
         status_code: int | None = None,
         request_id: str = "",
+        outcome_unknown: bool = False,
     ) -> None:
         super().__init__(f"{kind}: {code} {message}".strip())
         self.kind = kind
@@ -72,6 +85,7 @@ class AssetLibraryRequestError(Exception):
         self.message = message
         self.status_code = status_code
         self.request_id = request_id
+        self.outcome_unknown = outcome_unknown
 
 
 @dataclass(frozen=True)
@@ -199,7 +213,9 @@ async def call_action(
     try:
         response = await http.post(url, params=query, content=body, headers={**content_headers, **auth_headers})
     except httpx.HTTPError as exc:
-        raise AssetLibraryRequestError("network", message=type(exc).__name__) from exc
+        # 连接没有建立时请求一定没有到达供应商；其余网络失败（读超时、连接中断）结果未知。
+        unknown = not isinstance(exc, httpx.ConnectError | httpx.ConnectTimeout)
+        raise AssetLibraryRequestError("network", message=type(exc).__name__, outcome_unknown=unknown) from exc
     finally:
         if owned:
             await http.aclose()
@@ -219,11 +235,16 @@ async def call_action(
             message=message,
             status_code=response.status_code,
             request_id=request_id,
+            outcome_unknown=response.status_code >= 500,
         )
     result = data.get("Result") if isinstance(data, dict) else None
     if not isinstance(result, dict):
         raise AssetLibraryRequestError(
-            "provider", code="InvalidResponse", status_code=response.status_code, request_id=request_id
+            "provider",
+            code="InvalidResponse",
+            status_code=response.status_code,
+            request_id=request_id,
+            outcome_unknown=True,
         )
     return result
 
@@ -278,3 +299,127 @@ async def list_assets(
         page_number=page_number,
         page_size=page_size,
     )
+
+
+@dataclass(frozen=True)
+class ProviderAssetDetail:
+    """GetAsset 的结果。供应商返回的签名访问地址不取出。"""
+
+    id: str
+    name: str
+    asset_type: str
+    status: AssetStatus
+    group_id: str
+    error_code: str | None
+    error_message: str | None
+
+
+async def get_asset(
+    credentials: ControlPlaneCredentials, asset_id: str, *, client: httpx.AsyncClient | None = None
+) -> ProviderAssetDetail:
+    """查询一个素材的处理状态。处理失败的素材 HTTP 仍为 200，失败原因在 ``Error`` 里。"""
+    result = await call_action(
+        credentials, "GetAsset", {"Id": asset_id, "ProjectName": credentials.project_name}, client=client
+    )
+    error = result.get("Error")
+    error_code = str(error.get("Code")) if isinstance(error, dict) and error.get("Code") else None
+    error_message = str(error.get("Message")) if isinstance(error, dict) and error.get("Message") else None
+    return ProviderAssetDetail(
+        id=str(result.get("Id") or asset_id),
+        name=str(result.get("Name") or ""),
+        asset_type=str(result.get("AssetType") or ""),
+        status=_STATUS_MAP.get(str(result.get("Status") or ""), "unknown"),
+        group_id=str(result.get("GroupId") or ""),
+        error_code=error_code,
+        error_message=error_message,
+    )
+
+
+async def create_asset(
+    credentials: ControlPlaneCredentials,
+    *,
+    group_id: str,
+    url: str,
+    name: str,
+    asset_type: Literal["Image", "Video", "Audio"] = "Image",
+    client: httpx.AsyncClient | None = None,
+) -> str:
+    """提交一个素材入库，返回素材 ID。返回时素材还在处理中，可用与否以 :func:`get_asset` 为准。"""
+    result = await call_action(
+        credentials,
+        "CreateAsset",
+        {
+            "GroupId": group_id,
+            "URL": url,
+            "AssetType": asset_type,
+            "Name": name,
+            "ProjectName": credentials.project_name,
+        },
+        client=client,
+    )
+    asset_id = result.get("Id")
+    if not asset_id:
+        raise AssetLibraryRequestError("provider", code="InvalidResponse", outcome_unknown=True)
+    return str(asset_id)
+
+
+async def find_assets_by_name(
+    credentials: ControlPlaneCredentials,
+    *,
+    group_id: str,
+    name: str,
+    client: httpx.AsyncClient | None = None,
+) -> list[ProviderAssetItem]:
+    """在素材组里按名称找素材。供应商按名称模糊匹配，这里只保留名称完全相同的条目。"""
+    result = await call_action(
+        credentials,
+        "ListAssets",
+        {
+            "Filter": {"GroupType": _GROUP_TYPE, "GroupIds": [group_id], "Name": name},
+            "PageNumber": 1,
+            "PageSize": 100,
+            "ProjectName": credentials.project_name,
+        },
+        client=client,
+    )
+    raw_items = result.get("Items")
+    items = [item for raw in raw_items if (item := _parse_item(raw))] if isinstance(raw_items, list) else []
+    return [item for item in items if item.name == name]
+
+
+async def ensure_asset_group(
+    credentials: ControlPlaneCredentials,
+    name: str,
+    *,
+    description: str = "",
+    client: httpx.AsyncClient | None = None,
+) -> str:
+    """账号项目范围里名为 ``name`` 的 AIGC 素材组 ID；没有时创建。
+
+    首次创建素材组前需要在供应商控制台签署授权，未签署时供应商返回的错误原样抛出。
+    """
+    result = await call_action(
+        credentials,
+        "ListAssetGroups",
+        {
+            "Filter": {"GroupType": _GROUP_TYPE, "Name": name},
+            "PageNumber": 1,
+            "PageSize": 100,
+            "ProjectName": credentials.project_name,
+        },
+        client=client,
+    )
+    raw_items = result.get("Items")
+    for raw in raw_items if isinstance(raw_items, list) else []:
+        if isinstance(raw, dict) and raw.get("Name") == name and raw.get("Id"):
+            return str(raw["Id"])
+    created = await call_action(
+        credentials,
+        "CreateAssetGroup",
+        {"Name": name, "Description": description, "GroupType": _GROUP_TYPE, "ProjectName": credentials.project_name},
+        client=client,
+    )
+    group_id = created.get("Id")
+    if not group_id:
+        raise AssetLibraryRequestError("provider", code="InvalidResponse", outcome_unknown=True)
+    return str(group_id)

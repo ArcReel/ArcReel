@@ -1117,6 +1117,7 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     模块那一处。真实 ``ProjectManager`` 与只实现用到方法的替身都可以传。
     """
     for_pm = lambda: pm  # noqa: E731 -- 同一个工厂装到下列每个调用方
+    monkeypatch.setattr("lib.asset_library.ingest.get_project_manager", for_pm)
     monkeypatch.setattr("lib.config.resolver.get_project_manager", for_pm)
     monkeypatch.setattr("lib.project.project_migration_guard.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.characters.get_project_manager", for_pm)
@@ -1127,6 +1128,7 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     monkeypatch.setattr("server.routers.grids.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.products.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.projects.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.provider_asset_links.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.project_migration.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.project_trash.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.reference_videos.get_project_manager", for_pm)

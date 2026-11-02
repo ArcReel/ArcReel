@@ -2,6 +2,7 @@ import { memo, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   CloudDownload,
+  CloudUpload,
   Combine,
   History,
   ImageUp,
@@ -18,6 +19,7 @@ import {
 import { API } from "@/api";
 import { AddToLibraryDialog, type LibraryImportPreview } from "@/components/assets/AddToLibraryDialog";
 import { ProviderAssetBrowserDialog } from "@/components/assets/ProviderAssetBrowserDialog";
+import { ProviderAssetUploadDialog } from "@/components/assets/ProviderAssetUploadDialog";
 import { ASSET_SHEET_TYPE_ICON } from "@/components/assets/asset-type-icons";
 import { CrossfadeImage } from "@/components/canvas/shared/CrossfadeImage";
 import { ImageEditDialog } from "@/components/canvas/timeline/ImageEditButton";
@@ -43,7 +45,7 @@ import { ProjectAssetDeleteDialog } from "./ProjectAssetDeleteDialog";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
 import type { AssetSheetStatusRow } from "@/types";
 
-type DialogKey = "image-edit" | "versions" | "library" | "merge" | "delete" | "provider-assets";
+type DialogKey = "image-edit" | "versions" | "library" | "merge" | "delete" | "provider-assets" | "provider-upload";
 
 export interface AssetBrowseCardProps {
   projectName: string;
@@ -213,6 +215,10 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                       <ImageUp aria-hidden />
                       {t("assets:upload_sheet")}
                     </DropdownMenuItem>
+                    <DropdownMenuItem disabled={!asset.sheetPath} onClick={() => setDialog("provider-upload")}>
+                      <CloudUpload aria-hidden />
+                      {t("assets:provider_asset_upload")}
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setDialog("provider-assets")}>
                       <CloudDownload aria-hidden />
                       {t("assets:provider_asset_browse")}
@@ -275,6 +281,13 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
           />
           {staleConfirm.dialog}
           <ProviderAssetBrowserDialog open={dialog === "provider-assets"} onOpenChange={closeDialog} />
+          <ProviderAssetUploadDialog
+            open={dialog === "provider-upload"}
+            onOpenChange={closeDialog}
+            projectName={projectName}
+            resourceType={VERSION_RESOURCE[type]}
+            resourceId={name}
+          />
           <ImageEditDialog
             open={dialog === "image-edit"}
             onOpenChange={closeDialog}

@@ -874,4 +874,8 @@ MESSAGES = {
     "asset_library_request_throttled": "Too many asset library requests. Try again later",
     "asset_library_request_unreachable": "Cannot connect to the asset library. Check your network, then try again",
     "asset_library_request_failed": "The asset library returned an error, so the asset list could not be loaded",
+    "provider_asset_link_not_found": "This asset library link no longer exists; it may have been removed. Refresh and try again",
+    "provider_asset_link_exists": "The current version of this image already has a link or upload in progress for this asset library account. Unlink it before uploading again",
+    "provider_asset_upload_no_image": "This image has no version to upload yet. Generate or upload an image first",
+    "provider_asset_upload_needs_object_storage": "Uploading to an asset library goes through your own object storage. Configure object storage under Asset library & storage in Settings, then try again",
 }
