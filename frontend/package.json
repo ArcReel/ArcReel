@@ -81,7 +81,7 @@
     "react-doctor": "^0.9.18",
     "shadcn": "^4.21.1",
     "tailwindcss": "^4.3.3",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.67.0",
     "vite": "^8.2.1",
     "vitest": "^4.1.10"
