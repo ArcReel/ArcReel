@@ -13,7 +13,7 @@ import base64
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from openai.types.chat import ChatCompletion, ChatCompletionContentPartImageParam, ChatCompletionContentPartParam
 
@@ -81,6 +81,9 @@ async def _save_image(url: str, output_path: Path) -> None:
 class OpenAIChatImageBackend:
     """经 Chat Completions 出图，支持文生图与图生图。"""
 
+    # 同一个协议背后挂的是各家模型，通道本身不限张数，上限取条目，未收录时交由上游裁决。
+    CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
+
     def __init__(
         self,
         *,
@@ -106,9 +109,8 @@ class OpenAIChatImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
-    async def reference_image_limit(self) -> int:
-        # 同一个协议背后挂的是各家模型，参考图上限随模型而异，交由上游裁决。
-        return 0
+    async def reference_image_limit(self) -> int | None:
+        return self.CHANNEL_REFERENCE_LIMIT
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         content: list[ChatCompletionContentPartParam] = [{"type": "text", "text": request.prompt}]

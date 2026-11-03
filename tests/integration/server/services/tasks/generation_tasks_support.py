@@ -39,7 +39,7 @@ def fake_resolve_ctx(
     *,
     image_provider=("openai", "gpt-image-2"),
     image_resolution=None,
-    image_max_reference_images=0,
+    image_max_reference_images=None,
     video_provider=("ark", "seedance"),
     video_backend_model=None,
     video_resolution="720p",

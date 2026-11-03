@@ -21,6 +21,8 @@ from lib.backends.image_backends.base import (
     ImageRequestFacts,
     ReferenceImage,
 )
+from lib.backends.image_capabilities import backend_reference_image_limit
+from lib.backends.input_limits import InputLimit
 from lib.custom_provider.backends import CustomImageBackend
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 from lib.custom_provider.factory import create_custom_backend
@@ -107,9 +109,12 @@ async def test_reference_images_go_to_generations_as_an_image_list(tmp_path: Pat
     assert result.usage.quantities["input_images"] == 3
 
 
-async def test_reference_images_beyond_the_ark_limit_are_truncated(tmp_path: Path):
-    backend = _backend()
-    assert await backend.reference_image_limit() == 14
+async def test_the_endpoint_sends_every_reference_and_takes_the_limit_from_the_matched_entry(tmp_path: Path):
+    """Seedream 各代的上限是模型事实：通道不按型号名截断，生效上限取对应条目（4.5 记为 14 张）。"""
+    backend = create_custom_backend(provider=_PROVIDER, model_id="doubao-seedream-4-5-251128", endpoint="ark-seedream")
+    assert isinstance(backend, CustomImageBackend)
+    assert await backend.reference_image_limit() is None
+    assert await backend_reference_image_limit(backend, provider_id="custom-1") == InputLimit.at_most(14)
 
     with capture_http() as router:
         route = router.post(_GENERATIONS).mock(return_value=_image_response())
@@ -117,28 +122,7 @@ async def test_reference_images_beyond_the_ark_limit_are_truncated(tmp_path: Pat
             ImageGenerationRequest(prompt="猫", output_path=tmp_path / "o.png", reference_images=_refs(tmp_path, 16))
         )
 
-    assert request_json(only_request(route))["image"] == [_data_uri(i) for i in range(14)]
-
-
-async def test_seedream_5_pro_on_the_custom_endpoint_caps_references_at_ten(tmp_path: Path):
-    """5.0 pro / flash 经 ark-seedream 复用内置后端时按型号取 10 张上限，截断、计量同口径。"""
-    model = "doubao-seedream-5-0-pro-260628"
-    backend = ENDPOINT_REGISTRY["ark-seedream"].build_backend(_PROVIDER, model)
-    assert await backend.reference_image_limit() == 10
-
-    with capture_http() as router:
-        route = router.post(_GENERATIONS).mock(return_value=_image_response())
-        result = await backend.generate(
-            ImageGenerationRequest(prompt="猫", output_path=tmp_path / "o.png", reference_images=_refs(tmp_path, 12))
-        )
-
-    assert request_json(only_request(route))["image"] == [_data_uri(i) for i in range(10)]
-    assert result.usage is not None
-    assert result.usage.quantities["input_images"] == 10
-    estimate = custom_image_estimate(
-        ArkImageBackend, ImageRequestFacts(model=model, aspect_ratio="16:9", reference_count=12)
-    )
-    assert estimate.quantities["input_images"] == 10
+    assert request_json(only_request(route))["image"] == [_data_uri(i) for i in range(16)]
 
 
 async def test_generate_path_override_is_relative_to_the_raw_base_url(tmp_path: Path):

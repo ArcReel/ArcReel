@@ -11,23 +11,42 @@
 
 ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082）：模型行的名字由用户随手填，与 workflow 能做什么无关，
 不按名字对应条目，也不接受能力覆盖，生效能力就是端点声明。
+
+参考图上限同样两侧求值（:func:`image_reference_limit`）：条目记录的上限与调用通道的上限取较小值；图生图不在
+生效能力里时为不支持；两侧都没有声明时为未收录，不裁剪、超出由上游拒绝。图片没有参考图上限这一维的能力覆盖，
+图生图的能力覆盖决定这条路径走不走得通。任务类型桶的候选、执行时的校验、编排层的裁剪与设置页都读这一个结果。
+ComfyUI 端点的上限只来自节点绑定的参考图槽位数，不读条目。
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 from lib.backends.backend_assembly.specs import get_provider_spec
 from lib.backends.image_backends.base import ImageCapability
-from lib.backends.image_backends.registry import channel_capabilities
+from lib.backends.image_backends.registry import channel_capabilities, channel_reference_limit
+from lib.backends.input_limits import InputLimit, effective_input_limit
 from lib.catalog import query as catalog
+from lib.custom_provider import is_custom_provider
 from lib.custom_provider.model_facts import image_model_facts
+
+if TYPE_CHECKING:
+    from lib.backends.image_backends.base import ImageBackend
 
 
 def builtin_channel_capabilities(provider_id: str) -> frozenset[ImageCapability]:
     """内置供应商的图片调用通道实现了文生图还是图生图（通道事实）；供应商没有图片调用通道时抛 ``ValueError``。"""
     return channel_capabilities(get_provider_spec(provider_id, "image").registry_backend)
+
+
+def builtin_channel_reference_limit(provider_id: str) -> int | None:
+    """内置供应商图片调用通道静态声明的参考图上限（通道事实），``None`` 为通道不限或按模型运行时查询。
+
+    供应商没有图片调用通道时抛 ``ValueError``。
+    """
+    return channel_reference_limit(get_provider_spec(provider_id, "image").registry_backend)
 
 
 def image_model_capabilities(
@@ -79,3 +98,56 @@ def effective_image_capabilities(
 ) -> frozenset[ImageCapability]:
     """调用通道实现了、且模型条目接受的文生图 / 图生图。参数含义同 :func:`image_model_capabilities`。"""
     return intersect_image_capabilities(channel, image_model_capabilities(model_id, builtin_provider=builtin_provider))
+
+
+def entry_reference_limit(
+    model_id: str, *, builtin_provider: str | None, endpoint_kind: str = "python", entry_binding: str | None = None
+) -> int | None:
+    """条目记录的参考图上限（模型事实一侧）；未收录、对应不上条目或 ComfyUI 端点为 ``None``。
+
+    参数含义同 :func:`image_model_capabilities`；``endpoint_kind`` 只对自定义供应商的模型有意义。
+    """
+    if builtin_provider is not None:
+        model = catalog.get_model(builtin_provider, model_id, media_type="image")
+        return None if model is None else model.max_reference_images
+    if endpoint_kind == COMFYUI_KIND:
+        return None
+    return image_model_facts(model_id, None, entry_binding=entry_binding).max_reference_images
+
+
+def image_reference_limit(
+    *, capabilities: Iterable[ImageCapability], entry_limit: int | None, channel_limit: int | None
+) -> InputLimit[int]:
+    """参考图上限的生效值。``capabilities`` 是生效的文生图 / 图生图（:func:`intersect_image_capabilities` 的结果）。
+
+    图生图不在生效能力里时为不支持；否则条目值与通道值取较小的那个，两侧都为 ``None`` 时为未收录。
+    """
+    return effective_input_limit(
+        path_supported=ImageCapability.IMAGE_TO_IMAGE in frozenset(capabilities),
+        declared=(entry_limit, channel_limit),
+    )
+
+
+async def backend_reference_image_limit(backend: ImageBackend, *, provider_id: str) -> InputLimit[int]:
+    """一个已构造的图片后端的参考图上限生效值，供编排层裁剪与执行时的校验共用。
+
+    通道值取后端的 ``reference_image_limit()``（可能要向供应商查询，如 OpenRouter）。自定义供应商的包装后端带着
+    工厂按模型行注入的生效能力与条目上限；其余后端按 ``provider_id`` 取条目。
+    """
+    from lib.custom_provider.backends import CustomImageBackend
+
+    channel_limit = await backend.reference_image_limit()
+    if isinstance(backend, CustomImageBackend):
+        return image_reference_limit(
+            capabilities=backend.effective_capabilities,
+            entry_limit=backend.entry_reference_limit,
+            channel_limit=channel_limit,
+        )
+    builtin_provider = None if is_custom_provider(provider_id) else provider_id
+    return image_reference_limit(
+        capabilities=effective_image_capabilities(
+            backend.capabilities, model_id=backend.model, builtin_provider=builtin_provider
+        ),
+        entry_limit=entry_reference_limit(backend.model, builtin_provider=builtin_provider),
+        channel_limit=channel_limit,
+    )

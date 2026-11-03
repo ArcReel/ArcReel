@@ -157,7 +157,7 @@ class TestAssetSheetReferences:
         result = fixture.sheet("scene", "祠堂")
 
         assert not result.gaps
-        assert "古旧祠堂" in result.render(max_reference_images=0, model="m").prompt
+        assert "古旧祠堂" in result.render(max_reference_images=None, model="m").prompt
 
     def test_nfd_name_resolves_to_the_stored_entry(self, tmp_path):
         fixture = _Fixture(tmp_path)
@@ -294,7 +294,7 @@ class TestDerivativeSheet:
             key=ArtifactKey.asset_sheet("character", "张三"), artifact_path=_OWNER_SHEET
         )
         assert result.canvas_ratio == "16:9"
-        assert "换上劲装" in result.render(max_reference_images=0, model="m").prompt
+        assert "换上劲装" in result.render(max_reference_images=None, model="m").prompt
 
     @pytest.mark.parametrize(
         ("mutate", "expected"),
@@ -364,7 +364,7 @@ class TestFreeze:
         result = _Fixture(tmp_path).derivative()
         assert not result.gaps
 
-        with result.freeze(max_reference_images=0, model="m", bind_claims=_identity_binder) as frozen:
+        with result.freeze(max_reference_images=None, model="m", bind_claims=_identity_binder) as frozen:
             assert frozen.basis == result.expected_basis()
             [claim] = frozen.claims
             assert claim.content_digest is not None

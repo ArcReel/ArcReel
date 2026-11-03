@@ -102,16 +102,11 @@ class ComfyuiImageBackend:
         """
         return set(binding_image_capabilities(self._definition))
 
-    async def reference_image_limit(self) -> int:
-        return self._reference_slots
+    async def reference_image_limit(self) -> int | None:
+        return binding_reference_limit(self._definition)
 
     @property
     def _reference_slots(self) -> int:
-        """参考图格子数就是这份 workflow 能收几张。
-
-        不返回 ``0``（「本后端不按数量裁剪」）：多出来的图在构造层本来就没有落点，让编排层先按这个
-        数裁剪并提示，比静默丢掉几张用户挑过的参考图诚实。
-        """
         return len(targets_of((self._definition.get("bindings") or {}).get("reference_images")))
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -173,6 +168,16 @@ class ComfyuiImageBackend:
                 )
             )
         return MediaInputs(reference_images=tuple(references))
+
+
+def binding_reference_limit(definition: Mapping[str, Any]) -> int | None:
+    """这份 workflow 的参考图上限：参考图格子数就是它能收几张；没有格子时为 ``None``。
+
+    多出来的图在构造层没有落点，编排层先按这个数裁剪并提示，比静默丢掉几张用户挑过的参考图诚实。没有格子时
+    这份 workflow 不实现图生图（:func:`binding_image_capabilities`），上限的生效值为不支持，与数量无关。
+    """
+    slots = len(targets_of((definition.get("bindings") or {}).get("reference_images")))
+    return slots or None
 
 
 def binding_image_capabilities(definition: Mapping[str, Any]) -> frozenset[ImageCapability]:

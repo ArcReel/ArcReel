@@ -64,8 +64,8 @@ class TestCapabilities:
     def test_declares_no_reference_image_limit(self):
         from lib.backends.image_backends.agnes import AgnesImageBackend
 
-        # 该后端不按数量裁剪参考图（全量下传，见 i2i 用例），故声明 0 让编排层不裁剪。
-        assert asyncio.run(AgnesImageBackend(api_key="sk").reference_image_limit()) == 0
+        # 该通道不按数量裁剪参考图（全量下传，见 i2i 用例），不声明上限。
+        assert asyncio.run(AgnesImageBackend(api_key="sk").reference_image_limit()) is None
 
     def test_default_model_when_unset(self):
         from lib.backends.image_backends.agnes import AgnesImageBackend

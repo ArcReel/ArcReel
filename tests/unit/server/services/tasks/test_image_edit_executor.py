@@ -24,6 +24,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.version_manager import VersionManager
+from lib.backends.image_backends.base import BOTH_IMAGE_CAPABILITIES, ImageCapability
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.generation.generation_queue import DispatchProviderChanged
 from lib.project.project_manager import ProjectManager
@@ -222,7 +223,7 @@ def _patch_common(monkeypatch, fake_pm, fake_generator, *, resolution=None, regi
             backend_name="gemini-aistudio",
             backend_model="gemini-image",
             resolution=resolution,
-            max_reference_images=0,
+            max_reference_images=None,
         )
         return GenerationContext(generator=fake_generator, image_lane=lane)
 
@@ -317,7 +318,7 @@ class TestExecuteImageEditTask:
                 backend_name="gemini-aistudio",
                 backend_model="gemini-image",
                 resolution=None,
-                max_reference_images=0,
+                max_reference_images=None,
             )
             return GenerationContext(generator=generator, image_lane=lane)
 
@@ -360,7 +361,7 @@ class TestExecuteImageEditTask:
                 backend_name="gemini-aistudio",
                 backend_model="gemini-image",
                 resolution=None,
-                max_reference_images=0,
+                max_reference_images=None,
             )
             return GenerationContext(generator=generator, image_lane=lane)
 
@@ -967,9 +968,10 @@ class _EchoBackend:
 
     name: str
     model: str
-    max_reference_images: int = 0
+    max_reference_images: int | None = None
+    capabilities: frozenset[ImageCapability] = BOTH_IMAGE_CAPABILITIES
 
-    async def reference_image_limit(self) -> int:
+    async def reference_image_limit(self) -> int | None:
         return self.max_reference_images
 
 

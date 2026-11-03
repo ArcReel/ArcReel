@@ -328,14 +328,6 @@ class TestVideoCapabilitySingleSourceOfTruth:
         ]
         assert offenders == []
 
-    def test_model_info_has_no_reference_image_cap_field(self):
-        """CatalogModel 不得长出参考图上限字段：加上就等于把第二份来源请回来。"""
-        from dataclasses import fields
-
-        from lib.catalog.query import CatalogModel
-
-        assert "max_reference_images" not in {f.name for f in fields(CatalogModel)}
-
     def test_model_info_has_no_audio_cap_field(self):
         """同上：CatalogModel 不得长出音轨字段。
 

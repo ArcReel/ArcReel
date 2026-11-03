@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from lib.backends.audio_backends.base import AudioCapability, VoiceOption
 from lib.backends.backend_assembly import assemble_backend, callable_model_key
 from lib.backends.gemini_shared import get_shared_rate_limiter
+from lib.backends.image_capabilities import backend_reference_image_limit
 from lib.config.resolver import (
     ConfigResolver,
     VideoGenerationType,
@@ -263,16 +264,17 @@ class ImageLaneResult:
     ``provider_model`` 是规范 registry 身份；``backend_name`` / ``backend_model`` 是构造后
     backend 报告的实际身份——自定义供应商目标 model 被禁用回退时 ``backend_model`` 可能与
     ``provider_model.model_id`` 不同。``resolution`` 为 None 表示调用时不传 SDK 参数
-    （``docs/adr/0019``）。``max_reference_images`` 是 backend 声明的参考图上限（0 = 不裁剪），
-    编排层据此在渲染「图N」编号前裁剪参考图序列。与 video lane 的同名能力字段不同，它是
-    backend 上的常量属性、不经能力查询，故无降级分支。
+    （``docs/adr/0019``）。``max_reference_images`` 是参考图上限生效值（条目与通道两侧求值，见
+    ``lib.backends.image_capabilities.backend_reference_image_limit``）给出的裁剪上限，``None`` 表示不裁剪；
+    编排层据此在渲染「图N」编号前裁剪参考图序列。不接受参考图（上限为 0 或不支持图生图）时同样不裁剪，
+    参考图原样交给执行时的校验拒绝。
     """
 
     provider_model: ProviderModel
     backend_name: str
     backend_model: str
     resolution: str | None
-    max_reference_images: int
+    max_reference_images: int | None
 
 
 @dataclass(frozen=True)
@@ -497,7 +499,9 @@ async def resolve_generation_context(
             backend_name=image_backend.name,
             backend_model=image_backend.model,
             resolution=image_resolution,
-            max_reference_images=int(await image_backend.reference_image_limit()),
+            max_reference_images=(
+                await backend_reference_image_limit(image_backend, provider_id=image_provider_model.provider_id)
+            ).clamp_bound(),
         )
 
     generator = MediaGenerator(

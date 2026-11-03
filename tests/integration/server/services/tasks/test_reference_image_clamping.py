@@ -91,7 +91,7 @@ def _expected_basis(project_path: Path, pm: _FakePM):
     )
 
 
-def _patch_execution(monkeypatch, pm: _FakePM, generator: FakeGenerator, *, limit: int) -> None:
+def _patch_execution(monkeypatch, pm: _FakePM, generator: FakeGenerator, *, limit: int | None) -> None:
     use_project_manager(monkeypatch, pm)
     use_generation_context(monkeypatch, fake_resolve_ctx(generator, image_max_reference_images=limit))
 
@@ -157,11 +157,11 @@ class TestStoryboardReferenceClamping:
         assert "warnings" not in result
 
     async def test_backend_without_a_declared_limit_never_clamps(self, tmp_path, monkeypatch):
-        """未声明上限的后端（0）：不裁剪，与上限充裕时同一文本。"""
+        """条目与通道都没有声明上限（未收录）：不裁剪，与上限充裕时同一文本。"""
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
         generator = FakeGenerator(project_path)
-        _patch_execution(monkeypatch, pm, generator, limit=0)
+        _patch_execution(monkeypatch, pm, generator, limit=None)
 
         _result, call = await _run_storyboard(generator)
 

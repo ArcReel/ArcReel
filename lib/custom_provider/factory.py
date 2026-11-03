@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lib.backends.image_capabilities import custom_image_model_capabilities
+from lib.backends.image_capabilities import custom_image_model_capabilities, entry_reference_limit
 from lib.custom_provider.backends import (
     CustomAudioBackend,
     CustomImageBackend,
@@ -34,7 +34,7 @@ def create_custom_backend(
 
     视频后端额外注入生效能力（endpoint spec 系统判定 ⊕ 模型级用户覆盖），执行层据此门控，
     不直接读被包装 backend 的声明。图片后端注入模型事实一侧的文生图 / 图生图（条目 ⊕ 能力覆盖，
-    ComfyUI 端点不加约束），执行层取它与通道声明的交集。
+    ComfyUI 端点不加约束）与条目的参考图上限，执行层取它们与通道声明两侧求值的结果。
 
     Args:
         provider: 自定义供应商 ORM 对象（需 base_url / api_key / provider_id 属性）
@@ -67,9 +67,12 @@ def create_custom_backend(
             .with_catalog_entry(model_entry(model_id, spec.media_type, entry_binding))
         )
     if isinstance(backend, CustomImageBackend):
-        return backend.with_model_capabilities(
+        return backend.with_model_facts(
             custom_image_model_capabilities(
                 model_id, overrides=capability_overrides, endpoint_kind=spec.kind, entry_binding=entry_binding
-            )
+            ),
+            entry_reference_limit=entry_reference_limit(
+                model_id, builtin_provider=None, endpoint_kind=spec.kind, entry_binding=entry_binding
+            ),
         )
     return backend

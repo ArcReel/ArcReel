@@ -21,7 +21,7 @@ def _image_ctx(
     model="gpt-image-2",
     resolution="2K",
     backend_model=None,
-    max_reference_images=0,
+    max_reference_images=None,
 ):
     """把 image lane 解析产物拼成假 GenerationContext，替换 resolve_generation_context 单点。
 
@@ -1061,7 +1061,7 @@ class TestGridMetadataT2II2ISlotSelection:
                     backend_name=provider,
                     backend_model=model,
                     resolution="2K",
-                    max_reference_images=0,
+                    max_reference_images=None,
                 ),
             )
 
