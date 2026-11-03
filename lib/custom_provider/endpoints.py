@@ -37,6 +37,7 @@ from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
 from lib.backends.image_backends.openrouter import IMAGES_PATH as OPENROUTER_IMAGES_PATH
 from lib.backends.image_backends.openrouter import MODELS_PATH as OPENROUTER_MODELS_PATH
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend
+from lib.backends.image_backends.registry import reference_limit_of
 from lib.backends.minimax_shared import minimax_text_base_url
 from lib.backends.provider_assets import InferenceCredentialRef
 from lib.backends.text_backends.anthropic import AnthropicTextBackend
@@ -78,7 +79,11 @@ from lib.custom_provider.comfyui.capabilities import (
     size_is_fixed,
 )
 from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend, binding_video_capabilities
-from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend, binding_image_capabilities
+from lib.custom_provider.comfyui.comfyui_image_backend import (
+    ComfyuiImageBackend,
+    binding_image_capabilities,
+    binding_reference_limit,
+)
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import (
     REQUEST_SECTIONS,
@@ -86,7 +91,11 @@ from lib.custom_provider.declarative_backend import (
     request_urls,
     strips_base_url_version,
 )
-from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend, image_capabilities_from_definition
+from lib.custom_provider.declarative_image_backend import (
+    DeclarativeImageBackend,
+    definition_reference_limit,
+    image_capabilities_from_definition,
+)
 from lib.custom_provider.path_overrides import (
     NO_PATH_OVERRIDES,
     BaseUrlRule,
@@ -1431,6 +1440,22 @@ def endpoint_to_image_capabilities(endpoint: str) -> frozenset[ImageCapability]:
     if spec.image_capabilities is None:
         raise ValueError(f"endpoint {endpoint!r} is not an image endpoint")
     return spec.image_capabilities
+
+
+def endpoint_reference_image_limit(spec: EndpointSpec) -> int | None:
+    """图片端点静态声明的参考图上限（通道事实），与端点构造出的 backend 的 ``reference_image_limit()`` 同源。
+
+    ComfyUI 端点取节点绑定的参考图槽位数，声明式端点取定义里的声明，Python 端点取被包装调用通道类上的
+    ``CHANNEL_REFERENCE_LIMIT``；``None`` 表示通道本身不限张数。按模型运行时查询的通道（OpenRouter）这里只给出
+    端点上限，执行时可能再收窄。
+    """
+    if spec.definition is not None:
+        if spec.kind == COMFYUI_KIND:
+            return binding_reference_limit(spec.definition)
+        return definition_reference_limit(spec.definition)
+    if spec.metering_backend is None:
+        return None
+    return reference_limit_of(spec.metering_backend)
 
 
 def list_endpoints_by_media_type(media_type: str) -> list[EndpointSpec]:

@@ -80,7 +80,7 @@ async def render_asset_prompt(
     max_reference_images, model = (
         await reference_image_limit(project_name, dict(project), project_path)
         if generation_input.references
-        else (0, "")
+        else (None, "")
     )
     rendered = generation_input.render(max_reference_images=max_reference_images, model=model)
     return RenderedPrompt(text=rendered.prompt, is_text_form=True, warnings=rendered.warnings)

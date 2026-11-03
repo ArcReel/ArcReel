@@ -249,6 +249,22 @@ def _add_user_model(client: TestClient, provider_id: str, model_id: str, media_t
     assert resp.status_code == 201
 
 
+@pytest.mark.parametrize(
+    ("provider_id", "model_id", "expected"),
+    [
+        ("ark", "doubao-seedream-4-5-251128", 14),  # 条目记 14 张，通道不限
+        ("grok", "grok-imagine-image", 5),  # 条目未收录，通道一次收 5 张
+        ("agnes", "agnes-image-2.5-flash", None),  # 两侧都没有声明：未收录
+    ],
+)
+def test_official_image_models_show_the_effective_reference_limit(
+    models_client: TestClient, provider_id: str, model_id: str, expected: int | None
+) -> None:
+    caps = models_client.get(f"/api/v1/providers/{provider_id}/models/{model_id}").json()["capabilities"]
+    assert caps["editable"] == []
+    assert caps["effective"]["max_reference_images"] == expected
+
+
 def test_user_added_video_model_overrides_take_effect_at_runtime(models_client: TestClient) -> None:
     from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 

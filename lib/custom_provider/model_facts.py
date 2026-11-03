@@ -1,7 +1,7 @@
 """供应商模型的生效模型事实：能力覆盖 > 对应条目 > 运行时回落（docs/adr/0104、0105）。
 
-模型事实（文本的图片输入、结构化输出、最大输出 token；图片的文生图、图生图；视频的可选时长、分辨率与
-时长联动约束）记在模型条目上。用户负责的供应商模型可以用能力覆盖整维替换其中任一维度，覆盖优先级最高；
+模型事实（文本的图片输入、结构化输出、最大输出 token；图片的文生图、图生图与参考图上限；视频的可选时长、
+分辨率与时长联动约束）记在模型条目上。用户负责的供应商模型可以用能力覆盖整维替换其中任一维度，覆盖优先级最高；
 未覆盖的维度取对应条目的值。对应不上条目时：可选时长取按名字推断的时长预设（一个族都匹配不上时为
 ``[4, 8]``），其余模型事实不加约束（``None``），超出范围由上游拒绝。回落结果只在这里现算，不写入任何字段。
 
@@ -123,10 +123,15 @@ class TextModelFacts:
 
 @dataclass(frozen=True)
 class ImageModelFacts:
-    """``None`` 表示这一维不加约束（对应不上条目且没有覆盖）。"""
+    """``None`` 表示这一维不加约束（对应不上条目且没有覆盖）。
+
+    ``max_reference_images`` 是条目记录的参考图上限（``None`` 为未收录，``0`` 为显式不接受）；它与调用通道的
+    上限两侧取较小值，见 :func:`lib.backends.image_capabilities.image_reference_limit`。
+    """
 
     text_to_image: bool | None = None
     image_to_image: bool | None = None
+    max_reference_images: int | None = None
 
 
 @dataclass(frozen=True)
@@ -166,6 +171,7 @@ def image_model_facts(model_id: str, overrides: object | None, *, entry_binding:
     return ImageModelFacts(
         text_to_image=_bool_fact(applied, "text_to_image", None if facts is None else facts.text_to_image),
         image_to_image=_bool_fact(applied, "image_to_image", None if facts is None else facts.image_to_image),
+        max_reference_images=None if facts is None else facts.max_reference_images,
     )
 
 

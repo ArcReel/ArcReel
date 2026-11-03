@@ -78,6 +78,8 @@ class AgnesImageBackend:
     """Agnes 图像后端（单步同步 OpenAI 兼容 images/generations 端点）。"""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+    # Agnes 通道不按数量裁剪参考图，全量随请求发出。
+    CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
         self,
@@ -104,9 +106,8 @@ class AgnesImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return set(self.CHANNEL_CAPABILITIES)
 
-    async def reference_image_limit(self) -> int:
-        # Agnes 不按数量裁剪参考图，全量随请求发出。
-        return 0
+    async def reference_image_limit(self) -> int | None:
+        return self.CHANNEL_REFERENCE_LIMIT
 
     @staticmethod
     def _uses_v25(model: str) -> bool:

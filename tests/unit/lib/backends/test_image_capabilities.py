@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from lib.artifacts.visual_artifact_provenance import VisualReference
+from lib.backends.generation_type_buckets import builtin_model_buckets, custom_model_buckets
+from lib.backends.image_backends.agnes import AgnesImageBackend
 from lib.backends.image_backends.base import BOTH_IMAGE_CAPABILITIES, ImageCapability
+from lib.backends.image_backends.grok import GrokImageBackend
 from lib.backends.image_capabilities import (
+    backend_reference_image_limit,
     custom_image_model_capabilities,
     effective_image_capabilities,
+    entry_reference_limit,
+    image_reference_limit,
     intersect_image_capabilities,
 )
+from lib.backends.input_limits import InputLimit
 from lib.catalog import query
+from lib.prompts.reference_image_numbering import clamp_reference_images
 from tests.catalog_support import install_catalog, with_entry_facts
 
 T2I = ImageCapability.TEXT_TO_IMAGE
@@ -68,3 +79,84 @@ def test_comfyui_endpoint_ignores_entry_and_overrides():
     )
     assert model is None
     assert intersect_image_capabilities({T2I}, model) == {T2I}
+
+
+# ---------------------------------------------------------------------------
+# 参考图上限：条目与通道两侧求值，候选与编排层裁剪读同一个结果
+# ---------------------------------------------------------------------------
+
+
+def _sheets(count: int) -> list[VisualReference]:
+    return [
+        VisualReference(path=Path(f"角色{i}.png"), role="asset_sheet", logical_type="character", logical_id=f"角色{i}")
+        for i in range(count)
+    ]
+
+
+def _clamped(limit: InputLimit[int], count: int) -> int:
+    return clamp_reference_images(_sheets(count), limit.clamp_bound(), model="m").kept
+
+
+def _grok(model: str = "grok-imagine-image") -> GrokImageBackend:
+    return GrokImageBackend(api_key="k", model=model)
+
+
+async def test_entry_below_the_channel_limit_wins_and_clamps(monkeypatch: pytest.MonkeyPatch):
+    """Grok 通道一次收 5 张，条目记 3 张：生效 3 张，编排层裁到 3 张。"""
+    install_catalog(
+        monkeypatch, with_entry_facts(query.factory_snapshot(), "grok", "grok-imagine-image", max_reference_images=3)
+    )
+    limit = await backend_reference_image_limit(_grok(), provider_id="grok")
+    assert limit == InputLimit.at_most(3)
+    assert _clamped(limit, 6) == 3
+
+
+async def test_unrecorded_entry_leaves_only_the_channel_limit(monkeypatch: pytest.MonkeyPatch):
+    install_catalog(
+        monkeypatch, with_entry_facts(query.factory_snapshot(), "grok", "grok-imagine-image", max_reference_images=None)
+    )
+    limit = await backend_reference_image_limit(_grok(), provider_id="grok")
+    assert limit == InputLimit.at_most(5)
+    assert _clamped(limit, 6) == 5
+
+
+async def test_neither_side_declaring_a_limit_is_unrecorded_and_never_clamps(monkeypatch: pytest.MonkeyPatch):
+    """Agnes 通道不限张数、条目也没收录：未收录，不裁剪，超出由上游拒绝。"""
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(query.factory_snapshot(), "agnes", "agnes-image-2.5-flash", max_reference_images=None),
+    )
+    limit = await backend_reference_image_limit(AgnesImageBackend(api_key="k"), provider_id="agnes")
+    assert limit == InputLimit.unrecorded()
+    assert _clamped(limit, 20) == 20
+
+
+async def test_explicit_zero_accepts_no_reference_and_leaves_the_i2i_bucket(monkeypatch: pytest.MonkeyPatch):
+    """条目显式记 0 张：不接受参考图，不进 i2i 桶；编排层不裁成 0 张，原样交给执行时的校验拒绝。"""
+    data = with_entry_facts(query.factory_snapshot(), "grok", "grok-imagine-image", max_reference_images=0)
+    install_catalog(monkeypatch, data)
+    limit = await backend_reference_image_limit(_grok(), provider_id="grok")
+    assert limit == InputLimit.at_most(0)
+    assert not limit.accepts_input
+    assert _clamped(limit, 4) == 4
+    model_info = query.get_model("grok", "grok-imagine-image", media_type="image")
+    assert model_info is not None
+    assert builtin_model_buckets("grok", "grok-imagine-image", model_info) == {"t2i"}
+
+
+def test_custom_override_closing_i2i_makes_the_reference_path_unsupported():
+    """已有的图生图能力覆盖关掉这条路径：对应条目记 14 张也不接受参考图，候选只剩文生图。"""
+    assert custom_model_buckets(endpoint="gemini-image", model_id="gemini-3-pro-image") == {"t2i", "i2i"}
+    assert custom_model_buckets(
+        endpoint="gemini-image", model_id="gemini-3-pro-image", capability_overrides={"image_to_image": False}
+    ) == {"t2i"}
+    model_caps = custom_image_model_capabilities(
+        "gemini-3-pro-image", overrides={"image_to_image": False}, endpoint_kind="python"
+    )
+    limit = image_reference_limit(
+        capabilities=intersect_image_capabilities(BOTH_IMAGE_CAPABILITIES, model_caps),
+        entry_limit=entry_reference_limit("gemini-3-pro-image", builtin_provider=None),
+        channel_limit=None,
+    )
+    assert limit == InputLimit.unsupported()
+    assert _clamped(limit, 16) == 16

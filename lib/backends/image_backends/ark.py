@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from pathlib import Path
 from typing import ClassVar
 
@@ -67,29 +66,12 @@ def _resolve_seedream_size(model_id: str, aspect_ratio: str) -> str:
     return size or "2K"
 
 
-# 单请求参考图上限：Seedream 5.0 pro / 5.0 flash 最多 10 张；
-# 5.0 lite / 4.5 / 4.0 最多 14 张（输入参考图 + 生成图 ≤ 15）。
-# doubao-seedream-5-0-260128 与 doubao-seedream-5-0-lite-260128 是同一模型的两个 ID。
-# pro / flash 不在内置目录，但可按 ID 手动添加或经自定义端点 ark-seedream 复用本后端；
-# 名字里的版本号兼容 `5-0` 与中转站常用的 `5.0` 两种写法。
-# 参考：https://www.volcengine.com/docs/82379/1541523 、https://www.volcengine.com/docs/82379/1666946 、
-# https://www.volcengine.com/docs/82379/1330310
-_MAX_REFERENCE_IMAGES = 14
-_SEEDREAM_5_PRO_FLASH_MAX_REFERENCE_IMAGES = 10
-_SEEDREAM_5_PRO_FLASH_PATTERN = re.compile(r"seedream-5[-.]0-(?:pro|flash)")
-
-
-def _max_reference_images(model_id: str) -> int:
-    """按型号给出单请求参考图上限；声明、截断与计量共用。"""
-    if _SEEDREAM_5_PRO_FLASH_PATTERN.search((model_id or "").lower()):
-        return _SEEDREAM_5_PRO_FLASH_MAX_REFERENCE_IMAGES
-    return _MAX_REFERENCE_IMAGES
-
-
 class ArkImageBackend:
     """Ark (火山方舟) Seedream 图片生成后端。"""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+    # 通道本身不限参考图张数：Seedream 各代的上限是模型事实，记在条目上。
+    CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     DEFAULT_MODEL = "doubao-seedream-5-0-pro-260628"
 
@@ -116,8 +98,8 @@ class ArkImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return set(self.CHANNEL_CAPABILITIES)
 
-    async def reference_image_limit(self) -> int:
-        return _max_reference_images(self._model)
+    async def reference_image_limit(self) -> int | None:
+        return self.CHANNEL_REFERENCE_LIMIT
 
     @staticmethod
     def _size(model: str, image_size: str | None, aspect_ratio: str) -> str:
@@ -125,10 +107,9 @@ class ArkImageBackend:
 
     @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:
-        refs = facts.reference_count
         return per_image_usage(
             output_images=1,
-            input_images=None if refs is None else min(refs, _max_reference_images(facts.model)),
+            input_images=facts.reference_count,
             dimensions={"resolution": ArkImageBackend._size(facts.model, facts.image_size, facts.aspect_ratio)},
         )
 
@@ -150,10 +131,6 @@ class ArkImageBackend:
         # I2I: 读取参考图并转为 base64 data URI
         if request.reference_images:
             refs = request.reference_images
-            limit = _max_reference_images(self._model)
-            if len(refs) > limit:
-                logger.warning("Ark 参考图数量 %d 超过上限 %d，截断", len(refs), limit)
-                refs = refs[:limit]
             # 读整张图做 base64 编码是阻塞 I/O，逐张卸载到线程后并发等待，避免堵住事件循环
             data_uris = await asyncio.gather(
                 *[asyncio.to_thread(image_to_base64_data_uri, Path(ref.path)) for ref in refs]

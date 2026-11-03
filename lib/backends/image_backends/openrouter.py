@@ -30,7 +30,7 @@ import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
@@ -255,6 +255,9 @@ def _resolve_model_params(supported: dict | None, image_size: str | None, aspect
 class OpenRouterImageBackend:
     """OpenRouter 统一图片后端：T2I 与 I2I 同 hit ``POST {base_url}/images``。"""
 
+    # 端点一次最多收 16 张；运行时再按模型目录声明的 ``input_references`` 收窄（见 :meth:`reference_image_limit`）。
+    CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _MAX_REFERENCE_IMAGES
+
     def __init__(
         self,
         *,
@@ -291,8 +294,8 @@ class OpenRouterImageBackend:
     async def reference_image_limit(self) -> int:
         """这个模型单请求可携带的参考图上限：目录声明的 ``input_references`` 上限，封顶 16。
 
-        目录不可得、目录里没有这个模型，或模型没声明可用的参考图上限时取 16：没声明参考图的模型由
-        ``generate`` 按不支持图生图报错（docs/adr/0015），这里不返回 ``0``——``0`` 的意思是「不裁剪」。
+        目录不可得、目录里没有这个模型，或模型没声明可用的参考图上限时取端点的 16：没声明参考图的模型由
+        ``generate`` 按不支持图生图报错（docs/adr/0015）。
         """
         return _effective_reference_limit(await self._fetch_supported_params())
 

@@ -155,6 +155,7 @@ class OpenAIImageBackend:
 
     #: 内置供应商按缺省的 ``both`` 构造；自定义端点按 mode 收窄，通道事实由端点声明。
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+    CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _MAX_REFERENCE_IMAGES
 
     _MODE_TO_CAPS: ClassVar[dict[str, set[ImageCapability]]] = {
         "both": {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE},
@@ -187,8 +188,8 @@ class OpenAIImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return self._capabilities
 
-    async def reference_image_limit(self) -> int:
-        return _MAX_REFERENCE_IMAGES
+    async def reference_image_limit(self) -> int | None:
+        return self.CHANNEL_REFERENCE_LIMIT
 
     @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:

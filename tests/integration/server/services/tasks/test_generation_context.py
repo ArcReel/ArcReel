@@ -19,6 +19,7 @@ from sqlalchemy import update
 from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+from lib.backends.image_backends.base import BOTH_IMAGE_CAPABILITIES, ImageCapability
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelDiscontinuedError, ModelNotInCatalogError
 from lib.catalog.query import factory_snapshot
@@ -65,9 +66,10 @@ class _FakeBackend:
     name: str
     model: str
     voices: list = field(default_factory=list)
-    max_reference_images: int = 0
+    max_reference_images: int | None = None
+    capabilities: frozenset[ImageCapability] = BOTH_IMAGE_CAPABILITIES
 
-    async def reference_image_limit(self) -> int:
+    async def reference_image_limit(self) -> int | None:
         """image backend 协议的一部分：image lane 解析时读一次参考图上限。"""
         return self.max_reference_images
 
@@ -881,7 +883,7 @@ class TestValueObjectAssembly:
             backend_name="ark",
             backend_model="m",
             resolution=None,
-            max_reference_images=0,
+            max_reference_images=None,
         )
         with pytest.raises(AttributeError):
             lane.resolution = "720p"

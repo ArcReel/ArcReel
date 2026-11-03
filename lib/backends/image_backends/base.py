@@ -162,11 +162,12 @@ class ImageBackend(Protocol):
         """这条调用通道实现了文生图还是图生图（通道事实，不含模型事实）。"""
         ...
 
-    async def reference_image_limit(self) -> int:
-        """这个模型单请求可携带的参考图上限；``0`` = 该后端不按数量裁剪。
+    async def reference_image_limit(self) -> int | None:
+        """这条调用通道单请求可携带的参考图上限（通道事实）；``None`` = 通道本身不限张数。
 
-        与 ``generate`` 内的截断同源。编排层解析图片通道时读一次，据此在渲染「图N」编号前裁剪参考图序列
-        （见 ``lib.prompts.reference_image_numbering.clamp_reference_images``），后端内的截断退为兜底。
+        内置调用通道在类属性 ``CHANNEL_REFERENCE_LIMIT`` 上静态声明，这里返回同一个值；模型本身的上限记在条目上，
+        不在调用通道里按型号名区分。生效值由两侧取较小值得出（``lib.backends.image_capabilities``），编排层据此在
+        渲染「图N」编号前裁剪参考图序列（见 ``lib.prompts.reference_image_numbering.clamp_reference_images``）。
         异步：上限可能要向供应商的模型目录查询才知道（如 OpenRouter 按模型声明的 ``input_references``）。
         """
         ...

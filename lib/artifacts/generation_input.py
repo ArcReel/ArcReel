@@ -291,14 +291,16 @@ class ImageGenerationInput[S: GenerationSemantics]:
             absent=self.gaps,
         )
 
-    def render(self, *, max_reference_images: int, model: str) -> RenderedInput:
+    def render(self, *, max_reference_images: int | None, model: str) -> RenderedInput:
         """按供应商上限裁剪后渲染提示词，不冻结参考图；预览用，编号与 :meth:`freeze` 一致。"""
 
         self._require_complete()
         visuals = [reference.visual for reference in self.references]
         return _render_clamped(self.semantics, visuals, max_reference_images=max_reference_images, model=model)
 
-    def freeze(self, *, max_reference_images: int, model: str, bind_claims: ClaimBinder) -> FrozenGenerationInput:
+    def freeze(
+        self, *, max_reference_images: int | None, model: str, bind_claims: ClaimBinder
+    ) -> FrozenGenerationInput:
         """把完整参考图集冻结到任务私有快照，再绑定 claim、裁剪、渲染并构造登记依据。
 
         依据与 claim 按完整冻结集，供应商只收前 N 张；裁剪发生时结果带一条 warning。
@@ -836,7 +838,7 @@ def _render_clamped(
     semantics: GenerationSemantics,
     visuals: Sequence[VisualReference],
     *,
-    max_reference_images: int,
+    max_reference_images: int | None,
     model: str,
 ) -> RenderedInput:
     clamp = clamp_reference_images(visuals, max_reference_images, model=model)
@@ -853,7 +855,7 @@ def _freeze(
     canvas_ratio: str,
     references: Sequence[AssembledReference],
     *,
-    max_reference_images: int,
+    max_reference_images: int | None,
     model: str,
     bind_claims: ClaimBinder,
 ) -> FrozenGenerationInput:

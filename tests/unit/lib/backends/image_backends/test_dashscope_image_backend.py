@@ -223,32 +223,20 @@ class TestImageToImage:
         assert content[0]["image"].startswith("data:image/png;base64,")
         assert content[-1] == {"text": "edit it"}
 
-    async def test_qwen_ref_limit_3(self, tmp_path: Path):
-        download = AsyncMock()
-        refs = [_make_ref(tmp_path, f"r{i}.png") for i in range(5)]
-        with _generate_route(_img_response(), download) as route:
-            from lib.backends.image_backends.dashscope import DashScopeImageBackend
-
-            b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
-            await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=refs))
-
-        content = request_json(only_request(route))["input"]["messages"][0]["content"]
-        images = [c for c in content if "image" in c]
-        # qwen 上限裁剪；声明的上限即实际下传张数，编排层按它裁剪后编号。
-        assert len(images) == (await b.reference_image_limit()) == 3
-
-    async def test_wan_ref_limit_9(self, tmp_path: Path):
+    @pytest.mark.parametrize("model", ["qwen-image-2.0", "wan2.7-image-pro"])
+    async def test_channel_sends_every_reference_whatever_the_model_name(self, tmp_path: Path, model: str):
+        # qwen 系与 wan 系的参考图上限记在条目上，由编排层按生效上限裁剪；通道不按型号名截断。
         download = AsyncMock()
         refs = [_make_ref(tmp_path, f"r{i}.png") for i in range(11)]
         with _generate_route(_img_response(), download) as route:
             from lib.backends.image_backends.dashscope import DashScopeImageBackend
 
-            b = DashScopeImageBackend(api_key="sk", model="wan2.7-image-pro")
+            b = DashScopeImageBackend(api_key="sk", model=model)
             await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=refs))
 
         content = request_json(only_request(route))["input"]["messages"][0]["content"]
-        images = [c for c in content if "image" in c]
-        assert len(images) == (await b.reference_image_limit()) == 9
+        assert len([c for c in content if "image" in c]) == 11
+        assert await b.reference_image_limit() is None
 
 
 class TestCapabilityGating:

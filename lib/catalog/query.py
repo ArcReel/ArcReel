@@ -75,7 +75,7 @@ class CatalogModel:
     """供应商名下一个模型键在目录中的信息：模型条目的事实，加上这个供应商模型自己的事实。
 
     条目事实：``display_name``、``media_type``、``capabilities``、可选时长与时长约束、
-    ``resolutions``、``max_output_tokens``、``hidden``（条目已下线，不出现在候选里，按当天日期现算）。供应商模型事实：
+    ``resolutions``、``max_output_tokens``、``max_reference_images``（图片与视频的参考图上限，``None`` 为未收录）、``hidden``（条目已下线，不出现在候选里，按当天日期现算）。供应商模型事实：
     ``default``（这个供应商在该媒体类型下的默认模型；已下线时为假）、``api_model_name``（发给供应商的模型名，``None``
     时用模型键）。价格不在这里，经 :func:`provider_model_price` 取。
 
@@ -93,6 +93,7 @@ class CatalogModel:
     hidden: bool = False
     api_model_name: str | None = None
     max_output_tokens: int | None = None
+    max_reference_images: int | None = None
 
 
 @functools.cache
@@ -136,6 +137,7 @@ def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, defaul
     reference_durations: list[int] = []
     resolutions: list[str] = []
     max_output_tokens: int | None = None
+    max_reference_images: int | None = None
     facts = entry.facts
     match facts:
         case TextFacts():
@@ -151,7 +153,9 @@ def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, defaul
             if facts.image_to_image:
                 capabilities.append("image_to_image")
             resolutions = list(facts.resolutions)
+            max_reference_images = facts.max_reference_images
         case VideoFacts():
+            max_reference_images = facts.max_reference_images
             durations = list(facts.durations)
             resolutions = list(facts.resolutions)
             constraints = facts.duration_constraints
@@ -172,6 +176,7 @@ def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, defaul
         resolutions=resolutions,
         api_model_name=None if key == api_model_name else api_model_name,
         max_output_tokens=max_output_tokens,
+        max_reference_images=max_reference_images,
     )
 
 

@@ -72,6 +72,7 @@ class MiniMaxImageBackend:
     """MiniMax 图像后端（单步同步 image_generation 端点）。"""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+    CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _SUBJECT_REF_LIMIT
 
     def __init__(
         self,
@@ -101,8 +102,8 @@ class MiniMaxImageBackend:
         # 文生图 + 图生图（subject_reference）同一端点。
         return set(self.CHANNEL_CAPABILITIES)
 
-    async def reference_image_limit(self) -> int:
-        return _SUBJECT_REF_LIMIT
+    async def reference_image_limit(self) -> int | None:
+        return self.CHANNEL_REFERENCE_LIMIT
 
     @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:

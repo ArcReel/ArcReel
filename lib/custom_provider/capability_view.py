@@ -4,6 +4,9 @@
 预设，其余维度不加约束，记为 ``None``）；通道事实取调用通道或调用端点的声明。生效值是原值叠加能力覆盖的结果，
 与执行层读到的一致。
 
+图片的参考图上限是两侧求值的结果（``lib.backends.image_capabilities.image_reference_limit``），没有自己的能力覆盖，
+按生效的图生图求值：``None`` 为未收录，``0`` 为不接受参考图（条目记为 0 张，或图生图不在生效能力里）。
+
 只有用户负责的供应商模型可以修改：自定义供应商的模型，以及内置供应商下用户添加的模型。ComfyUI 端点只开放视频
 的可选时长，且端点驱动不了时长时这一维也不开放（docs/adr/0082）。图片的文生图、图生图只开放调用通道实现了的
 那一维：通道没实现的能力覆盖为开启也打不开。
@@ -29,7 +32,11 @@ from arcreel_market_core.video_backend_contract import (
 )
 from lib.backends.backend_assembly.specs import declared_builtin_video_capabilities
 from lib.backends.image_backends.base import ImageCapability
-from lib.backends.image_capabilities import builtin_channel_capabilities
+from lib.backends.image_capabilities import (
+    builtin_channel_capabilities,
+    builtin_channel_reference_limit,
+    image_reference_limit,
+)
 from lib.catalog.query import CatalogModel
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
@@ -39,7 +46,7 @@ from lib.custom_provider.capabilities import (
     capability_value_matches,
     system_video_capabilities,
 )
-from lib.custom_provider.endpoints import EndpointSpec
+from lib.custom_provider.endpoints import EndpointSpec, endpoint_reference_image_limit
 from lib.custom_provider.model_facts import (
     MODEL_FACT_OVERRIDE_KEYS,
     comfyui_duration_override,
@@ -171,6 +178,19 @@ def custom_capability_view(
     """自定义供应商模型的参数视图。``applied_overrides`` 是按写入侧同一判定过滤后的覆盖（回显用的那一份）。"""
     media_type = spec.media_type
     if spec.kind == COMFYUI_KIND:
+        if media_type == "image":
+            # 节点绑定决定一切：没有参考图槽位就不接受参考图，有槽位时上限就是槽位数，不读条目。
+            return CapabilityView(
+                media_type,
+                base={
+                    "max_reference_images": _image_reference_limit_json(
+                        True,
+                        implemented=spec.image_capabilities or frozenset(),
+                        entry_limit=None,
+                        channel_limit=endpoint_reference_image_limit(spec),
+                    )
+                },
+            )
         if media_type != "video":
             return CapabilityView(media_type)
         endpoint_durations = list(spec.endpoint_durations or [])
@@ -200,6 +220,12 @@ def custom_capability_view(
                 "image_to_image": image.image_to_image is not False and ImageCapability.IMAGE_TO_IMAGE in implemented,
             }
             editable = {key for key in editable if _IMAGE_CAPABILITY_BY_KEY[key] in implemented}
+            base["max_reference_images"] = _image_reference_limit_json(
+                (applied_overrides or {}).get("image_to_image", image.image_to_image is not False),
+                implemented=implemented,
+                entry_limit=image.max_reference_images,
+                channel_limit=endpoint_reference_image_limit(spec),
+            )
         case "video":
             video = video_model_facts(model_id, None, entry_binding=entry_binding)
             base = {
@@ -259,6 +285,24 @@ def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -
             return {}
 
 
+def _image_reference_limit_json(
+    image_to_image: object,
+    *,
+    implemented: frozenset[ImageCapability],
+    entry_limit: int | None,
+    channel_limit: int | None,
+) -> int | None:
+    """参考图上限的生效值按界面形状给出。``image_to_image`` 是模型事实一侧叠加能力覆盖后的图生图。"""
+    capabilities = (
+        {ImageCapability.IMAGE_TO_IMAGE}
+        if image_to_image is True and ImageCapability.IMAGE_TO_IMAGE in implemented
+        else set()
+    )
+    return image_reference_limit(
+        capabilities=capabilities, entry_limit=entry_limit, channel_limit=channel_limit
+    ).to_json()
+
+
 def _image_channel(provider_id: str) -> frozenset[ImageCapability]:
     try:
         return builtin_channel_capabilities(provider_id)
@@ -277,12 +321,22 @@ def builtin_capability_view(
     """内置供应商模型的参数视图。官方收录的模型只读；用户添加的可以修改该媒体类型的全部维度。"""
     media_type = base_model.media_type
     base = _catalog_model_facts(provider_id, model_id, base_model)
-    if official:
-        return CapabilityView(media_type, base=base)
-    editable = set(overridable_keys(media_type))
+    editable = set(overridable_keys(media_type)) if not official else set()
     if media_type == "image":
         implemented = _image_channel(provider_id)
         editable = {key for key in editable if _IMAGE_CAPABILITY_BY_KEY[key] in implemented}
+        try:
+            channel_limit = builtin_channel_reference_limit(provider_id)
+        except ValueError:
+            channel_limit = None
+        base["max_reference_images"] = _image_reference_limit_json(
+            overrides.get("image_to_image", base["image_to_image"]),
+            implemented=implemented,
+            entry_limit=base_model.max_reference_images,
+            channel_limit=channel_limit,
+        )
+    if official:
+        return CapabilityView(media_type, base=base)
     return CapabilityView(
         media_type, editable=_ordered(editable), base=base, overrides=_normalized_overrides(overrides)
     )

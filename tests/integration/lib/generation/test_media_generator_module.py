@@ -41,6 +41,9 @@ class _FakeImageBackend:
     model = "img-model"
     capabilities: ClassVar[set[ImageCapability]] = {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
+    async def reference_image_limit(self) -> int | None:
+        return None
+
     def __init__(self):
         self.calls = []
 
@@ -1475,6 +1478,9 @@ class _ConfigurableImageBackend:
     name = "fake-image"
     model = "img-model"
     capabilities: ClassVar[set[ImageCapability]] = {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
+
+    async def reference_image_limit(self) -> int | None:
+        return None
 
     def __init__(self, fail_413_times: int = 0):
         self.calls = []

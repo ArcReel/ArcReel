@@ -725,7 +725,7 @@ class MediaGenerator:
 
         # Capability gating：调用通道实现了、且模型条目接受的才放行，与任务类型桶的候选同一个结果
         # （lib.backends.image_capabilities）。上层 resolver 选桶时已按同一口径筛过，这里按实际请求形态把关。
-        from lib.backends.image_capabilities import effective_image_capabilities
+        from lib.backends.image_capabilities import backend_reference_image_limit, effective_image_capabilities
         from lib.custom_provider import is_custom_provider
         from lib.custom_provider.backends import CustomImageBackend
 
@@ -741,13 +741,23 @@ class MediaGenerator:
                 builtin_provider=None if is_custom_provider(provider_id) else provider_id,
             )
         needed = ImageCapability.IMAGE_TO_IMAGE if ref_images else ImageCapability.TEXT_TO_IMAGE
-        if needed not in available:
+        # 参考图上限与编排层裁剪读同一个生效值：上限为 0 时同样不接受图生图；超出正数上限说明调用方没有按它裁剪，
+        # 不再交给后端静默截断。
+        reference_limit = (
+            await backend_reference_image_limit(self._image_backend, provider_id=provider_id) if ref_images else None
+        )
+        if needed not in available or (reference_limit is not None and not reference_limit.accepts_input):
             raise ImageCapabilityError(
                 "image_capability_missing_i2i"
                 if needed == ImageCapability.IMAGE_TO_IMAGE
                 else "image_capability_missing_t2i",
                 provider=self._image_backend.name,
                 model=self._image_backend.model,
+            )
+        bound = reference_limit.clamp_bound() if reference_limit is not None else None
+        if bound is not None and len(ref_images) > bound:
+            raise ImageCapabilityError(
+                "image_reference_images_exceeded", model=self._image_backend.model, limit=bound, count=len(ref_images)
             )
 
         # 2. 记账括号：进入落 pending，成功以 call.success(result) 递交 backend 结果对象，

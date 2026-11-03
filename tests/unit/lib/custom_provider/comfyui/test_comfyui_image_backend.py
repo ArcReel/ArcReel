@@ -109,7 +109,7 @@ class TestDeclaredCapabilities:
         backend = _backend()
 
         assert backend.capabilities == {ImageCapability.TEXT_TO_IMAGE}
-        assert asyncio.run(backend.reference_image_limit()) == 0
+        assert asyncio.run(backend.reference_image_limit()) is None
 
     def test_a_workflow_with_reference_slots_is_image_to_image_only(self):
         """有格子却不给图，构造层要么删读图节点要么提交一张空图——都不是「也支持文生图」。"""
@@ -147,6 +147,22 @@ class TestDeclaredCapabilities:
         assert isinstance(backend, CustomImageBackend)
         assert backend.capabilities == {ImageCapability.IMAGE_TO_IMAGE}
         assert asyncio.run(backend.reference_image_limit()) == 1
+
+    async def test_the_reference_limit_is_the_slot_count_and_ignores_the_matched_entry(self):
+        """模型行名字对上记 14 张的条目，生效上限仍是 workflow 的 2 个格子；编排层据此裁剪，候选也只看绑定。"""
+        from lib.backends.generation_type_buckets import custom_model_buckets
+        from lib.backends.image_capabilities import backend_reference_image_limit
+        from lib.backends.input_limits import InputLimit
+
+        definition = _definition(reference_slots=2)
+        spec = endpoint_spec_from_row(cast("Any", SimpleNamespace(id=7, definition=definition)))
+        provider = SimpleNamespace(provider_id="custom-1", base_url=BASE_URL, api_key="")
+        backend = create_custom_backend(
+            provider=cast("Any", provider), model_id="gemini-3-pro-image", endpoint="ce-7", endpoint_spec=spec
+        )
+
+        assert await backend_reference_image_limit(backend, provider_id="custom-1") == InputLimit.at_most(2)
+        assert custom_model_buckets(endpoint="ce-7", model_id="gemini-3-pro-image", endpoint_spec=spec) == {"i2i"}
 
 
 class TestGenerate:
