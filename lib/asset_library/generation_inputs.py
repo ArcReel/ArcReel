@@ -7,6 +7,9 @@
 - 选定的关联可用：以 ``asset://`` 素材引用代替这张图片的内容，位置与提示词里的图片编号不变；
 - 选定的关联或入库任务尚在处理、结果待确认或已失败：适用但不可用，明确失败，不改发图片内容。
 
+提交前的读侧（接收任务、批量预览、报价）与执行侧按同一规则选择：读侧以当前配置装配的调用通道求范围，执行侧以
+实际调用通道求范围，暂存参考图之后再按实发字节核对一次。
+
 只读：不为早期版本记录补写身份，没有身份的记录不可能有关联。关联的查询与状态机见 :mod:`lib.asset_library.links`。
 """
 
@@ -25,6 +28,8 @@ from lib.asset_library.bindings import AssetLibraryScope, resolve_bound_scope
 from lib.asset_library.links import UPLOADABLE_RESOURCE_TYPES, asset_uri, is_usable, selected_link
 from lib.backends.provider_assets import REFERENCE_IMAGE_ROLE, inference_credential, provider_asset_roles
 from lib.db.models.asset_library import ProviderAssetLink
+from lib.infra.content_digest import sha256_file
+from lib.infra.path_safety import safe_join
 from lib.material.storage import CONTENT_DIGEST, CONTENT_VERSION_ID
 from lib.project.resource_paths import resource_of_path
 
@@ -66,6 +71,21 @@ class ProviderAssetLinkUnavailableError(RuntimeError):
             self.code = "provider_asset_link_processing"
         self.params = params
         super().__init__(f"{self.code}: image {index} ({name}) link {link.id} is {link.state}")
+
+
+def reference_image_sources(project_path: Path, images: Sequence[tuple[Path, str]]) -> list[ReferenceImageSource]:
+    """按项目内图片文件当下的字节给出参考图来源；``images`` 是（文件路径, 资产或衍生名称），顺序即发出顺序。
+
+    文件不在项目目录内或不是普通文件时抛 ``FileNotFoundError`` / ``PathTraversalError``。
+    """
+    root = project_path.resolve()
+    sources: list[ReferenceImageSource] = []
+    for path, name in images:
+        resolved = safe_join(project_path, path, require_file=True)
+        sources.append(
+            ReferenceImageSource(locator=resolved.relative_to(root).as_posix(), sha256=sha256_file(resolved), name=name)
+        )
+    return sources
 
 
 async def call_scope(session: AsyncSession, backend: object) -> AssetLibraryScope | None:
@@ -118,13 +138,36 @@ async def choose_reference_image_assets(
     Raises:
         ProviderAssetLinkUnavailableError: 某张参考图的适用关联尚未可用或入库失败；按图片顺序报第一张。
     """
-    none: tuple[ReferenceAssetChoice | None, ...] = (None,) * len(sources)
     if not sources:
-        return none
+        return ()
+    scope = await backend_call_scope(session_factory, backend)
+    if scope is None:
+        return (None,) * len(sources)
+    return await choose_in_scope(
+        session_factory, scope=scope, project_name=project_name, project_path=project_path, sources=sources
+    )
+
+
+async def backend_call_scope(
+    session_factory: async_sessionmaker[AsyncSession], backend: object
+) -> AssetLibraryScope | None:
+    """:func:`call_scope` 自开会话的版本。范围为 None 时不必计算参考图摘要：每张图片都没有适用的关联。"""
     async with session_factory() as session:
-        scope = await call_scope(session, backend)
-        if scope is None:
-            return none
+        return await call_scope(session, backend)
+
+
+async def choose_in_scope(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    scope: AssetLibraryScope,
+    project_name: str,
+    project_path: Path,
+    sources: Sequence[ReferenceImageSource],
+) -> tuple[ReferenceAssetChoice | None, ...]:
+    """在已求得的素材库范围里为参考图选择，规则与异常同 :func:`choose_reference_image_assets`。"""
+    if not sources:
+        return ()
+    async with session_factory() as session:
         content_version_ids = await asyncio.to_thread(_content_version_ids, project_path, sources)
         choices: list[ReferenceAssetChoice | None] = []
         for position, (source, content_version_id) in enumerate(zip(sources, content_version_ids, strict=True)):
@@ -148,6 +191,9 @@ __all__ = [
     "ProviderAssetLinkUnavailableError",
     "ReferenceAssetChoice",
     "ReferenceImageSource",
+    "backend_call_scope",
     "call_scope",
+    "choose_in_scope",
     "choose_reference_image_assets",
+    "reference_image_sources",
 ]

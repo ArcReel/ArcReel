@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import re
 from collections.abc import Generator
@@ -12,6 +13,7 @@ from typing import Any
 
 import httpx
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
@@ -203,6 +205,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         base_url: str | None = None,
         transport_layer: TransportLayer | None = None,
         inference_credential: InferenceCredentialRef | None = None,
+        catalog_entry: CatalogEntry | None = None,
     ):
         self._client = create_ark_client(api_key=api_key, base_url=base_url, transport_layer=transport_layer)
         self._transport_layer = transport_layer
@@ -223,6 +226,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         # 声明调用方需要据以取舍的输入路径。
         self._supports_service_tier = self._accepts_service_tier(self._model)
         self._inference_credential = inference_credential
+        self._catalog_entry = catalog_entry
 
     @property
     def name(self) -> str:
@@ -235,13 +239,28 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
 
     @property
     def provider_asset_roles(self) -> frozenset[str]:
-        """当前模型可以用 ``asset://`` 素材引用代替图片内容的槽位。
+        """当前模型可以用 ``asset://`` 素材引用代替图片内容的槽位，按装配时给出的模型条目认定。"""
+        return self.provider_asset_roles_for_entry(self._catalog_entry)
+
+    def with_catalog_entry(self, entry: CatalogEntry | None) -> ArkVideoBackend:
+        """返回按 ``entry`` 认定素材引用槽位的副本；其余状态（客户端、凭证、模型）与本实例共用。"""
+        clone = copy.copy(self)
+        clone._catalog_entry = entry
+        return clone
+
+    @staticmethod
+    def provider_asset_roles_for_entry(entry: CatalogEntry | None) -> frozenset[str]:
+        """模型条目在方舟协议下可以用 ``asset://`` 素材引用代替图片内容的槽位。
 
         官方《Seedance 人像素材使用指南》只给出 Seedance 2.0 / 2.5 在 ``reference_image`` 槽位使用素材 ID 的
-        契约，没有说明首帧、尾帧，也没有说明 1.x 系列，所以只为 2.x 的参考图槽位声明。未声明的槽位照常发送
-        图片内容。
+        契约，没有说明首帧、尾帧，也没有说明 1.x 系列，所以只为这两代的参考图槽位声明。名字取条目的官方模型名与
+        模型别名；供应商模型对应不上条目时不声明，不按 API 模型名推断：中转站可以给任意模型起含 Seedance 字样的
+        名字，用户要为改了名的模型启用，在模型上绑定对应的条目。未声明的槽位照常发送图片内容。
         """
-        if self._is_seedance_2(self._model) or self._is_seedance_2_5(self._model):
+        if entry is None:
+            return frozenset()
+        names = (entry.name, *entry.aliases)
+        if any(ArkVideoBackend._is_seedance_2(name) or ArkVideoBackend._is_seedance_2_5(name) for name in names):
             return frozenset({REFERENCE_IMAGE_ROLE})
         return frozenset()
 

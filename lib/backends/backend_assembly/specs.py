@@ -106,14 +106,18 @@ def _build_simple(
 
 
 def _build_ark_video(config: LoadedConfig, model_id: str | None, *, provider_id: str) -> Any:
-    """方舟视频：简单族构造之外报出实际使用的推理凭证，供素材库按绑定选用供应商素材。
+    """方舟视频：简单族构造之外报出实际使用的推理凭证与模型对应的条目，供素材库按绑定选用供应商素材。
 
     凭证引用只在 api_key 来自一条凭证记录时给出：素材库只能绑定凭证记录，按供应商配置直填的密钥没有可绑定的对象。
+    模型条目决定参考图槽位是否接受素材引用（``ArkVideoBackend.provider_asset_roles_for_entry``），与自定义供应商
+    共用同一判定。
     """
     from lib.backends.provider_assets import InferenceCredentialRef
 
     api_key = config.credentials.get("api_key")
     extra: dict[str, Any] = {}
+    if model_id:
+        extra["catalog_entry"] = catalog.provider_model_entry(provider_id, model_id, "video")
     if config.credential_id is not None and api_key:
         extra["inference_credential"] = InferenceCredentialRef(
             credential_type="builtin",

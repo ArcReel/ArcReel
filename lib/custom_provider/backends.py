@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import cast
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
     VideoBackend,
     VideoCapabilities,
@@ -224,6 +226,26 @@ class CustomVideoBackend:
             path_overrides=path_overrides,
         )
 
+    def with_catalog_entry(self, entry: CatalogEntry | None) -> CustomVideoBackend:
+        """返回让被包装协议 backend 按 ``entry`` 认定素材引用槽位的新实例；协议不接受素材引用时原样返回。
+
+        ``entry`` 是这个模型对应的条目（条目绑定优先，否则按名字现查），见 :attr:`provider_asset_roles`。
+        """
+        rebind = getattr(self._delegate, "with_catalog_entry", None)
+        if not callable(rebind):
+            return self
+        # 协议 backend 的 with_catalog_entry 返回同类副本（见 ArkVideoBackend.with_catalog_entry）。
+        delegate = cast("VideoBackend", rebind(entry))
+        return CustomVideoBackend(
+            provider_id=self._provider_id,
+            delegate=delegate,
+            model=self._model,
+            video_capabilities=self._video_capabilities,
+            capability_overrides=self._capability_overrides,
+            endpoint=self._endpoint,
+            path_overrides=self._path_overrides,
+        )
+
     @property
     def name(self) -> str:
         return self._provider_id
@@ -245,7 +267,11 @@ class CustomVideoBackend:
 
     @property
     def provider_asset_roles(self) -> frozenset[str]:
-        """沿用被包装协议 backend 的素材引用声明：能否发 ``asset://`` 取决于调用协议与模型，不随包装改变。"""
+        """沿用被包装协议 backend 的素材引用声明：能否发 ``asset://`` 取决于调用协议与模型条目，不随包装改变。
+
+        工厂经 :meth:`with_catalog_entry` 交给协议 backend 这个模型对应的条目；没有交（直接构造）时协议 backend
+        没有条目可认，不声明任何槽位。
+        """
         return provider_asset_roles(self._delegate)
 
     def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None) -> VideoCapabilities:

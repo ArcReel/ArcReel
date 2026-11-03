@@ -454,6 +454,15 @@ def get_model(provider_id: str, model_id: str, *, media_type: str | None = None)
     return indexed.model if indexed is not None else None
 
 
+def provider_model_entry(provider_id: str, model_id: str, media_type: str) -> CatalogEntry | None:
+    """内置供应商模型对应的条目：官方收录的取清单所引的条目，用户添加的取条目绑定或按名字现查的结果。
+
+    供应商或模型键不在目录中、模型不是这一媒体类型，或用户添加的模型对应不上条目时为 ``None``。
+    """
+    indexed = _indexed_model(provider_id, model_id, media_type)
+    return indexed.entry if indexed is not None else None
+
+
 def list_models(provider_id: str) -> dict[str, CatalogModel]:
     """列出供应商的全部模型（按清单顺序，含 ``hidden`` 的模型）；供应商不在目录中时为空。"""
     return _provider_models(provider_id)
