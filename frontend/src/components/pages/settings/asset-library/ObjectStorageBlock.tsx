@@ -3,6 +3,7 @@ import { Loader2, Pencil, Plus, Trash2, Wifi } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
+import { useConfirmLeave, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { RequestErrorNotice } from "@/components/shared/RequestErrorNotice";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import {
@@ -69,13 +70,29 @@ export function ObjectStorageBlock() {
     return () => loadController.current?.abort();
   }, [fetchConnection]);
 
+  // 连接被替换或删除后，在途的测试结果属于旧连接，不再落地
+  const testGeneration = useRef(0);
+  const resetTest = useCallback(() => {
+    testGeneration.current += 1;
+    setTest({ status: "idle" });
+  }, []);
+  const closeEditor = useCallback(() => setEditing(false), []);
+  const handleSaved = useCallback(
+    (saved: ObjectStorageConnection) => {
+      setEditing(false);
+      resetTest();
+      setLoad({ status: "ready", connection: saved });
+    },
+    [resetTest],
+  );
   const runTest = async () => {
+    const generation = ++testGeneration.current;
     setTest({ status: "testing" });
     try {
       await API.checkObjectStorageConnection();
-      setTest({ status: "ok" });
+      if (generation === testGeneration.current) setTest({ status: "ok" });
     } catch (error) {
-      setTest({ status: "failed", error });
+      if (generation === testGeneration.current) setTest({ status: "failed", error });
     }
   };
 
@@ -156,12 +173,8 @@ export function ObjectStorageBlock() {
       {editing && (
         <ObjectStorageDialog
           connection={connection}
-          onCancel={() => setEditing(false)}
-          onSaved={(saved) => {
-            setEditing(false);
-            setTest({ status: "idle" });
-            setLoad({ status: "ready", connection: saved });
-          }}
+          onCancel={closeEditor}
+          onSaved={handleSaved}
         />
       )}
       <DeleteObjectStorageDialog
@@ -169,7 +182,7 @@ export function ObjectStorageBlock() {
         onClose={() => setDeleting(false)}
         onDeleted={() => {
           setDeleting(false);
-          setTest({ status: "idle" });
+          resetTest();
           setLoad({ status: "ready", connection: null });
         }}
       />
@@ -200,8 +213,15 @@ function ObjectStorageDialog({
   const complete =
     region.trim() && endpoint.trim() && bucket.trim() && (!creating || (accessKeyId.trim() && secretAccessKey.trim()));
 
-  const handleSubmit = async () => {
-    if (!complete) return;
+  const dirty =
+    region !== (connection?.region ?? "") ||
+    endpoint !== (connection?.endpoint ?? "") ||
+    bucket !== (connection?.bucket ?? "") ||
+    accessKeyId !== "" ||
+    secretAccessKey !== "";
+
+  const handleSubmit = useCallback(async (): Promise<boolean> => {
+    if (!complete) return false;
     setSubmitting(true);
     setError(null);
     try {
@@ -213,11 +233,22 @@ function ObjectStorageDialog({
         secret_access_key: secretAccessKey.trim() || undefined,
       });
       onSaved(saved);
+      return true;
     } catch (err) {
       setError(errMsg(err));
+      return false;
     } finally {
       setSubmitting(false);
     }
+  }, [complete, region, endpoint, bucket, accessKeyId, secretAccessKey, onSaved]);
+
+  // 未保存的填写登记到离开拦截；关闭对话框也经它询问，不静默丢弃
+  useLeaveGuard({ dirty, saving: submitting, save: handleSubmit, discard: onCancel });
+  const confirmLeave = useConfirmLeave();
+  const requestClose = () => {
+    if (submitting) return;
+    if (dirty) confirmLeave(onCancel);
+    else onCancel();
   };
 
   const field = (
@@ -248,7 +279,7 @@ function ObjectStorageDialog({
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && !submitting) onCancel();
+        if (!open) requestClose();
       }}
     >
       <DialogContent initialFocus={regionRef}>
@@ -293,7 +324,7 @@ function ObjectStorageDialog({
             </div>
           </DialogBody>
           <DialogFooter>
-            <Button variant="outline" disabled={submitting} onClick={onCancel}>
+            <Button variant="outline" disabled={submitting} onClick={requestClose}>
               {t("common:cancel")}
             </Button>
             <Button type="submit" disabled={submitting || !complete}>

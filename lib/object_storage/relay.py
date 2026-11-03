@@ -55,7 +55,8 @@ def relay_object_key(suffix: str, *, now: datetime | None = None) -> str:
 
 
 def _retry_delay(attempts: int) -> timedelta:
-    return min(_RETRY_BASE * (2 ** max(attempts - 1, 0)), _RETRY_CAP)
+    # 指数先封顶再乘：重试次数累积多了，timedelta 乘法会溢出，min 来不及截断
+    return min(_RETRY_BASE * (2 ** min(max(attempts - 1, 0), 16)), _RETRY_CAP)
 
 
 def _aware(value: datetime) -> datetime:

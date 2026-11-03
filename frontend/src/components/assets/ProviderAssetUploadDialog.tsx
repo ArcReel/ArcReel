@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CloudUpload, Loader2, RefreshCw } from "lucide-react";
+import { ChevronRight, CloudUpload, Loader2, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
 
 import { API } from "@/api";
 import { settingsSectionPath } from "@/app-routes";
-import { siteLabelKey } from "@/components/pages/settings/asset-library/asset-library-labels";
+import {
+  PROVIDER_ASSET_LOCAL_FAILURES,
+  siteLabelKey,
+} from "@/components/pages/settings/asset-library/asset-library-labels";
 import { RequestErrorNotice } from "@/components/shared/RequestErrorNotice";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogBody,
@@ -43,17 +47,6 @@ const STATE_CLS: Record<ProviderAssetLinkState, string> = {
   uncertain: "text-warn",
 };
 
-/** ArcReel 在提交入库之前的失败；其余错误码是供应商原样返回的。 */
-const LOCAL_FAILURES = new Set([
-  "unlinked_before_submit",
-  "account_missing",
-  "account_scope_changed",
-  "object_storage_missing",
-  "content_unavailable",
-  "content_changed",
-  "relay_upload_failed",
-]);
-
 type PanelState =
   | { status: "loading" }
   | { status: "error"; error: unknown }
@@ -82,7 +75,7 @@ export function ProviderAssetUploadDialog({
   const { t } = useTranslation(["assets", "common"]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg">
+      <DialogContent size="lg" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{t("provider_asset_upload_title")}</DialogTitle>
           <DialogDescription>{t("provider_asset_upload_desc")}</DialogDescription>
@@ -248,14 +241,20 @@ interface LinkRowProps {
   onChanged: () => void;
 }
 
-function linkDetail(link: ProviderAssetLink, t: (key: string, options?: Record<string, unknown>) => string): string | null {
+/** 关联状态的说明；供应商给出的失败原文（错误码与消息）单独返回，折叠在详情里。 */
+function linkDetail(
+  link: ProviderAssetLink,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): { summary: string; raw: string | null } | null {
   if (link.state === "failed") {
-    if (link.error_code && LOCAL_FAILURES.has(link.error_code)) return t(`provider_asset_link_failure_${link.error_code}`);
-    const reason = [link.error_code, link.error_message].filter(Boolean).join("：");
-    return t("provider_asset_link_failure_provider", { reason: reason || t("provider_asset_status_unknown") });
+    if (link.error_code && PROVIDER_ASSET_LOCAL_FAILURES.has(link.error_code)) {
+      return { summary: t(`provider_asset_link_failure_${link.error_code}`), raw: null };
+    }
+    const raw = [link.error_code, link.error_message].filter(Boolean).join(": ");
+    return { summary: t("provider_asset_link_failure_provider"), raw: raw || null };
   }
-  if (link.state === "uncertain") return t("provider_asset_link_hint_uncertain");
-  if (IN_FLIGHT.has(link.state) && !link.polling) return t("provider_asset_link_hint_stalled");
+  if (link.state === "uncertain") return { summary: t("provider_asset_link_hint_uncertain"), raw: null };
+  if (IN_FLIGHT.has(link.state) && !link.polling) return { summary: t("provider_asset_link_hint_stalled"), raw: null };
   return null;
 }
 
@@ -328,7 +327,7 @@ function LinkRow({
 }
 
 function LinkSummary({ title, subtitle, link }: { title: string; subtitle: string; link: ProviderAssetLink | null }) {
-  const { t } = useTranslation(["assets"]);
+  const { t } = useTranslation(["assets", "common"]);
   const detail = link ? linkDetail(link, t) : null;
   return (
     <>
@@ -353,7 +352,22 @@ function LinkSummary({ title, subtitle, link }: { title: string; subtitle: strin
         />
       )}
       {detail && (
-        <p className={cn("text-xs", link?.state === "failed" ? "text-destructive" : "text-muted-foreground")}>{detail}</p>
+        <p className={cn("text-xs", link?.state === "failed" ? "text-destructive" : "text-muted-foreground")}>
+          {detail.summary}
+        </p>
+      )}
+      {detail?.raw && (
+        <Collapsible>
+          <CollapsibleTrigger render={<Button variant="ghost" size="xs" className="-ml-2" />}>
+            <ChevronRight aria-hidden className="transition-transform group-aria-expanded/button:rotate-90" />
+            {t("common:error_details")}
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <p className="font-mono text-xs wrap-break-word text-muted-foreground" translate="no">
+              {detail.raw}
+            </p>
+          </CollapsibleContent>
+        </Collapsible>
       )}
     </>
   );

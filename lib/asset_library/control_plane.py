@@ -10,9 +10,8 @@
 - CreateAssetGroup / ListAssetGroups：https://docs.volcengine.com/docs/ark/create-asset-group-api 、
   https://docs.volcengine.com/docs/ark/list-asset-groups-api
 
-两站的 Action、Version 与字段名相同（2026-11-03 核对火山官方文档；BytePlus 文档页需要脚本渲染，按 BytePlus
-官方仓库 ``byteplus-sa/ark-mcp`` 的调用对照）。CreateAsset 只接受供应商可下载的 URL，异步处理且不承诺
-入库时长；返回的素材 ID 处于 ``Processing``，``GetAsset`` 返回 ``Active`` 后才可用。
+两站的 Action、Version 与字段名相同（BytePlus 一侧以官方仓库 ``byteplus-sa/ark-mcp`` 的调用为对照）。
+CreateAsset 只接受供应商可下载的 URL，异步处理且不承诺入库时长；返回的素材 ID 处于 ``Processing``，``GetAsset`` 返回 ``Active`` 后才可用。
 
 本模块只做协议：签名、发送与响应解析。Access Key 只进签名，不进日志与异常文本。
 """

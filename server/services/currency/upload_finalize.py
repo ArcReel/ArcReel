@@ -20,6 +20,7 @@ from lib.artifacts.formal_write import formal_write_transaction
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
+from lib.infra.image_utils import IMAGE_FILE_EXTENSIONS
 from lib.infra.mp4_faststart import ensure_faststart
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
@@ -38,7 +39,7 @@ UPLOAD_VERSION_SOURCE = MANUAL_UPLOAD_VERSION_SOURCE
 
 # 上传策略（shot_uploads 与 reference_videos 两个路由共用，避免口径漂移）。
 # 视频宽松校验：只看扩展名与大小上限，宽高比/时长不阻塞——用户自主上传即自己负责。
-UPLOAD_IMAGE_EXTENSIONS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".webp")
+UPLOAD_IMAGE_EXTENSIONS: tuple[str, ...] = IMAGE_FILE_EXTENSIONS
 # 不收 webm：字节原样存为 canonical .mp4，VP8/VP9 在 Safari/剪映一侧解码不可用，
 # 错误扩展名还会误导排查；mp4/mov/m4v 同属 ISO BMFF 容器家族
 UPLOAD_VIDEO_EXTENSIONS: tuple[str, ...] = (".mp4", ".mov", ".m4v")
@@ -184,6 +185,7 @@ def install_manual_asset_sheet_upload(
     content: bytes,
     original_filename: str | None,
     on_commit: Callable[[ContentVersion], None] | None = None,
+    require_asset: bool = False,
 ) -> ContentVersion | None:
     """Install an author-uploaded asset sheet as finished content.
 
@@ -196,7 +198,8 @@ def install_manual_asset_sheet_upload(
 
     ``on_commit`` runs last inside the same formal write with the new selected
     content version; if it raises, the bytes, pointer, version and claim are all
-    restored.  Importing a provider asset records its link there.
+    restored.  Importing a provider asset records its link there, and passes
+    ``require_asset`` so an asset deleted meanwhile receives no bytes at all.
     """
 
     bucket_key = ASSET_SPECS[asset_type].bucket_key
@@ -228,6 +231,7 @@ def install_manual_asset_sheet_upload(
         sheet_path,
         content,
         on_commit=_select_upload,
+        require_asset=require_asset,
     )
     return committed[0] if committed else None
 

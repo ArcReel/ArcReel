@@ -23,6 +23,7 @@ from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.infra.content_digest import sha256_file
+from lib.infra.image_utils import IMAGE_FILE_EXTENSIONS
 from lib.material.storage import CONTENT_VERSION_ID
 
 ARK_DEFAULT = "https://ark.cn-beijing.volces.com/api/v3"
@@ -56,10 +57,10 @@ class _World:
             roles,
         )
 
-    def commit_image(self, resource_type: str, resource_id: str, data: bytes) -> str:
+    def commit_image(self, resource_type: str, resource_id: str, data: bytes, *, suffix: str = ".png") -> str:
         """提交一张图片为资源的新当前版本，返回它的内容版本身份。"""
         subdir = {"characters": "characters", "scenes": "scenes"}[resource_type]
-        working = self.project_path / subdir / f"{resource_id}.png"
+        working = self.project_path / subdir / f"{resource_id}{suffix}"
         working.parent.mkdir(parents=True, exist_ok=True)
         working.write_bytes(data)
         manager = VersionManager(self.project_path)
@@ -143,6 +144,19 @@ async def test_usable_link_replaces_only_its_image_and_keeps_order(world: _World
     assert choices[1] is not None
     assert choices[1].asset_uri == "asset://asset-alice-1"
     assert choices[1].content_version_id == alice
+
+
+@pytest.mark.parametrize("suffix", [s for s in IMAGE_FILE_EXTENSIONS if s != ".png"])
+async def test_non_png_asset_sheet_resolves_its_content_version(world: _World, suffix: str):
+    """上传或导入保留原格式的资产图（JPEG、WebP）同样按内容版本找到关联，不退回发送普通图片。"""
+    alice = world.commit_image("characters", "Alice", b"alice-jpeg", suffix=suffix)
+    await world.link(alice, state="active", provider_asset_id="asset-alice-1")
+
+    [choice] = await world.choose(world.backend(), [world.source(f"characters/Alice{suffix}", "Alice")])
+
+    assert choice is not None
+    assert choice.asset_uri == "asset://asset-alice-1"
+    assert choice.content_version_id == alice
 
 
 async def test_new_image_does_not_inherit_the_previous_version_link(world: _World):

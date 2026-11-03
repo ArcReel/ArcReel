@@ -1631,6 +1631,28 @@ class VersionManager:
                 self._save_versions(data)
             return _content_version_of(resource_type, resource_id, record)
 
+    def find_content_version(self, resource_type: str, content_version_id: str) -> ContentVersion | None:
+        """按内容版本身份查找它此刻的版本记录；资源改名会移动快照并改写记录，身份不变。
+
+        找不到（版本历史已删除）时返回 ``None``。
+
+        Raises:
+            UnmanagedSnapshotPathError: 记录指向受管快照桶之外。
+        """
+
+        if resource_type not in self.RESOURCE_TYPES:
+            raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
+
+        with self._lock:
+            bucket = self._load_versions().get(resource_type)
+        for resource_id, history in bucket.items() if isinstance(bucket, dict) else ():
+            records = history.get("versions") if isinstance(history, dict) else None
+            for record in records if isinstance(records, list) else ():
+                if isinstance(record, dict) and record.get(CONTENT_VERSION_ID) == content_version_id:
+                    self._resolve_snapshot(resource_type, record)
+                    return _content_version_of(resource_type, resource_id, record)
+        return None
+
     def update_version_metadata(self, resource_type: str, resource_id: str, version: int, **metadata) -> bool:
         """为既有版本记录补写元数据键（覆盖同名键）。
 

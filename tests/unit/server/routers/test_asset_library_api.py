@@ -24,7 +24,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 from tests.http_capture import capture_http, only_request, request_json
 
 AK = "TEST-CONTROL-PLANE-AK-0001"
-SK = "controlplane-secret-access-key-0001"
+SK = "TEST-CONTROLPLANE-SECRET-0001"
 VOLC_HOST = "https://ark.cn-beijing.volcengineapi.com/"
 
 

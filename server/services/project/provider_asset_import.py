@@ -32,7 +32,7 @@ from lib.asset_library.importing import ProviderImage, fetch_provider_image
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
 from lib.infra.api_errors import BadRequestError, NotFoundError, UnprocessableError
-from lib.infra.async_thread import EventLoopBridge, run_sync_transaction
+from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async, run_sync_transaction
 from lib.infra.image_utils import normalize_storyboard_upload
 from lib.material.storage import ContentVersion
 from lib.project.asset_derivatives import split_derivative_artifact_id
@@ -118,8 +118,10 @@ async def _asset_sheet_install(
                     content=image.content,
                     original_filename=image.asset.name or None,
                     on_commit=on_commit,
+                    require_asset=True,
                 )
 
+        # 取图期间资产可能被删除：项目锁内复核，不存在时什么也不写
         if await run_sync_transaction(_install) is None:
             raise NotFoundError(_NOT_FOUND_KEYS[asset_type], name=name)
 
@@ -215,7 +217,8 @@ async def import_provider_asset(
         recorded.append(bridge.run(_record_link(content_version)))
 
     try:
-        await install(image, _on_commit)
+        # 正式写入到返回一并结算，避免取消把已生效的关联送进孤儿清理。
+        await run_noninterruptible_async(install(image, _on_commit))
     except BaseException:
         if recorded:
             await _discard_orphan(session, recorded[0].link)

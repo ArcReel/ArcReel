@@ -624,7 +624,9 @@ class TestFilesRouter:
         real_install = pm.install_asset_sheet_bytes
         delegated = False
 
-        def _create_then_install(asset_type, project_name, asset_name, sheet_path, content, *, on_commit=None):
+        def _create_then_install(
+            asset_type, project_name, asset_name, sheet_path, content, *, on_commit=None, require_asset=False
+        ):
             nonlocal delegated
             assert delegated is False
             delegated = True
@@ -648,6 +650,7 @@ class TestFilesRouter:
                 sheet_path,
                 content,
                 on_commit=on_commit,
+                require_asset=require_asset,
             )
 
         monkeypatch.setattr(pm, "install_asset_sheet_bytes", _create_then_install)

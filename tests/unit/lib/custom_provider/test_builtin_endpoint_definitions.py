@@ -180,7 +180,7 @@ def test_unmigrated_endpoints_stay_python_in_the_catalog():
 def test_declarative_capabilities_follow_the_definition():
     spec = declarative_endpoint_spec("demo-video", _example_template())
     assert spec.video_caps_for_model is not None
-    caps = spec.video_caps_for_model("any-model")
+    caps = spec.video_caps_for_model("any-model", None)
     assert caps.first_frame is True
     assert caps.last_frame is False
     assert caps.max_reference_images == 0
@@ -205,7 +205,7 @@ def test_text_to_video_is_derived_from_required_image_inputs(required: bool, exp
     spec = declarative_endpoint_spec("demo-video", document)
 
     assert spec.video_caps_for_model is not None
-    assert spec.video_caps_for_model("any-model").text_to_video is expected_text_to_video
+    assert spec.video_caps_for_model("any-model", None).text_to_video is expected_text_to_video
 
 
 def test_undeclared_capabilities_take_the_schema_defaults_not_the_dataclass_ones():

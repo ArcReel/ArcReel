@@ -3,6 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import { PROVIDER_ASSET_LOCAL_FAILURES } from "@/components/pages/settings/asset-library/asset-library-labels";
+import enAssets from "@/i18n/en/assets";
+import viAssets from "@/i18n/vi/assets";
+import zhAssets from "@/i18n/zh/assets";
+import localFailuresContract from "@/test/contracts/provider-asset-local-failures.json";
 import type { ProviderAssetLink, ProviderAssetLinkPanel } from "@/types";
 
 import { LINK_POLL_INTERVAL_MS, ProviderAssetUploadDialog } from "./ProviderAssetUploadDialog";
@@ -141,9 +146,11 @@ describe("ProviderAssetUploadDialog", () => {
     );
 
     renderDialog();
-    expect(
-      await screen.findByText("供应商未完成入库（InputImageSensitiveContentDetected：image rejected）。解除关联后可以重新上传。"),
-    ).toBeInTheDocument();
+    // 摘要只说原因与出路，供应商原文折叠在详情里
+    expect(await screen.findByText("供应商未完成入库。解除关联后可以重新上传。")).toBeInTheDocument();
+    expect(screen.queryByText(/InputImageSensitiveContentDetected/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "详情" }));
+    expect(screen.getByText("InputImageSensitiveContentDetected: image rejected")).toBeInTheDocument();
     expect(screen.getByText(/上传需要经你的对象存储中转/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "上传到 BytePlus 素材库" })).toBeDisabled();
   });
@@ -158,5 +165,14 @@ describe("ProviderAssetUploadDialog", () => {
     renderDialog();
     expect(await screen.findByText("账号范围已变更或账号已删除")).toBeInTheDocument();
     expect(screen.getByText("未关联")).toBeInTheDocument();
+  });
+
+  it("本地失败码表与后端一致，每个码在三种语言里都有原因文案", () => {
+    expect([...PROVIDER_ASSET_LOCAL_FAILURES].sort()).toEqual(localFailuresContract);
+    for (const messages of [zhAssets, enAssets, viAssets] as Record<string, string>[]) {
+      for (const code of localFailuresContract) {
+        expect(messages[`provider_asset_link_failure_${code}`]).toBeTruthy();
+      }
+    }
   });
 });

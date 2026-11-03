@@ -172,7 +172,7 @@ class TestVideoCapabilitiesForModel:
 
         caps = ENDPOINT_REGISTRY["v2-video-generations"].video_caps_for_model
         assert caps is not None
-        assert caps("whatever").max_reference_images == 4
+        assert caps("whatever", None).max_reference_images == 4
 
     def test_instance_property_delegates_to_static(self):
         """instance video_capabilities 委托至静态方法，保持 backend 为单一真相源。

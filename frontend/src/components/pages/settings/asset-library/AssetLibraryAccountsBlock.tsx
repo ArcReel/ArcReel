@@ -1,8 +1,9 @@
-import { useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
+import { useConfirmLeave, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import {
   AlertDialog,
@@ -56,6 +57,11 @@ export function AssetLibraryAccountsBlock({
   const headingId = useId();
   const [dialog, setDialog] = useState<DialogState>(null);
   const [deleting, setDeleting] = useState<AssetLibraryAccount | null>(null);
+  const closeDialog = useCallback(() => setDialog(null), []);
+  const handleDialogDone = useCallback(() => {
+    setDialog(null);
+    onChanged();
+  }, [onChanged]);
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
@@ -123,11 +129,8 @@ export function AssetLibraryAccountsBlock({
           key={dialog.mode === "edit" ? dialog.account.id : "add"}
           account={dialog.mode === "edit" ? dialog.account : null}
           data={data}
-          onCancel={() => setDialog(null)}
-          onDone={() => {
-            setDialog(null);
-            onChanged();
-          }}
+          onCancel={closeDialog}
+          onDone={handleDialogDone}
         />
       )}
       <DeleteAccountDialog
@@ -216,9 +219,15 @@ function AccountDialog({
   const { t } = useTranslation(["dashboard", "common"]);
   const idPrefix = useId();
   const nameRef = useRef<HTMLInputElement>(null);
-  const [site, setSite] = useState<AssetLibrarySite>(account?.site ?? data.sites[0]?.id ?? "volcengine");
-  const [name, setName] = useState(account?.name ?? "");
-  const [project, setProject] = useState(account?.project_name ?? data.default_project_name);
+  // 打开时的取值，判断是否有未保存的填写；之后 data 刷新不改变它
+  const [initial] = useState(() => ({
+    site: account?.site ?? data.sites[0]?.id ?? "volcengine",
+    name: account?.name ?? "",
+    project: account?.project_name ?? data.default_project_name,
+  }));
+  const [site, setSite] = useState<AssetLibrarySite>(initial.site);
+  const [name, setName] = useState(initial.name);
+  const [project, setProject] = useState(initial.project);
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -228,25 +237,43 @@ function AccountDialog({
   const siteItems = data.sites.map((s) => ({ value: s.id, label: t(siteLabelKey(s.id)) }));
   const region = data.sites.find((s) => s.id === site)?.regions[0] ?? "";
 
-  const handleSubmit = async () => {
-    if (!complete) return;
+  const dirty =
+    site !== initial.site ||
+    name !== initial.name ||
+    project !== initial.project ||
+    accessKeyId !== "" ||
+    secretAccessKey !== "";
+
+  const handleSubmit = useCallback(async (): Promise<boolean> => {
+    if (!complete) return false;
     setSubmitting(true);
     setError(null);
     try {
       await saveAccount(account, { site, name, project, accessKeyId, secretAccessKey });
       onDone();
+      return true;
     } catch (err) {
       setError(errMsg(err));
+      return false;
     } finally {
       setSubmitting(false);
     }
+  }, [complete, account, site, name, project, accessKeyId, secretAccessKey, onDone]);
+
+  // 未保存的填写登记到离开拦截；关闭对话框也经它询问，不静默丢弃
+  useLeaveGuard({ dirty, saving: submitting, save: handleSubmit, discard: onCancel });
+  const confirmLeave = useConfirmLeave();
+  const requestClose = () => {
+    if (submitting) return;
+    if (dirty) confirmLeave(onCancel);
+    else onCancel();
   };
 
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && !submitting) onCancel();
+        if (!open) requestClose();
       }}
     >
       <DialogContent initialFocus={nameRef}>
@@ -334,7 +361,7 @@ function AccountDialog({
             </div>
           </DialogBody>
           <DialogFooter>
-            <Button variant="outline" disabled={submitting} onClick={onCancel}>
+            <Button variant="outline" disabled={submitting} onClick={requestClose}>
               {t("common:cancel")}
             </Button>
             <Button type="submit" disabled={submitting || !complete}>
