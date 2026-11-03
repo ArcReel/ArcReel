@@ -827,6 +827,22 @@ async def stored_object_keys(session: AsyncSession, locators: Iterable[ObjectLoc
     return {ObjectLocator(cid, bucket, key) for cid, bucket, key in (await session.execute(stmt)).all()} & wanted
 
 
+async def formal_object_sizes(
+    locators: Iterable[ObjectLocator], *, session_factory: async_sessionmaker[AsyncSession] | None = None
+) -> dict[ObjectLocator, int]:
+    """``locators`` 中已登记对象的字节数（不论状态，不访问对象存储）；没有登记的定位不出现。"""
+    wanted = set(locators)
+    if not wanted:
+        return {}
+    stmt = select(FormalObject.connection_id, FormalObject.bucket, FormalObject.object_key, FormalObject.size).where(
+        FormalObject.object_key.in_({loc.key for loc in wanted})
+    )
+    async with (session_factory or _default_session_factory())() as session:
+        rows = (await session.execute(stmt)).all()
+    sizes = {ObjectLocator(cid, bucket, key): size for cid, bucket, key, size in rows}
+    return {locator: sizes[locator] for locator in wanted if locator in sizes}
+
+
 async def _open_formal_commit(
     project_name: str,
     *,
@@ -916,6 +932,7 @@ __all__ = [
     "formal_commit",
     "formal_commit_on",
     "formal_object_key",
+    "formal_object_sizes",
     "iter_version_records",
     "live_object_count",
     "new_content_target",

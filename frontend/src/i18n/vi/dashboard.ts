@@ -2795,6 +2795,8 @@ export default {
   'file_view_preview_too_large': 'Tệp quá lớn để xem trước tại đây. Hãy tải xuống để xem.',
   'file_view_preview_label': 'Nội dung của {{name}}',
   'file_view_modified_at': 'Sửa đổi lúc {{time}}',
+  'file_view_remote_only': 'Không có trên máy chủ',
+  'file_view_remote_only_desc': 'Nội dung được lưu trong lưu trữ đối tượng, bộ nhớ đệm cục bộ đã được dọn. Nội dung sẽ được tải về trước khi xem trước, tải xuống hoặc chuyển vào thùng rác dự án.',
   'file_view_role_structure': 'Tệp cấu trúc',
   'file_view_role_referenced': 'Đang dùng',
   'file_view_role_history': 'Phiên bản cũ',

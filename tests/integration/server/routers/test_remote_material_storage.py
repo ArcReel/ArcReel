@@ -48,6 +48,7 @@ from lib.material.formal_objects import (
     sweep_formal_objects,
 )
 from lib.material.work_files import ensure_content_version_file, hold_work_file
+from lib.project import project_trash as project_trash_store
 from lib.project.asset_derivatives import derivative_artifact_id, derivative_sheet_relative_path
 from lib.project.asset_types import DERIVATIVES_FIELD
 from lib.project.project_manager import ProjectManager
@@ -82,6 +83,7 @@ from tests.fakes import (
     use_upload_claim_registration,
 )
 from tests.http_capture import capture_http, only_request, request_json
+from tests.integration.server.agent_tool_support import ToolHarness, problem_of, run_declared_tool
 from tests.integration.server.derivative_sheet_support import (
     GENERATION_URL,
     RESULT_IMAGE_RGB,
@@ -635,6 +637,122 @@ async def test_trashed_remote_version_keeps_its_object_until_the_record_is_purge
     assert await sweep_formal_objects(sessions, now=utc_now() + timedelta(days=1)) == 1
     assert bucket.stored_keys() == [record_c["storage"]["key"]]
     assert (await _object_of(sessions, record_c)).state == "stored"
+
+
+def _file_view_entries(api: TestClient, path: str) -> dict[str, dict[str, Any]]:
+    resp = api.get("/api/v1/projects/demo/file-view", params={"path": path})
+    assert resp.status_code == 200, resp.text
+    return {entry["path"]: entry for entry in resp.json()["entries"]}
+
+
+async def test_evicted_remote_history_is_listed_and_deleted_from_the_file_view(api, sessions, project, bucket):
+    """清理缓存后：文件视图按版本记录列出远端版本且不下载；删除历史版本先取回内容再移进回收站，对象按引用保留。"""
+    image_a = solid_png_bytes((30, 30, 200), size=(64, 64))
+    assert _upload(api, image_a).status_code == 200  # 本地版本 A
+    await _remote(sessions)
+    image_b, image_c = solid_png_bytes((30, 200, 30), size=(64, 64)), solid_png_bytes((200, 30, 30), size=(64, 64))
+    assert _upload(api, image_b).status_code == 200
+    assert _upload(api, image_c).status_code == 200
+    record_a, record_b, record_c = _history(project)["versions"]
+    assert _cleanup(api)["removed"] == 3  # B、C 的快照与 C 的正式文件
+    project_dir = project.get_project_path("demo")
+    snapshot_dir = str(Path(record_b["file"]).parent)
+    assert not (project_dir / record_b["file"]).exists()
+    calls = len(bucket.calls)
+
+    entries = _file_view_entries(api, snapshot_dir)
+    files = {path for path, entry in entries.items() if entry["type"] == "file"}
+    assert files == {record_a["file"], record_b["file"], record_c["file"]}
+    remote_b = entries[record_b["file"]]
+    assert (remote_b["role"], remote_b.get("remote_only"), remote_b["size"]) == ("history", True, len(image_b))
+    assert entries[record_c["file"]]["is_current"] is True
+    assert "remote_only" not in entries[record_a["file"]]  # 本地版本照旧按盘上文件列出
+    assert entries[record_a["file"]]["size"] == (project_dir / record_a["file"]).stat().st_size
+    [sheet] = [entry for path, entry in _file_view_entries(api, "characters").items() if path.endswith("Alice.png")]
+    assert (sheet["role"], sheet.get("remote_only"), sheet["size"]) == ("referenced", True, len(image_c))
+    parent = _file_view_entries(api, str(Path(snapshot_dir).parent))[snapshot_dir]
+    assert parent["size"] == entries[record_a["file"]]["size"] + len(image_b) + len(image_c)
+    assert bucket.calls[calls:] == []  # 列出不触发下载
+    assert not (project_dir / record_b["file"]).exists()
+
+    deleted = api.delete("/api/v1/projects/demo/file-view", params={"path": record_b["file"]})
+    assert deleted.status_code == 200, deleted.text
+    assert bucket.calls[calls:] == [("get", record_b["storage"]["key"])]  # 经共用读取入口取回一次，不签发地址
+    assert record_b["file"] not in _file_view_entries(api, snapshot_dir)
+    assert await reconcile_and_collect("demo", project_dir, sessions) == 0
+    assert {(ref.content_version_id, ref.state) for ref in await _refs(sessions)} == {
+        (record_b["content_version_id"], "trashed"),
+        (record_c["content_version_id"], "active"),
+    }
+    assert record_b["storage"]["key"] in bucket.stored_keys()
+
+    restored = api.post(f"/api/v1/projects/demo/trash/{deleted.json()['record']['id']}/restore")
+    assert restored.status_code == 200, restored.text
+    back = _history(project)["versions"][-1]
+    assert (back["content_version_id"], back["storage"]) == (record_b["content_version_id"], record_b["storage"])
+
+    # 本地版本 A 的删除不经对象存储
+    calls = len(bucket.calls)
+    assert api.delete("/api/v1/projects/demo/file-view", params={"path": record_a["file"]}).status_code == 200
+    assert bucket.calls[calls:] == []
+
+
+async def test_evicted_remote_version_previews_from_the_file_view_and_fetch_failure_keeps_it(
+    api, sessions, project, bucket
+):
+    """文件视图预览已清理缓存的远端版本时取回内容；删除时取回失败返回 502，版本留在原处。"""
+    await _remote(sessions)
+    image_b = solid_png_bytes((30, 200, 30), size=(64, 64))
+    assert _upload(api, image_b).status_code == 200
+    assert _upload(api, solid_png_bytes((200, 30, 30), size=(64, 64))).status_code == 200
+    record_b, _record_c = _history(project)["versions"]
+    assert _cleanup(api)["removed"] == 3
+
+    bucket.fail.add("get")
+    failed = api.delete("/api/v1/projects/demo/file-view", params={"path": record_b["file"]})
+    assert failed.status_code == 502, failed.text
+    assert record_b["file"] in _file_view_entries(api, str(Path(record_b["file"]).parent))
+    assert _history(project)["versions"][0] == record_b
+    assert api.get("/api/v1/projects/demo/trash").json()["records"] == []
+
+    bucket.fail.clear()
+    preview = api.get("/api/v1/projects/demo/file-view/content", params={"path": record_b["file"]})
+    assert preview.status_code == 200, preview.text
+    assert preview.content == image_b
+
+
+async def test_agent_deletes_an_evicted_remote_history_version_like_the_file_view(
+    api, sessions, project, bucket, tmp_path
+):
+    """Agent 删除已清理缓存的远端历史版本：同样先取回再移进回收站，引用转为 trashed；取回失败转述为工具问题。"""
+    await _remote(sessions)
+    image_b = solid_png_bytes((30, 200, 30), size=(64, 64))
+    for rgb in ((30, 200, 30), (200, 30, 30), (30, 30, 200)):
+        assert _upload(api, solid_png_bytes(rgb, size=(64, 64))).status_code == 200
+    record_b, record_c, _record_d = _history(project)["versions"]
+    assert _cleanup(api)["removed"] == 4
+    project_dir = project.get_project_path("demo")
+    ctx = ToolHarness("demo", tmp_path / "projects", project)
+    calls = len(bucket.calls)
+
+    outcome = await run_declared_tool("delete_project_file", ctx, {"path": record_b["file"]})
+
+    assert outcome.problem is None, outcome.problem
+    assert bucket.calls[calls:] == [("get", record_b["storage"]["key"])]
+    [record] = api.get("/api/v1/projects/demo/trash").json()["records"]
+    assert (record["id"], record["origin"]) == (outcome.value["record"]["id"], "agent")
+    assert (
+        project_trash_store.trash_dir(project_dir) / record["id"] / project_trash_store.FILES_DIRNAME / record_b["file"]
+    ).read_bytes() == image_b
+    assert await reconcile_and_collect("demo", project_dir, sessions) == 0
+    assert (record_b["content_version_id"], "trashed") in {
+        (ref.content_version_id, ref.state) for ref in await _refs(sessions)
+    }
+
+    bucket.fail.add("get")
+    failed = await run_declared_tool("delete_project_file", ctx, {"path": record_c["file"]})
+    assert problem_of(failed).code == "material_remote_fetch_failed"
+    assert record_c in _history(project)["versions"]
 
 
 async def test_deleted_asset_restores_from_remote_after_cache_cleanup(api, sessions, project, bucket):
