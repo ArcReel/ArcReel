@@ -16,11 +16,23 @@
 
 CodeRabbit、Codex 自动跟随 push，核对其当前 HEAD 的完成信号。仅回复、不改 HEAD 时，已确认的覆盖仍有效。
 
-## 读取与处置记录
+## 读取
 
-从 `is_new` 定位新正文，经 `query.sh ... details <id>...` 批量读取。严重度用于排序，实际内容决定处置；致谢、已确认的撤回与纯风格建议不构成阻塞。flags 与预览或正文冲突时读全文。
+从 `is_new` 定位新正文，经 `query.sh ... details <id>...` 批量读取。严重度用于排序，定性按 SKILL.md「工程判断」；致谢、已确认的撤回与纯风格建议不构成阻塞。flags 与预览或正文冲突时读全文。
 
 `query.sh ... history` / `unacked` 用于查漏，不是“未 ack 就必须修改”的队列。快照不含非 bot 的 inline 回复；核实在案处置时，用 `gh api 'repos/<owner>/<repo>/pulls/<pr>/comments?per_page=100&page=<N>'` 从第 1 页逐页读到不满 100 条，按 `in_reply_to_id` 关联。不用 `--paginate`：它跟随的下一页链接是数字 ID 路径，只放行 REST 的会话会拒绝。顶层处置说明从 `repos/<owner>/<repo>/issues/<pr>/comments` 读取。
+
+## 处置写回
+
+不修改的意见在原 inline 线程回复定性与依据；没有 inline id 的发现在 PR 顶层回复并注明来源 id。已修复的意见无需回复，bot 会按新 HEAD 自行确认。各家另有官方反馈渠道：
+
+- **Codex**：每条 inline finding 末尾写有 `Useful? React with 👍 / 👎.`，reaction 是它收集有用性的渠道。定性后给该 inline 加 reaction：缺陷与存量（发现成立）用 `+1`，YAGNI、nitpick 与误报用 `-1`。reaction 不替代不修改时的回复。review body 里的发现没有 reaction 入口，只做顶层回复。
+
+  ```bash
+  gh api -X POST repos/<owner>/<repo>/pulls/comments/<id>/reactions -f content=-1
+  ```
+
+- **CodeRabbit**：它从线程对话学习，learnings 作用于此后整个仓库的审查。回复留在 inline 线程内，不 `@coderabbitai`，以免为单个 PR 的判断生成全仓 learning。同一类噪声反复出现、且 `docs/standards/` 尚未覆盖时，按 [lessons.md](../../../../docs/agents/lessons.md) 提为 `lesson-candidate`，由规范收录；两家 reviewer 都从规范读取审查规则。
 
 ## CodeRabbit
 

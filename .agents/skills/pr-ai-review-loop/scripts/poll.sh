@@ -43,6 +43,10 @@
 #   "last_push_at": "<ISO8601>",                        # head commit committedDate — see PITFALL 1
 #   "rounds": <int>,                                    # disposed feedback batches recorded by `round.sh mark`
 #                                                       # (0 until the first mark) — the convergence budget counter
+#   "triage_hint": "<str>",                             # present only while has_new_findings holds (a non-ack new
+#                                                       # inline, a new CodeRabbit review, or a new Codex body finding):
+#                                                       # points back to SKILL「工程判断」 at the moment a batch is
+#                                                       # judged; from rounds >= 3 it also points to「收敛」
 #   "snapshot_file": "<path>",                          # full snapshot staged for query.sh
 #   "base_oid": "<sha>" | null,                         # last commit at/before PR creation — SINCE_SHA for the
 #                                                       # first fix batch (null when every commit postdates creation)
@@ -742,6 +746,17 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
     [.[] | select(shown | not)]
     | {total: length, last_submitted_at: (map(.submittedAt) | max // null)}
     | prune_hist;
+  # The decision point `triage_hint` targets: a non-ack inline, any new CodeRabbit review (its
+  # nitpick and outside-diff findings live in the body), or a Codex body finding.
+  def has_new_findings:
+    any((.inline_comments_by_user // {})[]?[]?; .is_new and (.is_ack | not))
+    or any(.coderabbit.reviews[]?; .is_new)
+    or any(.codex.reviews[]?; .is_new and .has_body_finding);
+  def triage_hint($rounds):
+    if has_new_findings then
+      "先定性再动代码：缺陷才修，YAGNI / nitpick / 存量 / 误报以回复结案；修根因而非症状（SKILL「工程判断」）。"
+      + (if $rounds >= 3 then "已处置 \($rounds) 批：同一处又出意见时，回到根因重整实现（SKILL「收敛」）。" else "" end)
+    else null end;
   . as $s
   | ($s.pr_created_at) as $created
   | {
@@ -750,6 +765,7 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
       head:           $s.head,
       last_push_at:   $s.last_push_at,
       rounds:         $rounds,
+      triage_hint:    ($s | triage_hint($rounds)),
       snapshot_file:  $snapshot_file,
       base_oid:       ([$s.commits[] | select(.committedDate <= $created)] | (last | .oid) // null),
       commits_since_pr_created: [$s.commits[] | select(.committedDate > $created)],
@@ -817,6 +833,7 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
       quota_alerts:    $s.quota_alerts,
       own_trigger_comments: [$s.own_trigger_comments[] | {author, createdAt, command, has_codex_eyes}]
     }
+  | if .triage_hint == null then del(.triage_hint) else . end
   ' "$SNAPSHOT_FILE" > "$WORKDIR/index.json"
 
 INDEX_FILE="${SNAPSHOT_FILE%.json}.index.json"

@@ -11,11 +11,13 @@ description: PR AI review 收敛。用户或 team-lead 要求启动或继续审�
 
 ## 工程判断
 
-**证据。** 从项目契约、真实调用路径和信任边界判断实际后果。可执行的行为缺陷优先用修复前失败、修复后通过的测试验证；难以稳定复现时，用明确的代码因果链或接口契约支撑判断。触发路径存在只是起点，还要说明当前行为为什么错误。安全与数据完整性风险优先核实，修法仍独立判断。
+发现是待证伪的假设，举证责任在 reviewer。AI reviewer 对任何可想象的路径都会提建议，每采纳一条，下一轮就多一片新代码被审；判断的产出是处置，修改只是其中一种。
 
-**必要性。** 优先解决本 PR 引入、加剧或阻碍其验收的缺陷。对存量问题和改进建议，判断是否值得扩大当前变更；不修改或列为非阻塞候选也是有效处置，理由写回 PR。重要风险先自行核验事实，仍需取舍时按 [escalation.md](../../../docs/agents/escalation.md) 判断是否交委派方裁决。
+**定性。** 读完整批，先逐条定性再动代码：本 PR 的**缺陷**才修；**YAGNI**、**nitpick**、**存量**与**误报**以回复结案，存量按 [escalation.md](../../../docs/agents/escalation.md) 分流。缺陷须常规可达，判据见 [general.md](../../../docs/standards/general.md)「防御只针对常规可达的场景」。严重度标签是 reviewer 的估计，定性是你的结论。
 
-**根因修复。** 先理解整批反馈，再按根因选择改动。接受问题不等于接受 reviewer 的 patch；在负责该保证的边界修复，利用已有不变量、抽象和错误处理。以最终设计的清晰度衡量最小修复，而非改动行数。验证后通看整个 PR diff，确认各轮修改仍组成一份连贯的实现。
+**证据。** 从项目契约、真实调用路径和信任边界判断实际后果。触发路径存在只是起点，还要说明当前行为为什么错误。可执行的行为缺陷优先用修复前失败、修复后通过的测试验证；难以稳定复现时，用明确的代码因果链或接口契约支撑。安全与数据完整性风险优先核实，修法仍独立判断；仍需取舍时按 escalation.md 判断是否交委派方裁决。
+
+**根因。** 修根因而非症状。reviewer 指的位置和附带的 patch 通常停在症状处；修改落在负责该保证的那一层，利用已有的不变量、抽象和错误处理。在症状处加防御是补丁的信号。以最终设计的清晰度衡量最小修复，而非改动行数。验证后通看整个 PR diff，确认各轮修改仍组成一份连贯的实现。
 
 **收敛。** 后续审查重点是已接受修复及其回归；新发现仍按上述标准判断。已裁决的议题仅在出现新证据或相关前提变化时重开。多轮围绕同一处加补丁时，回到根因重新整理实现，而不是继续叠加局部防御。
 
@@ -28,7 +30,7 @@ bash scripts/poll.sh --repo-root <repo-root> <PR_NUMBER>
 bash scripts/query.sh --repo-root <repo-root> <PR_NUMBER> details <id>...
 ```
 
-索引用于定位，正文按需读取。`no_change` 只表示索引未变；上下文丢失时用 `query.sh ... index` 恢复。合并各家本轮发现、CI 失败和新安全告警，先完成整批判断，再修复、运行受影响质量门并集中 push。对不修改的意见回复依据；同根因的多条意见可以引用同一处置结论。CI 根因已在 main 修复时同步主线并重新验证。
+索引用于定位，正文按需读取。`no_change` 只表示索引未变；上下文丢失时用 `query.sh ... index` 恢复。索引出现新发现时带 `triage_hint`，提示回到定性。合并各家本轮发现、CI 失败和新安全告警，先完成整批定性，再修复、运行受影响质量门并集中 push。处置按 reviewers.md「处置写回」记录：不修改的意见回复定性与依据，同根因的多条意见可以引用同一处置结论。CI 根因已在 main 修复时同步主线并重新验证。
 
 每处置一批记一轮，包括全部以回复结案、没有 push 的批次：
 
@@ -36,7 +38,7 @@ bash scripts/query.sh --repo-root <repo-root> <PR_NUMBER> details <id>...
 bash scripts/round.sh --repo-root <repo-root> <PR_NUMBER> mark --implemented <n> --pushback <n> --note "根因与处置"
 ```
 
-`--pushback` 计入已回复的不修改意见，包括非阻塞处置。CI 修复、rebase 和触发命令本身不计轮。继续拉取状态；仅在缺少审查或检查结果且无可执行动作时，前台运行 `bash scripts/wait.sh --repo-root <repo-root> <PR_NUMBER>`。超时、配额、权限或 bot 异常按 [faults.md](references/faults.md) 处理。
+`--pushback` 计入已回复的不修改意见，即 YAGNI、nitpick、存量与误报。CI 修复、rebase 和触发命令本身不计轮。继续拉取状态；仅在缺少审查或检查结果且无可执行动作时，前台运行 `bash scripts/wait.sh --repo-root <repo-root> <PR_NUMBER>`。超时、配额、权限或 bot 异常按 [faults.md](references/faults.md) 处理。
 
 ## 完成条件
 

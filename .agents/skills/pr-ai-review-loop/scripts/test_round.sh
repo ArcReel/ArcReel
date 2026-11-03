@@ -62,7 +62,6 @@ ROUND_TEST_HEAD=aaa111 run_round mark --implemented 0 --pushback 4
 [[ "$(jq -r .round "$TMP_ROOT/result.out")" == "2" ]] || fail "expected a pushback-only batch to count as round 2"
 [[ "$(jq -r .note "$TMP_ROOT/result.out")" == "" ]] || fail "expected an empty note when --note is omitted"
 [[ "$(jq -r '.rounds | map(.head) | unique | length' "$LEDGER")" == "1" ]] || fail "expected a pushback-only round to repeat the previous head"
-[[ "$(jq -r 'has("hint")' "$TMP_ROOT/result.out")" == "false" ]] || fail "expected no hint before round 3"
 echo "PASS: a pushback-only round is a round on the same head"
 
 run_round show
@@ -83,5 +82,5 @@ echo "PASS: invalid marks fail loudly without touching the ledger"
 
 ROUND_TEST_HEAD=bbb222 run_round mark --implemented 1 --pushback 0
 [[ "$(jq -r .round "$TMP_ROOT/result.out")" == "3" ]] || fail "expected round 3"
-jq -e '.hint | test("常规可达") and test("根因")' "$TMP_ROOT/result.out" > /dev/null || fail "expected the convergence hint from round 3"
-echo "PASS: mark surfaces the convergence hint from round 3"
+[[ "$(jq -r .rounds "$TMP_ROOT/result.out")" == "3" ]] || fail "expected rounds total 3"
+echo "PASS: a later mark keeps numbering on a new head"
