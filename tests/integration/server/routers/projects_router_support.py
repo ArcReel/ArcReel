@@ -33,7 +33,7 @@ from lib.script.script_batch_edit import (
 from lib.script.script_editor import ScriptEditError, patch_field, resolve_items
 from lib.speech.speech_composition import admit_script_unit
 from lib.workflow.workflow_state import ArtifactCount, EpisodesSummary, EpisodeSummary, ProjectSummary
-from tests.fakes import use_project_manager
+from tests.fakes import use_project_manager, use_projects_session_factory
 
 
 class _OverviewProbe(BaseModel):
@@ -463,7 +463,7 @@ def build_projects_client(monkeypatch, fake_pm, fake_summaries=None, *, session_
     """``session_factory`` 给出时，路由经它开数据库会话（默认是生产的 ``async_session_factory``）。"""
     use_project_manager(monkeypatch, fake_pm)
     if session_factory is not None:
-        monkeypatch.setattr(projects, "async_session_factory", session_factory)
+        use_projects_session_factory(monkeypatch, session_factory)
 
     app = FastAPI()
     app.dependency_overrides[projects.get_workflow_state_service] = lambda: fake_summaries or _FakeSummaries()

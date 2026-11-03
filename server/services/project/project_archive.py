@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -8,7 +9,8 @@ import shutil
 import stat
 import tempfile
 import zipfile
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
+from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -41,6 +43,15 @@ from lib.infra.content_digest import digest_stream, sha256_file
 from lib.infra.json_io import load_json
 from lib.infra.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.infra.validation_messages import ValidationResult, default_translate
+from lib.material.formal_objects import ObjectContentStorage, iter_version_records, stores_remotely
+from lib.material.storage import CONTENT_DIGEST, CONTENT_VERSION_ID, STORAGE, ObjectLocator, new_content_version_id
+from lib.material.work_files import (
+    MaterialFetchFailedError,
+    RemoteWorkFile,
+    held_work_files,
+    locked_remote_work_files,
+    remote_work_files,
+)
 from lib.project import deleted_projects
 from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key, build_asset_entry, normalize_asset_name
 from lib.project.data_validator import DataValidator
@@ -70,6 +81,9 @@ from lib.script.reference_video.text_parser import extract_mentions
 from lib.script.script_skeleton import SKELETONS, resolve_declared_kind, resolve_kind_items
 from lib.script.source_loader.migration import migrate_project_source_encoding
 from server.services.project.project_retirement import RetireProject
+
+#: 归档导入的正式提交：收目标项目名，产出这次导入保存图片用的对象存储（目标实例存本地时为 ``None``）。
+FormalCommit = Callable[[str], AbstractContextManager[ObjectContentStorage | None]]
 
 logger = logging.getLogger(__name__)
 
@@ -325,11 +339,84 @@ class ProjectArchiveService:
     _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES - _ARCHIVE_EXCLUDED_ROOTS)
     _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
 
-    def __init__(self, project_manager: ProjectManager, *, retire_project: RetireProject | None = None):
-        """``retire_project`` 收尾覆盖导入替换掉的现有项目，覆盖现有项目时必需。"""
+    def __init__(
+        self,
+        project_manager: ProjectManager,
+        *,
+        retire_project: RetireProject | None = None,
+        formal_commit: FormalCommit | None = None,
+    ):
+        """``retire_project`` 收尾覆盖导入替换掉的现有项目，覆盖现有项目时必需。
+
+        ``formal_commit`` 是导入图片的正式提交入口（``lib.material.formal_objects.formal_commit_on``），按目标实例的
+        全局设置把导入的图片内容版本保存到本地或对象存储；缺省时一律本地保存。
+        """
         self.project_manager = project_manager
         self._retire_project = retire_project
+        self._formal_commit = formal_commit
         self.validator = DataValidator(projects_dir=str(project_manager.projects_dir))
+
+    @asynccontextmanager
+    async def export_materials_held(self, project_name: str, *, scope: str = "full") -> AsyncGenerator[None]:
+        """导出前取回这次归档要带的远端内容版本工作文件，并在上下文里登记使用，清理不会删掉它们。
+
+        导出与导出诊断都须在这段上下文里执行：归档带的是图片的真实内容，工作文件被清理过时从对象存储取回并校验。
+        项目不存在时什么也不做，由导出本身报告。
+
+        Raises:
+            MaterialConnectionUnavailableError, MaterialFetchFailedError: 远端内容取不回或与摘要不符。
+        """
+        self._validate_scope(scope)
+        project_dir, paths = await asyncio.to_thread(self._export_work_file_paths, project_name, scope)
+        if not paths:
+            yield
+            return
+        async with held_work_files(project_dir, paths):
+            yield
+
+    def _export_work_file_paths(self, project_name: str, scope: str) -> tuple[Path, list[str]]:
+        if not self.project_manager.project_exists(project_name):
+            return Path(), []
+        project_dir = self.project_manager.get_project_path(project_name)
+        versions = self._load_json_file(project_dir / "versions" / "versions.json") or {}
+        exported = self._exported_work_files(locked_remote_work_files(project_dir), versions, scope)
+        return project_dir, [work_file.path for work_file in exported]
+
+    def _exported_work_files(
+        self, work_files: list[RemoteWorkFile], versions: dict[str, Any], scope: str
+    ) -> list[RemoteWorkFile]:
+        """归档要带的远端内容版本工作文件：完整归档是全部，仅当前版本是正式文件加上保留的版本快照。"""
+        if scope == "full":
+            return work_files
+        _, retained = self._current_export_versions(versions)
+        return [work_file for work_file in work_files if work_file.formal or work_file.path in retained]
+
+    def _verify_remote_content(self, snapshot_dir: Path, scope: str) -> None:
+        """快照里须有归档要带的每个远端内容版本的真实内容；缺失或与摘要不符时不产出归档。
+
+        版本快照位置按记录的摘要校验；正式文件只要求在场，内容以盘上为准，与本地内容版本的导出一致。
+        """
+        versions = self._load_json_file(snapshot_dir / "versions" / "versions.json") or {}
+        project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE) or {}
+        for work_file in self._exported_work_files(remote_work_files(versions, project), versions, scope):
+            path = snapshot_dir / work_file.path
+            if not path.is_file():
+                raise MaterialFetchFailedError("work_file_missing")
+            if not work_file.formal and sha256_file(path) != work_file.digest:
+                raise MaterialFetchFailedError("content_mismatch")
+
+    @staticmethod
+    def _drop_remote_locators(payload: dict[str, Any]) -> bool:
+        """去掉版本记录上的远端定位，返回是否改动。
+
+        定位只在写入它的实例里有意义：导出不带出源实例的连接与桶，导入不按包里的定位读目标实例的桶。
+        """
+        changed = False
+        for _resource_type, _resource_id, record in iter_version_records(payload):
+            if STORAGE in record:
+                del record[STORAGE]
+                changed = True
+        return changed
 
     def get_export_diagnostics(
         self,
@@ -582,11 +669,21 @@ class ProjectArchiveService:
 
                     self._ensure_standard_subdirs(staging_dir)
 
-                    self._install_project_dir(
-                        staging_dir,
-                        target_name,
-                        overwrite=(conflict_policy == "overwrite"),
+                    commit = (
+                        self._formal_commit(target_name)
+                        if self._formal_commit is not None and self._has_importable_images(staging_dir)
+                        else nullcontext(None)
                     )
+                    with commit as storage:
+                        if storage is not None:
+                            # 安装前保存：保存失败时什么也没安装，本次新建的对象由结算补偿删除。
+                            self._store_imported_images(staging_dir, storage)
+                            storage.track(self.project_manager.projects_dir / target_name)
+                        self._install_project_dir(
+                            staging_dir,
+                            target_name,
+                            overwrite=(conflict_policy == "overwrite"),
+                        )
 
                     imported_project = self.project_manager.load_project(target_name)
                     emit_project_change_hint(
@@ -618,6 +715,15 @@ class ProjectArchiveService:
         temp_dir = tempfile.TemporaryDirectory(prefix="arcreel-export-")
         snapshot_dir = Path(temp_dir.name) / project_name
         source_manifest_entries = self._capture_stable_visible_tree(source_dir, snapshot_dir)
+        try:
+            self._verify_remote_content(snapshot_dir, scope)
+        except BaseException:
+            temp_dir.cleanup()
+            raise
+        snapshot_versions_path = snapshot_dir / "versions" / "versions.json"
+        snapshot_versions = self._load_json_file(snapshot_versions_path)
+        if isinstance(snapshot_versions, dict) and self._drop_remote_locators(snapshot_versions):
+            self._write_json_file(snapshot_versions_path, snapshot_versions)
 
         diagnostics = self._repair_project_tree(snapshot_dir)
         # 源项目已在当前 schema 上，正文就位，与导入路径共用同一遍提及自愈。
@@ -1868,8 +1974,50 @@ class ProjectArchiveService:
                     errors.append(ValidationMessage("arch_version_snapshot_path_unmanaged", {"location": location}))
         if errors:
             raise ProjectArchiveValidationError(ValidationMessage("arch_import_validation_failed"), errors=errors)
-        if unknown:
+        # 包里的远端定位一律去掉：导入的图片只凭包里的真实内容，按目标实例的全局设置重新保存。
+        dropped_locators = self._drop_remote_locators(payload)
+        if unknown or dropped_locators:
             self._write_json_file(versions_path, payload)
+
+    def _importable_image_records(self, project_dir: Path) -> tuple[dict[str, Any], list[tuple[dict[str, Any], Path]]]:
+        """暂存目录的版本历史，以及其中可保存到对象存储的图片版本记录与快照文件。"""
+        payload = self._load_json_file(project_dir / "versions" / "versions.json")
+        if not isinstance(payload, dict):
+            return {}, []
+        records = []
+        for resource_type, _resource_id, record in iter_version_records(payload):
+            if not stores_remotely(resource_type) or not isinstance(record.get("file"), str):
+                continue
+            snapshot = try_safe_join(project_dir, record["file"])
+            if snapshot is not None and snapshot.is_file():
+                records.append((record, snapshot))
+        return payload, records
+
+    def _has_importable_images(self, project_dir: Path) -> bool:
+        return bool(self._importable_image_records(project_dir)[1])
+
+    def _store_imported_images(self, project_dir: Path, storage: ObjectContentStorage) -> None:
+        """把暂存目录里的图片版本保存为目标实例的正式对象，并在版本记录上写下定位。
+
+        早于内容版本身份的记录先补写身份与摘要（同 ``VersionManager.ensure_content_version``）。快照内容与记录的
+        摘要不符时这条版本照旧本地保存，与导入到本地的结果一致。同字节的版本共用一个对象，只保存一次。
+        """
+        payload, records = self._importable_image_records(project_dir)
+        stored: dict[tuple[str, str], ObjectLocator] = {}
+        for record, snapshot in records:
+            digest = sha256_file(snapshot)
+            if not isinstance(record.get(CONTENT_VERSION_ID), str):
+                record[CONTENT_VERSION_ID] = new_content_version_id()
+            if not isinstance(record.get(CONTENT_DIGEST), str):
+                record[CONTENT_DIGEST] = digest
+            if record[CONTENT_DIGEST] != digest:
+                continue
+            key = (digest, snapshot.suffix.lower())
+            if key not in stored:
+                stored[key] = storage.store(snapshot, digest)
+            record[STORAGE] = stored[key].to_record()
+        if records:
+            self._write_json_file(project_dir / "versions" / "versions.json", payload)
 
     @staticmethod
     def _iter_version_histories(bucket: object) -> Iterator[tuple[str, list[Any]]]:
