@@ -2682,6 +2682,8 @@ export default {
   'file_view_preview_too_large': 'This file is too large to preview here. Download it to view.',
   'file_view_preview_label': 'Contents of {{name}}',
   'file_view_modified_at': 'Modified {{time}}',
+  'file_view_remote_only': 'Not on this server',
+  'file_view_remote_only_desc': 'The content is saved in object storage and its local cache was cleared. It is fetched first when you preview, download or move it to the project trash.',
   'file_view_role_structure': 'Structure file',
   'file_view_role_referenced': 'In use',
   'file_view_role_history': 'Past version',

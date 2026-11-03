@@ -2681,6 +2681,8 @@ export default {
   'file_view_preview_too_large': '文件较大，不在页面中预览，下载后可以查看。',
   'file_view_preview_label': '{{name}} 的内容',
   'file_view_modified_at': '修改于 {{time}}',
+  'file_view_remote_only': '未在本地',
+  'file_view_remote_only_desc': '内容保存在对象存储中，本地缓存已清理。预览、下载或移入项目回收站时会先取回。',
   'file_view_role_structure': '结构文件',
   'file_view_role_referenced': '正式文件',
   'file_view_role_history': '历史版本',

@@ -70,6 +70,30 @@ it("deletes checked files individually, retains a failed selection and restores 
   expect(files.has("a.txt")).toBe(false);
 });
 
+it("marks a remote version whose local cache was cleared and still offers to move it to the trash", async () => {
+  const remote: FileViewEntry = {
+    name: "v2.png", path: "v2.png", type: "file", size: 2048, modified_at: "2026-01-01T00:00:00Z",
+    role: "history", remote_only: true,
+  };
+  const local: FileViewEntry = { ...remote, name: "v1.png", path: "v1.png", remote_only: undefined };
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname.endsWith("/file-view/content")) return new Response(new Blob(["png"]));
+    return Response.json({ path: "", entries: [local, remote] });
+  });
+  render(<FileView projectName="demo" />);
+  const user = userEvent.setup();
+
+  const row = await screen.findByRole("button", { name: /v2\.png/ });
+  expect(row).toHaveTextContent("未在本地");
+  expect(screen.getByRole("button", { name: /v1\.png/ })).not.toHaveTextContent("未在本地");
+  expect(screen.getByRole("checkbox", { name: "选择 v2.png" })).toBeInTheDocument();
+
+  await user.click(row);
+  expect(await screen.findByText(/本地缓存已清理/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "移入项目回收站" })).toBeInTheDocument();
+});
+
 it("removes a deleted file from the tree at once instead of waiting for a slow refresh", async () => {
   let listCalls = 0;
   vi.stubGlobal("fetch", (_input: RequestInfo | URL, init?: RequestInit) => {
