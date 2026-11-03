@@ -238,8 +238,12 @@ def test_entry_with_lifecycle_and_valid_successor_passes():
     """后继按原条目的媒体类型对应条目，指向两栖模型时不必另写媒体类型；默认模型只带后继、没有关停日期时放行。"""
     data = catalog()
     successor = {**text_entry(), "name": "gemini-3.5-pro", "aliases": [], "release_date": "2026-09-01"}
-    retiring = {**video_entry(), "name": "kling-v2-master", "shutdown_date": "2026-11-24"}
-    retiring.update(successor="kuaishou/kling-v3-omni", discontinued=False)
+    retiring = {
+        **video_entry(),
+        "name": "kling-v2-master",
+        "shutdown_date": "2026-11-24",
+        "successor": "kuaishou/kling-v3-omni",
+    }
     data["entries"] += [successor, retiring]
     data["entries"][0].update(successor="google/gemini-3.5-pro")
 
