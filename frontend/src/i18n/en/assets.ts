@@ -310,7 +310,7 @@ export default {
   editor_derivative_removed: "This derivative was deleted or renamed. Your unsaved changes are retained; save or discard to use the current state.",
   "provider_asset_select_from_library": "Select from provider asset library",
   "provider_asset_dialog_title": "Select from provider asset library",
-  "provider_asset_dialog_desc": "Select an available image asset. ArcReel retrieves the original image, saves it as a new version of this asset image, and links that version to the asset.",
+  "provider_asset_dialog_desc": "Select an available image asset. ArcReel retrieves the original image, saves it as a new version of this image, and links that version to the asset.",
   "provider_asset_account": "Asset library account",
   "provider_asset_no_account": "No asset library accounts yet. Add one under Asset library & storage in Settings, then select again.",
   "provider_asset_open_settings": "Open settings",

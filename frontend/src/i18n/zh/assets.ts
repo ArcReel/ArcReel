@@ -312,7 +312,7 @@ export default {
   editor_derivative_removed: "此衍生已被删除或改名。未保存的修改仍保留，保存或放弃后采用当前状态。",
   "provider_asset_select_from_library": "从供应商素材库选择",
   "provider_asset_dialog_title": "从供应商素材库选择",
-  "provider_asset_dialog_desc": "选择一张可用的图片素材。ArcReel 取回原图，保存为这张资产图的新版本，并与该素材建立关联。",
+  "provider_asset_dialog_desc": "选择一张可用的图片素材。ArcReel 取回原图，保存为这张图片的新版本，并与该素材建立关联。",
   "provider_asset_account": "素材库账号",
   "provider_asset_no_account": "还没有素材库账号。在设置的「素材库与存储」中添加账号后再选择。",
   "provider_asset_open_settings": "前往设置",

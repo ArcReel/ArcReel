@@ -1,8 +1,23 @@
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, History, ImageUp, Loader2, MoreHorizontal, PenLine, Pencil, Shirt, Trash2, X } from "lucide-react";
+import {
+  Check,
+  CloudDownload,
+  CloudUpload,
+  History,
+  ImageUp,
+  Loader2,
+  MoreHorizontal,
+  PenLine,
+  Pencil,
+  Shirt,
+  Trash2,
+  X,
+} from "lucide-react";
 import { API, CHARACTER_DERIVATIVE_RESOURCE_TYPE, derivativeResourceId } from "@/api";
 import { enqueueCharacterDerivative } from "@/actions/generation";
+import { ProviderAssetBrowserDialog } from "@/components/assets/ProviderAssetBrowserDialog";
+import { ProviderAssetUploadDialog } from "@/components/assets/ProviderAssetUploadDialog";
 import { ImageEditDialog } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { CrossfadeImage } from "@/components/canvas/shared/CrossfadeImage";
@@ -53,7 +68,7 @@ function derivativeToken(characterName: string, derivativeName: string): string 
   return `@[${characterName}/${derivativeName}]`;
 }
 
-type RowDialog = "image-edit" | "versions" | "delete";
+type RowDialog = "image-edit" | "versions" | "delete" | "provider-assets" | "provider-upload";
 
 export interface CharacterDerivativeRowProps {
   projectName: string;
@@ -78,7 +93,8 @@ export interface CharacterDerivativeRowProps {
  * 角色详情「衍生」区块里的一条衍生：缩略图、名称、可复制的引用记号、脚本引用状态、外观变化与生成入口。
  *
  * 外观变化是这一条自己的编辑单元，在行内保存，与资产本体的编辑单元并存，离开拦截覆盖两者。
- * 改名、删除、局部修改、上传与版本恢复是立即执行的动作。上传的衍生图是成品，不需要本体资产图。
+ * 改名、删除、局部修改、上传、从供应商素材库选择与版本恢复是立即执行的动作。上传或选择的衍生图是成品，
+ * 不需要本体资产图。上传到供应商素材库与解除关联只改关联记录，不写衍生图。
  */
 export function CharacterDerivativeRow({
   projectName,
@@ -104,6 +120,8 @@ export function CharacterDerivativeRow({
   const [renameDraft, setRenameDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importSettled = useRef<(() => void) | null>(null);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
   const resourceId = derivativeResourceId(characterName, name);
@@ -128,8 +146,24 @@ export function CharacterDerivativeRow({
     leaveTitle: t("assets:edit_leave_title", { name: qualified }),
   });
   const saving = unit.status === "saving";
-  // 本条的生成、版本恢复、改名或删除在途，或详情里别处在写：兄弟入口一起禁用
-  const rowBusy = busy || generating || restoring || pending;
+  // 本条的生成、版本恢复、导入、改名或删除在途，或详情里别处在写：兄弟入口一起禁用
+  const rowBusy = busy || generating || restoring || importing || pending;
+
+  // 从供应商素材库导入在对话框里进行：在途期间计入详情的写入占用，与上传、删除等写入同口径
+  const handleImportingChange = (value: boolean) => {
+    setImporting(value);
+    if (value) {
+      void track(
+        new Promise<void>((resolve) => {
+          importSettled.current = resolve;
+        }),
+      );
+    } else {
+      importSettled.current?.();
+      importSettled.current = null;
+    }
+  };
+  useEffect(() => () => importSettled.current?.(), []);
 
   // 状态读回前按登记的衍生图判定，与画廊卡片的 sheetStateOf 同口径，避免先闪成待生成
   const artifactStatus = status
@@ -385,6 +419,14 @@ export function CharacterDerivativeRow({
                         <ImageUp aria-hidden />
                         {t("assets:derivative_upload")}
                       </DropdownMenuItem>
+                      <DropdownMenuItem disabled={!sheetPath} onClick={() => setDialog("provider-upload")}>
+                        <CloudUpload aria-hidden />
+                        {t("assets:provider_asset_upload")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem disabled={rowBusy} onClick={() => openGuarded("provider-assets")}>
+                        <CloudDownload aria-hidden />
+                        {t("assets:provider_asset_select_from_library")}
+                      </DropdownMenuItem>
                       <DropdownMenuItem disabled={rowBusy || !imageUrl} onClick={() => openGuarded("image-edit")}>
                         <PenLine aria-hidden />
                         {t("dashboard:image_edit_action")}
@@ -479,6 +521,27 @@ export function CharacterDerivativeRow({
             onChange={(event) => void handleUpload(event)}
           />
           {staleConfirm.dialog}
+          <ProviderAssetBrowserDialog
+            open={dialog === "provider-assets"}
+            onOpenChange={closeDialog}
+            projectName={projectName}
+            resourceType={CHARACTER_DERIVATIVE_RESOURCE_TYPE}
+            resourceId={resourceId}
+            checkBusy={rejectIfBusy}
+            onImportingChange={handleImportingChange}
+            onImported={async () => {
+              const result = await refreshAfterWrite(projectName, t);
+              onSheetsChanged();
+              return result;
+            }}
+          />
+          <ProviderAssetUploadDialog
+            open={dialog === "provider-upload"}
+            onOpenChange={closeDialog}
+            projectName={projectName}
+            resourceType={CHARACTER_DERIVATIVE_RESOURCE_TYPE}
+            resourceId={resourceId}
+          />
           <ImageEditDialog
             open={dialog === "image-edit"}
             onOpenChange={closeDialog}
@@ -499,7 +562,7 @@ export function CharacterDerivativeRow({
               await refreshAfterWrite(projectName, t);
               onSheetsChanged();
             }}
-            busy={busy || generating || pending}
+            busy={busy || generating || importing || pending}
             onRestoringChange={setRestoring}
             checkBusy={() => isAssetBusy("character_derivative", projectName, resourceId)}
           />

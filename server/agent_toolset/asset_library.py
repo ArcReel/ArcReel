@@ -88,11 +88,12 @@ UPLOAD_TO_PROVIDER_ASSET_LIBRARY = ToolDeclaration(
 SELECT_PROVIDER_LIBRARY_ASSET = ToolDeclaration(
     name="select_provider_library_asset",
     description=(
-        "从供应商素材库选择一张已有图片用于资产图，即 Web 的「从供应商素材库选择」。只在用户明确选定这张素材时调用。"
-        "先取回素材的实际图片内容，按手动上传成品保存为资产图的新版本并设为当前版本，再为这个新版本建立可用关联；"
+        "从供应商素材库选择一张已有图片用于资产图或角色衍生图，即 Web 的「从供应商素材库选择」。"
+        "只在用户明确选定这张素材时调用。"
+        "先取回素材的实际图片内容，按手动上传成品保存为这张图片的新版本并设为当前版本，再为这个新版本建立可用关联；"
         "旧版本保留在版本历史里。取不回内容、素材不是可用图片或保存失败时不建立关联，当前版本不变。"
         "素材不是图片返回 provider_asset_import_not_image；还不可用返回 provider_asset_import_not_active；"
-        "取不回内容返回 provider_asset_import_download_failed；资产不存在返回对应的 *_not_found。"
+        "取不回内容返回 provider_asset_import_download_failed；资产或衍生不存在返回对应的 *_not_found。"
         "成功返回 content_version（新版本的 id、version、digest）与 link。"
     ),
     request_model=SelectProviderLibraryAssetRequest,

@@ -553,7 +553,7 @@ Access Keys are entered only on the settings page and are shown with only their 
 
 ### Upload Images to an Asset Library {#upload-to-asset-library}
 
-Choose **Upload to provider asset library** from the more-actions menu on a project asset card to upload the currently selected version of the image to each asset library account. Object storage must be configured first: ArcReel writes a copy of the image to your bucket, gives the provider a download URL that is valid for 24 hours, and then submits the asset. ArcReel therefore does not need a public address.
+Choose **Upload to provider asset library** from the more-actions menu on a project asset card or on a derivative in the character details to upload the currently selected version of the image to each asset library account. Object storage must be configured first: ArcReel writes a copy of the image to your bucket, gives the provider a download URL that is valid for 24 hours, and then submits the asset. ArcReel therefore does not need a public address.
 
 - The provider reviews uploads asynchronously. The status moves through **Waiting to upload**, **Submitting**, and **Provider processing**, and ends as **Available** or **Failed**. Closing the window does not stop the upload, and only **Available** links are used for generation. On failure, the provider's error code and reason are shown.
 - A link belongs to a specific version of the image. If you select another version during the upload, the result still belongs to the version that was submitted. The newly selected version must be uploaded separately; switching back to the old version uses its link again.
@@ -565,12 +565,12 @@ Relay copies in the bucket all live under the `arcreel-relay/` prefix and are cl
 
 ### Select an Existing Image from an Asset Library {#select-from-asset-library}
 
-Choose **Select from provider asset library** from the more-actions menu on a project asset card to view the name, type, and availability of the assets in each account, and select an image that is already in the library to use as this asset image. Selecting does not require object storage.
+Choose **Select from provider asset library** from the more-actions menu on a project asset card or on a derivative in the character details to view the name, type, and availability of the assets in each account, and select an image that is already in the library to use as this asset image or derivative image. Selecting does not require object storage.
 
-- Only image assets whose status is **Available** can be selected. ArcReel queries the asset from the provider, retrieves the original image from the access URL the provider returns, and saves it as a new version in the same way as an uploaded asset image: the new version appears in the version history, can be previewed and edited, and you can switch back to earlier versions.
+- Only image assets whose status is **Available** can be selected. ArcReel queries the asset from the provider, retrieves the original image from the access URL the provider returns, and saves it as a new version in the same way as an uploaded image: the new version appears in the version history, can be previewed and edited, and you can switch back to earlier versions.
 - The new version is automatically linked to the selected asset with an **Available** link that records the asset library account's site, region, and project. Earlier versions do not inherit this link.
-- If the original image cannot be retrieved, nothing is imported, for example when the asset was deleted on the provider side, the access URL has expired, or the network dropped. The original image must be PNG, JPEG, or WebP and no larger than 30 MB. When an import fails, the asset image keeps its previous version and no link is created; try again later or select another asset.
-- Imports preserve the original image bytes without compression or re-encoding, so the saved version matches the provider asset.
+- If the original image cannot be retrieved, nothing is imported, for example when the asset was deleted on the provider side, the access URL has expired, or the network dropped. The original image must be PNG, JPEG, or WebP and no larger than 30 MB. When an import fails, the image keeps its previous version and no link is created; try again later or select another asset.
+- Imports never compress or scale the original image, so the saved version matches the provider asset: asset images keep the original image bytes; derivative images are always saved as PNG, so a PNG original is saved as is and a JPEG or WebP original is converted to PNG with its original pixels.
 
 ### Use the Asset Library During Generation {#generate-with-asset-library}
 
