@@ -7,4 +7,5 @@
 - 模型说明：[Kling Video 3 model guide](https://app.klingai.com/cn/quickstart/klingai-video-3-model-user-guide)
 - 错误码：[Kling AI Error Codes](https://kling.ai/document-api/api/get-started/error-codes)
 - 计费：[视频计费（国内站）](https://klingai.com/document-api/pricing/base/video)、[图像计费（国内站）](https://klingai.com/document-api/pricing/base/image)、[资源包](https://app.klingai.com/global/dev/document-api/productBilling/prePaidResourcePackage)；出厂快照价目表见 `lib/catalog/snapshot/catalog.json`
+- 简介来源（`lib/i18n/<locale>/providers.py` 的 `provider_desc_kling`，只写平台是什么，不列模型与能力）：[Wikipedia: Kling AI](https://en.wikipedia.org/wiki/Kling_AI)、[可灵 AI API 文档](https://klingai.com/document-api)
 - 代码：`lib/config/registry.py::PROVIDER_REGISTRY["kling"]`、`lib/backends/image_backends/kling.py::KlingImageBackend`、`lib/backends/video_backends/kling.py::KlingVideoBackend`

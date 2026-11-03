@@ -390,7 +390,7 @@ class TestCapacityTable:
         from tests.catalog_support import catalog_of, install_catalog
 
         def _meta(**kwargs) -> ProviderMeta:
-            return ProviderMeta(display_name="t", description="", required_keys=[], **kwargs)
+            return ProviderMeta(display_name="t", required_keys=[], **kwargs)
 
         registry = {
             "declared-video": _meta(default_concurrency={"video": 1}),

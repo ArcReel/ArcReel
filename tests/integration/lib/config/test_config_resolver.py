@@ -20,7 +20,6 @@ def _make_ready_provider(name: str, media_types: list[str]) -> ProviderStatus:
     return ProviderStatus(
         name=name,
         display_name=name,
-        description="",
         status="ready",
         media_types=media_types,
         capabilities=[],
