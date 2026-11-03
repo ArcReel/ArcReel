@@ -1,7 +1,7 @@
 """远端主存储：资产图成品经正式提交保存到对象存储，清理本地工作文件后预览与缩略图从远端取回；版本切换、
 回收站与项目删除按引用保留正式对象。
 
-真实编排：资产图经文件路由上传（正式提交入口按全局设置选择保存位置），预览与缩略图经公开文件路由读取，
+真实编排：资产图经文件路由上传，分镜图、角色衍生图与宫格图经各自的上传路由（正式提交入口按全局设置选择保存位置），预览与缩略图经公开文件路由读取，
 工作文件经对象存储路由的清理入口清理，删除与恢复经文件视图、资产、项目回收站与项目路由，全局资产库经资产库路由保存与应用。
 只替换对象存储的网络边界：TOS SDK 在 ``create_sdk_client`` 换成内存桶。
 """
@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Generator
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -40,6 +41,7 @@ from lib.db.models.object_storage import FormalObject, FormalObjectRef
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.material.formal_objects import (
     MATERIAL_STORAGE_TARGET_SETTING,
+    formal_object_key,
     reconcile_and_collect,
     recover_formal_commits,
     retain_formal_objects,
@@ -50,10 +52,23 @@ from lib.project.asset_derivatives import derivative_artifact_id, derivative_she
 from lib.project.asset_types import DERIVATIVES_FIELD
 from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
+from lib.script.grid.grid_manager import GridManager
+from lib.script.grid.models import GridGeneration
 from lib.script.reference_video.execution_checkpoint import ProviderMediaInput, stage_provider_media_for_task
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.routers import assets, characters, file_view, files, object_storage, project_trash, versions
+from server.routers import (
+    assets,
+    characters,
+    derivative_uploads,
+    file_view,
+    files,
+    grids,
+    object_storage,
+    project_trash,
+    shot_uploads,
+    versions,
+)
 from server.services.project.provider_asset_links import load_link_panel
 from server.services.tasks import derivative_sheet_tasks
 from server.services.tasks.image_edit_tasks import execute_image_edit_task
@@ -179,6 +194,9 @@ def api(sessions, project, monkeypatch) -> Generator[TestClient]:
         project_trash.router,
         characters.router,
         assets.router,
+        shot_uploads.router,
+        derivative_uploads.router,
+        grids.router,
     ):
         app.include_router(router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     app.include_router(files.public_router, prefix="/api/v1")
@@ -816,3 +834,123 @@ async def test_video_reference_staging_fetches_the_evicted_remote_sheet(api, ses
 
     assert staged.sha256 == record["content_digest"]
     assert hashlib.sha256((project_dir / staged.staged_locator).read_bytes()).hexdigest() == record["content_digest"]
+
+
+# ── 手动上传分镜图、角色衍生图与宫格图 ───────────────────────────────
+
+
+@dataclass(frozen=True)
+class _ManualUpload:
+    url: str
+    resource_type: str
+    resource_id: str
+    artifact_path: str
+
+
+def _storyboard_upload(project: ProjectManager) -> _ManualUpload:
+    segment = {
+        "segment_id": "E1S01",
+        "novel_text": "t",
+        "duration_seconds": 5,
+        "characters_in_segment": [],
+        "scenes": [],
+        "props": [],
+        "image_prompt": "安静的房间",
+        "video_prompt": "镜头缓慢推进",
+        "generated_assets": {"storyboard_image": None, "status": "pending"},
+    }
+    script = {"episode": 1, "title": "E1", "content_mode": "narration", "segments": [segment]}
+    project.save_script("demo", script, "episode_1.json", validate=False)
+    return _ManualUpload(
+        url="/api/v1/projects/demo/shots/E1S01/upload/storyboard?script_file=episode_1.json",
+        resource_type="storyboards",
+        resource_id="E1S01",
+        artifact_path="storyboards/scene_E1S01.png",
+    )
+
+
+def _derivative_upload(project: ProjectManager) -> _ManualUpload:
+    def _register(entry: dict[str, Any]) -> None:
+        entry.setdefault(DERIVATIVES_FIELD, {})["战斗装"] = {"description": "换上黑色重甲", "character_sheet": ""}
+
+    project.update_asset_entry("character", "demo", "Alice", _register)
+    return _ManualUpload(
+        url="/api/v1/projects/demo/characters/Alice/derivatives/战斗装/upload",
+        resource_type=CHARACTER_DERIVATIVE_RESOURCE_TYPE,
+        resource_id=derivative_artifact_id("Alice", "战斗装"),
+        artifact_path=derivative_sheet_relative_path("Alice", "战斗装"),
+    )
+
+
+def _grid_upload(project: ProjectManager) -> _ManualUpload:
+    _storyboard_upload(project)
+
+    def _enable_grid(data: dict[str, Any]) -> None:
+        data.update(generation_mode="storyboard", grid_storyboard=True)
+
+    project.update_project("demo", _enable_grid)
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["E1S01", "b", "c", "d"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="p",
+        model="m",
+        video_aspect_ratio="9:16",
+    )
+    grid.status = "completed"
+    grid.grid_image_path = f"grids/{grid.id}.png"
+    GridManager(project.get_project_path("demo")).save(grid)
+    return _ManualUpload(
+        url=f"/api/v1/projects/demo/grids/{grid.id}/upload",
+        resource_type="grids",
+        resource_id=grid.id,
+        artifact_path=f"grids/{grid.id}.png",
+    )
+
+
+def _project_files(project_dir: Path) -> dict[str, bytes]:
+    return {str(path.relative_to(project_dir)): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()}
+
+
+@pytest.mark.parametrize("prepare", [_storyboard_upload, _derivative_upload, _grid_upload], ids=lambda f: f.__name__)
+async def test_manual_image_upload_follows_the_storage_choice(api, sessions, project, bucket, prepare):
+    """手动上传的分镜图、衍生图与宫格图按存储选择保存：本地时照旧；远端时对象确认后才发布版本，
+    上传失败时项目文件逐字节不变；清理工作文件后从远端取回。"""
+    entry = await asyncio.to_thread(prepare, project)
+    project_dir = project.get_project_path("demo")
+
+    def _send(rgb: tuple[int, int, int]):
+        return api.post(entry.url, files={"file": ("shot.png", solid_png_bytes(rgb, size=(64, 64)), "image/png")})
+
+    def _records() -> list[dict[str, Any]]:
+        return VersionManager(project_dir).get_versions(entry.resource_type, entry.resource_id)["versions"]
+
+    assert _send((200, 10, 10)).status_code == 200
+    assert "storage" not in _records()[-1]
+    assert bucket.stored_keys() == []
+
+    await _remote(sessions)
+    assert _send((10, 200, 10)).status_code == 200
+    record = _records()[-1]
+    saved = (project_dir / entry.artifact_path).read_bytes()
+    assert record["storage"]["key"] == formal_object_key(record["content_digest"], ".png")
+    assert bucket.objects[(BUCKET, record["storage"]["key"])] == saved
+    [ref] = await _refs(sessions)
+    assert (ref.state, ref.project_name, ref.content_version_id) == ("active", "demo", record["content_version_id"])
+
+    before = await asyncio.to_thread(_project_files, project_dir)
+    bucket.fail.add("put")
+    failed = _send((10, 10, 200))
+    assert failed.status_code == 502, failed.text
+    assert await asyncio.to_thread(_project_files, project_dir) == before
+    assert [ref.state for ref in await _refs(sessions)] == ["active"]
+
+    bucket.fail.clear()
+    _cleanup(api)
+    assert not (project_dir / entry.artifact_path).exists()
+    preview = api.get(f"/api/v1/files/demo/{entry.artifact_path}")
+    assert preview.status_code == 200
+    assert preview.content == saved
