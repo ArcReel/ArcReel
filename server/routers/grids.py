@@ -28,6 +28,7 @@ from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transacti
 from lib.infra.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
 from lib.infra.json_io import domain_error_on_value_error
 from lib.material.formal_objects import formal_commit
+from lib.material.work_files import material_file_present
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
 from lib.script.grid.grid_access import ensure_grid_writable
@@ -402,8 +403,9 @@ async def split_grid(project_name: str, grid_id: str, user: CurrentUser):
     async with grid_submission_section(project_name):
         grid = await asyncio.to_thread(_load_grid_or_404, project_path, grid_id)
         await _ensure_grid_idle(project_name, grid, user.id)
+        # 联合图缓存已清理的远端内容版本也算就绪：切分前由服务取回
         if not grid.grid_image_path or not await asyncio.to_thread(
-            lambda: GridManager(project_path).image_path(grid_id).exists()
+            lambda: material_file_present(GridManager(project_path).image_path(grid_id))
         ):
             raise BadRequestError("grid_image_not_ready", grid_id=grid_id)
 

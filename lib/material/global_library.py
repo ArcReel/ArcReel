@@ -40,6 +40,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.db.models.asset import Asset, AssetDerivative
+from lib.infra.async_thread import run_noninterruptible_async
 from lib.infra.content_digest import sha256_file
 from lib.infra.data_root_layout import GLOBAL_ASSETS_DIRNAME
 from lib.material.formal_objects import (
@@ -57,6 +58,7 @@ from lib.material.work_files import (
     DEFAULT_MIN_IDLE,
     CacheCleanupResult,
     MaterialFetchFailedError,
+    evict_idle_work_file,
     fetch_object_content,
     in_use_or_recent,
 )
@@ -71,6 +73,22 @@ LIBRARY_HOLDER_PREFIX = "asset-library:"
 def library_holder(asset_id: str) -> str:
     """库条目的引用方键，同时写进 ``object_storage_formal_object_ref`` 与 ``provider_asset_link`` 的 ``project_name``。"""
     return f"{LIBRARY_HOLDER_PREFIX}{asset_id}"
+
+
+_ENTRY_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
+
+
+def library_entry_lock(asset_id: str) -> asyncio.Lock:
+    """同一库条目的换图、覆盖与删除串行进行（单进程部署，见 ADR 0007）。
+
+    每次写入在锁内读取条目当前的图片、提交新图，再撤下被它换下的那张；并发的两次换图因此各自撤下真正被换下的图片，
+    不会两次都撤同一张旧图、留下一张已不在条目上却仍持有引用的图片。
+    """
+    key = (id(asyncio.get_running_loop()), asset_id)
+    lock = _ENTRY_LOCKS.get(key)
+    if lock is None:
+        lock = _ENTRY_LOCKS[key] = asyncio.Lock()
+    return lock
 
 
 @dataclass(frozen=True)
@@ -128,6 +146,7 @@ class GlobalImageWriter:
     saved: list[GlobalImage] = field(default_factory=list)
     #: 本次写入落盘的库存储文件（相对数据根），失败时由 :meth:`discard` 删除。
     written: list[str] = field(default_factory=list)
+    _committed: bool = field(default=False, init=False)
 
     def save(self, source: Path, asset_type: str, default_ext: str) -> GlobalImage:
         """把 ``source`` 保存为库里的一张新图片：本地写入库存储文件，全局设置为对象存储时再写成正式对象。"""
@@ -168,9 +187,20 @@ class GlobalImageWriter:
                 raise RemoteSaveFailedError("not_confirmed")
 
     async def discard(self) -> None:
-        """条目没有写成：撤下本次登记的引用、删除本次落盘的文件。本次新建且无人引用的对象由正式提交的结算删除。"""
+        """条目没有写成时撤下引用与文件；提交后的响应或读取失败不撤销已保存的图片。"""
+        if self._committed:
+            return
         await forget_global_images(self.holder, self.saved, session_factory=self.session_factory)
         await asyncio.to_thread(_delete_files, self.data_root, self.written)
+
+    async def commit(self, session: AsyncSession) -> None:
+        """提交条目并关闭失败补偿窗口，取消不会落在数据库已提交、图片仍可被撤下的间隙。"""
+
+        async def _commit() -> None:
+            await session.commit()
+            self._committed = True
+
+        await run_noninterruptible_async(_commit())
 
 
 @asynccontextmanager
@@ -183,7 +213,8 @@ async def global_image_commit(
 ) -> AsyncGenerator[GlobalImageWriter]:
     """库条目 ``holder`` 写入新图片的正式提交入口：图片按全局设置保存在本地或对象存储。
 
-    调用方在上下文里经 :meth:`GlobalImageWriter.save` 保存图片、:meth:`GlobalImageWriter.hold` 登记引用后提交条目，
+    调用方在上下文里经 :meth:`GlobalImageWriter.save` 保存图片、:meth:`GlobalImageWriter.hold` 登记引用，
+    再经 :meth:`GlobalImageWriter.commit` 提交条目，
     条目写入失败时调用 :meth:`GlobalImageWriter.discard`。退出时结算本次提交，没有引用的新建对象被删除。
     ``saves_images`` 为 False（这次写入没有图片）时不检查对象存储连接，按本地处理。
 
@@ -307,8 +338,7 @@ def _evict(target: Path, digest: str, idle_before: float) -> tuple[int, int, int
         return 0, 0, 1
     if sha256_file(target) != digest:
         return 0, 0, 0
-    target.unlink()  # hard-delete: derived -- 远端已确认保存的全局资产库图片的本地工作文件，可从对象存储取回
-    return 1, stat_result.st_size, 0
+    return evict_idle_work_file(target, stat_result, idle_before)
 
 
 async def cleanup_global_work_files(
@@ -353,6 +383,7 @@ __all__ = [
     "ensure_global_image",
     "forget_global_images",
     "global_image_commit",
+    "library_entry_lock",
     "library_holder",
     "release_library_entry",
 ]

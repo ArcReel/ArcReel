@@ -265,7 +265,7 @@ async def list_file_view(
 
 
 def _fetch_needed(project_dir: Path, rel: str, *, deleting: bool) -> bool:
-    """``rel`` 是合法路径、指向缓存已清理的远端内容版本工作文件；``deleting`` 时还须是可删除的历史版本。"""
+    """``rel`` 是合法远端工作文件，已有缓存也需保护；``deleting`` 时还须是可删除的历史版本。"""
     try:
         parts = _parts(rel)
         if not parts:
@@ -273,7 +273,7 @@ def _fetch_needed(project_dir: Path, rel: str, *, deleting: bool) -> bool:
         _resolve(project_dir, parts[:-1])  # 父目录同样不跟随符号链接
     except FileNotFoundError:
         return False
-    if os.path.lexists(project_dir / rel) or rel not in remote_work_file_digests(project_dir):
+    if (project_dir / rel).is_symlink() or rel not in remote_work_file_digests(project_dir):
         return False
     if not deleting:
         return True

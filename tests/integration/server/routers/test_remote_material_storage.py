@@ -11,7 +11,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import threading
 from collections.abc import Generator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -25,7 +27,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-from tos.exceptions import TosServerError
+from starlette.types import Message, Receive, Scope, Send
+from tos.exceptions import TosClientError, TosServerError
 
 from lib.artifacts.artifact_activation import assert_artifact_target_state_plan_unchanged
 from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
@@ -39,14 +42,19 @@ from lib.db.base import utc_now
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.models.object_storage import FormalObject, FormalObjectRef, RelayObject
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
+from lib.infra.content_digest import sha256_file
 from lib.material.formal_objects import (
     MATERIAL_STORAGE_TARGET_SETTING,
+    ObjectContentStorage,
+    add_reference,
     formal_object_key,
+    holding_object_count,
     reconcile_and_collect,
     recover_formal_commits,
     retain_formal_objects,
     sweep_formal_objects,
 )
+from lib.material.storage import ObjectLocator
 from lib.material.work_files import ensure_content_version_file, hold_work_file
 from lib.project import project_trash as project_trash_store
 from lib.project.asset_derivatives import derivative_artifact_id, derivative_sheet_relative_path
@@ -54,7 +62,7 @@ from lib.project.asset_types import DERIVATIVES_FIELD
 from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from lib.script.grid.grid_manager import GridManager
-from lib.script.grid.models import GridGeneration
+from lib.script.grid.models import GridGeneration, ReferenceImage
 from lib.script.reference_video.execution_checkpoint import ProviderMediaInput, stage_provider_media_for_task
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -71,6 +79,7 @@ from server.routers import (
     shot_uploads,
     versions,
 )
+from server.services.project import project_retirement
 from server.services.project.provider_asset_links import load_link_panel
 from server.services.tasks import derivative_sheet_tasks
 from server.services.tasks.image_edit_tasks import execute_image_edit_task
@@ -330,6 +339,38 @@ async def test_remote_upload_survives_cache_cleanup_and_coexists_with_local_vers
     assert formal.read_bytes() == image_b
 
 
+async def test_version_restore_holds_remote_snapshot_until_commit(api, sessions, project, bucket, monkeypatch):
+    await _remote(sessions)
+    content = solid_png_bytes((30, 200, 30))
+    assert _upload(api, content).status_code == 200
+    await _target(sessions, "local")
+    assert _upload(api, solid_png_bytes((200, 30, 30))).status_code == 200
+    restoring = threading.Event()
+    allow_restore = threading.Event()
+    original_restore = VersionManager.restore_version
+
+    def paused_restore(self, *args, **kwargs):
+        restoring.set()
+        assert allow_restore.wait(10), "清理没有结束"
+        return original_restore(self, *args, **kwargs)
+
+    monkeypatch.setattr(VersionManager, "restore_version", paused_restore)
+    restore_task = asyncio.create_task(
+        asyncio.to_thread(api.post, "/api/v1/projects/demo/versions/characters/Alice/restore/1")
+    )
+    try:
+        assert await asyncio.to_thread(restoring.wait, 10), "还原没有到达版本管理器"
+        cleaned = await asyncio.to_thread(_cleanup, api)
+    finally:
+        allow_restore.set()
+    restored = await restore_task
+    assert restored.status_code == 200, restored.text
+    assert (project.get_project_path("demo") / "characters/Alice.png").read_bytes() == content
+    assert _history(project)["current_version"] == 1
+    assert cleaned["kept_in_use"] == 1
+    assert _cleanup(api)["removed"] == 2
+
+
 async def test_concurrent_reads_download_once(api, sessions, project, bucket):
     await _remote(sessions)
     image = solid_png_bytes((20, 20, 200), size=(64, 64))
@@ -343,6 +384,75 @@ async def test_concurrent_reads_download_once(api, sessions, project, bucket):
     paths = await asyncio.gather(*(ensure_content_version_file(project_dir, content_version) for _ in range(4)))
     assert {path.read_bytes() for path in paths} == {image}
     assert [op for op, _key in bucket.calls].count("get") == 1
+
+
+@pytest.mark.parametrize("source", ["project", "library"])
+@pytest.mark.parametrize("cleanup_hash_started", [False, True])
+async def test_media_response_holds_remote_cache_until_the_body_is_sent(
+    api, sessions, bucket, project, monkeypatch, source, cleanup_hash_started
+):
+    """响应头发出、FileResponse 尚未打开文件时清缓存，项目和全局库图片仍可读，响应后可清理。"""
+    await _remote(sessions)
+    content = solid_png_bytes((20, 40, 60))
+    if source == "project":
+        assert _upload(api, content).status_code == 200
+        url = "/api/v1/files/demo/characters/Alice.png"
+        target = project.get_project_path("demo") / "characters/Alice.png"
+        digest_module = "lib.material.work_files"
+    else:
+        created = api.post(
+            "/api/v1/assets",
+            data={"type": "character", "name": "Alice"},
+            files={"image": ("alice.png", content, "image/png")},
+        )
+        assert created.status_code == 200, created.text
+        image_path = created.json()["asset"]["image_path"]
+        url = f"/api/v1/global-assets/character/{Path(image_path).name}"
+        target = project.data_root / image_path
+        digest_module = "lib.material.global_library"
+    hash_started = threading.Event()
+    allow_hash = threading.Event()
+
+    def paused_hash(path: Path) -> str:
+        digest = sha256_file(path)
+        if path == target:
+            hash_started.set()
+            assert allow_hash.wait(10), "媒体请求没有到达响应头"
+        return digest
+
+    cleanup_task = None
+    if cleanup_hash_started:
+        monkeypatch.setattr(f"{digest_module}.sha256_file", paused_hash)
+        cleanup_task = asyncio.create_task(asyncio.to_thread(_cleanup, api))
+        assert await asyncio.to_thread(hash_started.wait, 10), "清理没有到达摘要校验"
+    else:
+        assert _cleanup(api)["removed"] > 0
+    during: list[dict[str, int]] = []
+
+    async def clean_before_body(scope: Scope, receive: Receive, send: Send) -> None:
+        async def send_with_cleanup(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                if cleanup_task is not None:
+                    allow_hash.set()
+                    during.append(await cleanup_task)
+                else:
+                    during.append(await asyncio.to_thread(_cleanup, api))
+            await send(message)
+
+        await api.app(scope, receive, send_with_cleanup)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=clean_before_body), base_url="http://test"
+    ) as client:
+        try:
+            response = await client.get(url)
+        finally:
+            allow_hash.set()
+    assert response.status_code == 200
+    assert response.content == content
+    assert len(during) == 1
+    assert during[0]["kept_in_use"] > 0
+    assert _cleanup(api)["removed"] > 0
 
 
 async def test_fetch_failure_and_tampered_object_give_explicit_errors(api, sessions, project, bucket):
@@ -407,6 +517,150 @@ async def test_upload_failure_publishes_nothing(api, sessions, project, bucket):
     assert first.state == "stored"
     assert second.state == "deleted"  # 没写进去的对象按新建对象补偿，删除时对象不在也算完成
     assert [ref.state for ref in await _refs(sessions)] == ["active"]
+
+
+async def test_upload_confirmed_while_another_project_retakes_the_same_object_stays_stored(
+    api, sessions, project, bucket, monkeypatch
+):
+    """两个项目同时保存同一字节的新图片：后到的提交接手了上传与补偿，它上传失败时，先到那次已确认的对象仍记为已保存，
+    可以登记新的引用，项目照常持有它。"""
+    await _remote(sessions)
+    image = solid_png_bytes((30, 140, 60), size=(64, 64))
+    uploading, release = threading.Event(), threading.Event()
+    put = bucket.put_object
+    puts = 0
+
+    def put_object(*, bucket: str, key: str, content: bytes, content_type: str | None = None):
+        nonlocal puts
+        puts += 1
+        if puts == 1:
+            uploading.set()
+            release.wait(10)
+        elif puts == 2:
+            raise _server_error(503, "ServiceUnavailable")
+        return put(bucket=bucket, key=key, content=content, content_type=content_type)
+
+    monkeypatch.setattr(bucket, "put_object", put_object)
+    first = asyncio.create_task(asyncio.to_thread(_upload, api, image))
+    try:
+        assert await asyncio.to_thread(uploading.wait, 10)
+        assert (await asyncio.to_thread(_upload, api, image, "other")).status_code == 502
+    finally:
+        release.set()
+    assert (await first).status_code == 200
+
+    [row] = await _objects(sessions)
+    assert row.state == "stored"
+    assert {(ref.project_name, ref.state) for ref in await _refs(sessions)} == {("demo", "active")}
+    locator = ObjectLocator(row.connection_id, row.bucket, row.object_key)
+    assert await add_reference(locator, "ingest:1", "content-version", session_factory=sessions)
+
+
+async def test_same_object_failed_by_both_concurrent_uploads_is_reclaimed_by_the_last_settlement(
+    api, sessions, project, bucket, monkeypatch
+):
+    """两个项目同时保存同一字节的新图片且都上传失败：后到的提交先结算时先到那次的占用还在，最后结算的一次补偿删除，
+    对象不停在上传中、不占用连接。"""
+    await _remote(sessions)
+    image = solid_png_bytes((70, 20, 210), size=(64, 64))
+    uploading, release = threading.Event(), threading.Event()
+    puts = 0
+
+    def put_object(*, bucket: str, key: str, content: bytes, content_type: str | None = None):
+        nonlocal puts
+        puts += 1
+        if puts == 1:
+            uploading.set()
+            release.wait(10)
+        raise _server_error(503, "ServiceUnavailable")
+
+    monkeypatch.setattr(bucket, "put_object", put_object)
+    first = asyncio.create_task(asyncio.to_thread(_upload, api, image))
+    try:
+        assert await asyncio.to_thread(uploading.wait, 10)
+        assert (await asyncio.to_thread(_upload, api, image, "other")).status_code == 502
+        [pending] = await _objects(sessions)
+        assert pending.state == "uploading"
+    finally:
+        release.set()
+    assert (await first).status_code == 502
+
+    [row] = await _objects(sessions)
+    assert row.state == "deleted"
+    assert await _refs(sessions) == []
+    async with sessions() as session:
+        assert await holding_object_count(session, row.connection_id) == 0
+
+
+async def test_shared_object_confirmed_by_a_commit_that_then_fails_is_reclaimed_when_its_last_hold_goes(
+    api, sessions, project, bucket, monkeypatch
+):
+    """两个项目同时保存同一字节的新图片：后到的提交接手后上传失败先结算，先到那次确认了上传却没能发布版本。
+    最后一个占用撤下时对象没有任何引用，照常回收，不留下无人引用却占用连接的已保存对象。"""
+    await _remote(sessions)
+    image = solid_png_bytes((90, 200, 30), size=(64, 64))
+    uploading, release = threading.Event(), threading.Event()
+    put = bucket.put_object
+    puts = 0
+
+    def put_object(*, bucket: str, key: str, content: bytes, content_type: str | None = None):
+        nonlocal puts
+        puts += 1
+        if puts == 1:
+            uploading.set()
+            release.wait(10)
+        elif puts == 2:
+            raise _server_error(503, "ServiceUnavailable")
+        return put(bucket=bucket, key=key, content=content, content_type=content_type)
+
+    def _fail(*_args, **_kwargs):
+        raise RuntimeError("injected manifest failure")
+
+    monkeypatch.setattr(bucket, "put_object", put_object)
+    use_upload_claim_registration(monkeypatch, _fail)
+    first = asyncio.create_task(asyncio.to_thread(_upload, api, image))
+    try:
+        assert await asyncio.to_thread(uploading.wait, 10)
+        assert (await asyncio.to_thread(_upload, api, image, "other")).status_code == 502
+    finally:
+        release.set()
+    assert (await first).status_code == 500
+
+    [row] = await _objects(sessions)
+    assert row.state == "deleted"
+    assert await _refs(sessions) == []
+    async with sessions() as session:
+        assert await holding_object_count(session, row.connection_id) == 0
+
+
+async def test_startup_settlement_skips_a_commit_still_running_in_this_process(
+    api, sessions, project, bucket, monkeypatch
+):
+    """启动补做在后台进行时，刚开始的远端上传还在传：补做不把它当作中断的提交，上传照常发布并持有对象。"""
+    await _remote(sessions)
+    image = solid_png_bytes((200, 120, 40), size=(64, 64))
+    uploading, release = threading.Event(), threading.Event()
+    put = bucket.put_object
+
+    def put_object(*, bucket: str, key: str, content: bytes, content_type: str | None = None):
+        uploading.set()
+        release.wait(10)
+        return put(bucket=bucket, key=key, content=content, content_type=content_type)
+
+    monkeypatch.setattr(bucket, "put_object", put_object)
+    upload = asyncio.create_task(asyncio.to_thread(_upload, api, image))
+    try:
+        assert await asyncio.to_thread(uploading.wait, 10)
+        assert await recover_formal_commits(sessions, project_path_of=project.get_project_path) == 0
+        assert _held(await _refs(sessions)) == {("demo", "pending")}
+    finally:
+        release.set()
+    assert (await upload).status_code == 200
+
+    [row] = await _objects(sessions)
+    assert row.state == "stored"
+    assert _held(await _refs(sessions)) == {("demo", "active")}
+    assert row.object_key in bucket.stored_keys()
 
 
 async def test_commit_failure_deletes_only_new_unreferenced_objects_and_retries(
@@ -498,6 +752,132 @@ async def test_connection_cannot_be_relocated_while_formal_objects_exist(api, se
     _cleanup(api)
     preview = api.get("/api/v1/files/demo/characters/Alice.png")
     assert preview.status_code == 200  # 换密钥后旧对象仍按原桶读取
+
+
+UNREACHABLE_ENDPOINT = "tos-cn-beijing.test-unreachable.invalid"
+
+
+@pytest.fixture
+def unreachable_endpoint(monkeypatch, bucket: MemoryBucket) -> MemoryBucket:
+    """写错的 Endpoint 解析不到主机：发往它的每个请求都在客户端失败；其他 Endpoint 落到内存桶。"""
+
+    class _Unreachable:
+        def __getattr__(self, _name: str):
+            def _fail(**_kwargs):
+                raise TosClientError("connection failed", ConnectionError("Name or service not known"))
+
+            return _fail
+
+    use_object_storage_sdk(
+        monkeypatch, lambda config: _Unreachable() if config.endpoint == UNREACHABLE_ENDPOINT else bucket
+    )
+    return bucket
+
+
+def _fail_once_with_unreachable_endpoint(api: TestClient, content: bytes) -> None:
+    """按写错的 Endpoint 配置连接并选择对象存储，上传失败只留下等待删除、没有任何引用的对象，再改回本地。"""
+    assert api.put(
+        "/api/v1/object-storage/connection", json={**CONNECTION, "endpoint": UNREACHABLE_ENDPOINT}
+    ).is_success
+    assert api.put("/api/v1/object-storage/new-image-target", json={"target": "object_storage"}).is_success
+    assert _upload(api, content).status_code == 502
+    assert api.put("/api/v1/object-storage/new-image-target", json={"target": "local"}).is_success
+
+
+async def test_failed_saves_on_a_wrong_endpoint_do_not_lock_the_connection(
+    api, sessions, project, unreachable_endpoint
+):
+    """写错 Endpoint 时保存失败的图片只等待补偿删除：能改正 Endpoint，这些对象标为脱离当前连接、不向新连接重试删除，
+    数量在连接设置里提示；之后同一张图片保存到改正后的桶。"""
+    image = solid_png_bytes((90, 30, 200), size=(64, 64))
+    _fail_once_with_unreachable_endpoint(api, image)
+    [orphan] = await _objects(sessions)
+    assert (orphan.state, orphan.last_error, orphan.endpoint) == ("orphaned", "network:", UNREACHABLE_ENDPOINT)
+    assert await _refs(sessions) == []
+    assert api.get("/api/v1/object-storage/connection").json()["unreleased_image_objects"] == 1
+
+    fixed = api.put("/api/v1/object-storage/connection", json=CONNECTION, headers={"Accept-Language": "zh"})
+    assert fixed.status_code == 200, fixed.text
+    [detached] = await _objects(sessions)
+    assert (detached.state, detached.last_error, detached.object_key) == (
+        "orphaned",
+        "connection_changed",
+        orphan.object_key,
+    )
+    assert await sweep_formal_objects(sessions, now=utc_now() + timedelta(days=1)) == 0
+    assert not any(op == "delete" for op, _key in unreachable_endpoint.calls)  # 不按同名 key 去新连接的桶里删除
+    assert api.get("/api/v1/object-storage/connection").json()["unreleased_image_objects"] == 1
+    # 脱离的对象不能再登记引用复活为已保存对象：它不在改正后的连接上
+    locator = ObjectLocator(detached.connection_id, detached.bucket, detached.object_key)
+    assert not await add_reference(locator, "asset-library:x", "cv-x", sessions)
+
+    assert api.put("/api/v1/object-storage/new-image-target", json={"target": "object_storage"}).is_success
+    assert _upload(api, image).status_code == 200
+    [saved] = await _objects(sessions)
+    assert (saved.state, saved.endpoint, saved.last_error) == ("stored", CONNECTION["endpoint"], None)
+    assert unreachable_endpoint.stored_keys() == [saved.object_key]
+    assert api.get("/api/v1/object-storage/connection").json()["unreleased_image_objects"] == 0
+
+    # 有引用的正式对象照旧挡住更换与删除，提示的数量只算这些对象
+    assert api.put("/api/v1/object-storage/new-image-target", json={"target": "local"}).is_success
+    moved = api.put(
+        "/api/v1/object-storage/connection",
+        json={**CONNECTION, "endpoint": UNREACHABLE_ENDPOINT},
+        headers={"Accept-Language": "zh"},
+    )
+    assert moved.status_code == 409
+    assert "1 个图片对象" in moved.json()["detail"]
+    assert api.delete("/api/v1/object-storage/connection").status_code == 409
+
+
+async def test_failed_saves_on_a_wrong_endpoint_do_not_block_deleting_the_connection(
+    api, sessions, project, unreachable_endpoint
+):
+    _fail_once_with_unreachable_endpoint(api, solid_png_bytes((20, 160, 60), size=(64, 64)))
+
+    deleted = api.delete("/api/v1/object-storage/connection")
+    assert deleted.status_code == 204, deleted.text
+    [detached] = await _objects(sessions)
+    assert (detached.state, detached.last_error) == ("orphaned", "connection_changed")
+    settings = api.get("/api/v1/object-storage/connection").json()
+    assert (settings["connection"], settings["unreleased_image_objects"]) == (None, 1)
+
+    # 重新配置的连接是另一条连接：脱离的对象不向它重试删除
+    assert api.put("/api/v1/object-storage/connection", json=CONNECTION).status_code == 200
+    assert await sweep_formal_objects(sessions, now=utc_now() + timedelta(days=1)) == 0
+    assert not any(op == "delete" for op, _key in unreachable_endpoint.calls)
+
+
+@pytest.mark.parametrize("held_by", ["uploading", "referenced_orphan"])
+async def test_objects_that_may_still_be_read_keep_blocking_connection_changes(api, sessions, project, bucket, held_by):
+    """进行中的提交（上传未确认）与仍有引用的待删除对象可能被读取，照旧挡住更换 Endpoint 与删除连接。"""
+    assert api.put("/api/v1/object-storage/connection", json=CONNECTION).status_code == 200
+    async with sessions() as session:
+        connection = await ObjectStorageConnectionRepository(session).get()
+        assert connection is not None
+        row = FormalObject(
+            connection_id=connection.id,
+            endpoint=connection.endpoint,
+            bucket=BUCKET,
+            object_key="arcreel-materials/sha256/cd/cdef.png",
+            content_digest="cd" * 32,
+            size=3,
+            state="uploading" if held_by == "uploading" else "orphaned",
+            created_attempt="attempt-in-flight",
+            delete_attempts=0,
+        )
+        session.add(row)
+        await session.flush()
+        session.add(
+            FormalObjectRef(object_id=row.id, project_name="demo", attempt_id="attempt-in-flight", state="pending")
+        )
+        await session.commit()
+
+    moved = api.put("/api/v1/object-storage/connection", json={**CONNECTION, "endpoint": "tos-cn-shanghai.volces.com"})
+    assert moved.status_code == 409
+    assert api.delete("/api/v1/object-storage/connection").status_code == 409
+    [kept] = await _objects(sessions)
+    assert kept.last_error is None
 
 
 async def test_old_locator_is_not_reinterpreted_against_another_bucket(api, sessions, project, bucket):
@@ -723,6 +1103,35 @@ async def test_evicted_remote_version_previews_from_the_file_view_and_fetch_fail
     assert preview.content == image_b
 
 
+async def test_file_view_holds_existing_remote_cache_until_open(api, sessions, bucket, monkeypatch):
+    await _remote(sessions)
+    content = solid_png_bytes((30, 200, 30))
+    assert _upload(api, content).status_code == 200
+    opening = threading.Event()
+    allow_open = threading.Event()
+    original_open = file_view.open_project_file
+
+    def paused_open(project_dir, path):
+        opening.set()
+        assert allow_open.wait(10), "清理没有结束"
+        return original_open(project_dir, path)
+
+    monkeypatch.setattr(file_view, "open_project_file", paused_open)
+    preview_task = asyncio.create_task(
+        asyncio.to_thread(api.get, "/api/v1/projects/demo/file-view/content", params={"path": "characters/Alice.png"})
+    )
+    try:
+        assert await asyncio.to_thread(opening.wait, 10), "预览没有到达文件打开处"
+        cleaned = await asyncio.to_thread(_cleanup, api)
+    finally:
+        allow_open.set()
+    preview = await preview_task
+    assert preview.status_code == 200, preview.text
+    assert preview.content == content
+    assert cleaned["kept_in_use"] == 1
+    assert _cleanup(api)["removed"] == 1
+
+
 async def test_agent_deletes_an_evicted_remote_history_version_like_the_file_view(
     api, sessions, project, bucket, tmp_path
 ):
@@ -814,6 +1223,259 @@ async def test_deleted_project_keeps_objects_until_purged_and_shared_objects_sur
         [link] = (await session.execute(select(ProviderAssetLink))).scalars()
     assert (link.provider_asset_id, link.project_name) == ("asset-own", entry["id"])
     assert not any(op == "delete" and key == record_shared["storage"]["key"] for op, key in bucket.calls)
+
+
+class _PausedSettlement:
+    """让正式提交的第一次结算停在发布版本之后、结算之前；``crash`` 时这次结算不再发生（进程在此处退出）。"""
+
+    def __init__(self, monkeypatch, *, crash: bool = False) -> None:
+        self.ready = threading.Event()
+        self.release = threading.Event()
+        original = ObjectContentStorage.finish
+        paused = self
+
+        async def finish(storage: ObjectContentStorage) -> None:
+            if not paused.ready.is_set():
+                paused.ready.set()
+                await asyncio.to_thread(paused.release.wait, 10)
+                if crash:
+                    return
+            await original(storage)
+
+        monkeypatch.setattr(ObjectContentStorage, "finish", finish)
+
+    async def wait(self) -> None:
+        assert await asyncio.to_thread(self.ready.wait, 10)
+
+
+def _held(refs: list[FormalObjectRef]) -> set[tuple[str, str]]:
+    return {(ref.project_name, ref.state) for ref in refs}
+
+
+@pytest.mark.parametrize("settled_by", ["commit", "startup"])
+async def test_asset_trashed_before_its_upload_settles_keeps_the_object(
+    api, sessions, project, bucket, monkeypatch, settled_by
+):
+    """正式上传发布版本后、结算前，工作文件被清理、资产被删进回收站：结算（或启动补做）连同回收站一起记引用，
+    对象不被补偿删除，恢复后预览从对象存储取回。"""
+    await _remote(sessions)
+    paused = _PausedSettlement(monkeypatch, crash=settled_by == "startup")
+    image = solid_png_bytes((60, 160, 200), size=(64, 64))
+    upload = asyncio.create_task(asyncio.to_thread(_upload, api, image))
+    try:
+        await paused.wait()
+        assert _held(await _refs(sessions)) == {("demo", "pending")}
+        assert (await asyncio.to_thread(_cleanup, api))["removed"] == 2
+        deleted = await asyncio.to_thread(api.delete, "/api/v1/projects/demo/characters/Alice")
+        assert deleted.status_code == 200, deleted.text
+    finally:
+        paused.release.set()
+    assert (await upload).status_code == 200
+    if settled_by == "startup":
+        # 进程在结算前退出：下次启动的新进程没有进行中的提交
+        assert await recover_formal_commits(sessions, project_path_of=project.get_project_path, running=()) == 1
+
+    key = formal_object_key(hashlib.sha256(image).hexdigest(), ".png")
+    assert bucket.stored_keys() == [key]
+    assert _held(await _refs(sessions)) == {("demo", "trashed")}
+    [record] = api.get("/api/v1/projects/demo/trash").json()["records"]
+    restored = api.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
+    assert restored.status_code == 200, restored.text
+    preview = api.get("/api/v1/files/demo/characters/Alice.png")
+    assert preview.status_code == 200, preview.text
+    assert preview.content == image
+
+
+def _export_archive(client: TestClient) -> bytes:
+    token = client.post("/api/v1/projects/demo/export/token", params={"scope": "full"})
+    assert token.status_code == 200, token.text
+    exported = client.get(
+        "/api/v1/projects/demo/export", params={"scope": "full", "download_token": token.json()["download_token"]}
+    )
+    assert exported.status_code == 200, exported.text
+    return exported.content
+
+
+async def test_overwrite_import_retires_the_old_projects_unsettled_version_with_the_tombstone(
+    api, sessions, project, bucket, monkeypatch
+):
+    """旧项目刚发布、尚未结算的远端版本随墓碑保留；覆盖导入的新图片引用记在项目名下，彻底删除墓碑不影响它。"""
+    await _remote(sessions)
+    kept = solid_png_bytes((20, 120, 60), size=(64, 64))
+    assert _upload(api, kept).status_code == 200
+    with build_projects_client(monkeypatch, project, session_factory=sessions) as projects_api:
+        archive = _export_archive(projects_api)
+        paused = _PausedSettlement(monkeypatch)
+        unsettled = solid_png_bytes((200, 120, 20), size=(64, 64))
+        upload = asyncio.create_task(asyncio.to_thread(_upload, api, unsettled))
+        try:
+            await paused.wait()
+            imported = await asyncio.to_thread(
+                projects_api.post,
+                "/api/v1/projects/import",
+                files={"file": ("demo.zip", archive, "application/zip")},
+                data={"confirm_report": "true", "conflict_policy": "overwrite"},
+            )
+            assert imported.status_code == 200, imported.text
+        finally:
+            paused.release.set()
+        assert (await upload).status_code == 200
+        [entry] = projects_api.get("/api/v1/deleted-projects").json()["projects"]
+        tombstone = entry["id"]
+
+        kept_key = formal_object_key(hashlib.sha256(kept).hexdigest(), ".png")
+        unsettled_key = formal_object_key(hashlib.sha256(unsettled).hexdigest(), ".png")
+        assert bucket.stored_keys() == sorted([kept_key, unsettled_key])
+        by_key = {row.id: row.object_key for row in await _objects(sessions)}
+        assert {(by_key[ref.object_id], ref.project_name, ref.state) for ref in await _refs(sessions)} == {
+            (kept_key, tombstone, "active"),
+            (unsettled_key, tombstone, "active"),
+            (kept_key, "demo", "active"),
+        }
+        layout = project.layout
+        assert await retain_formal_objects(layout.projects_dir, layout.deleted_projects_dir, sessions) == 0
+
+        assert projects_api.delete(f"/api/v1/deleted-projects/{quote(tombstone, safe='')}").status_code == 200
+    assert bucket.stored_keys() == [kept_key]
+    assert _held(await _refs(sessions)) == {("demo", "active")}
+    _cleanup(api)
+    preview = api.get("/api/v1/files/demo/characters/Alice.png")
+    assert preview.status_code == 200
+    assert preview.content == kept
+
+
+async def test_remote_upload_published_while_the_project_is_being_deleted_is_refused(
+    api, sessions, project, bucket, monkeypatch
+):
+    """项目删除补齐引用之后、目录移走之前，同项目的远端上传在上传前失败：墓碑里不会出现没被引用持有的远端版本。"""
+    assert _upload(api, solid_png_bytes((200, 10, 10), size=(64, 64))).status_code == 200  # 本地版本
+    await _remote(sessions)
+    filled, allow_retire = asyncio.Event(), asyncio.Event()
+    settling, allow_finish = asyncio.Event(), asyncio.Event()
+    retire, finish = project_retirement.retire_project_records, ObjectContentStorage.finish
+
+    async def _retire_after_fill(session, project_name):
+        filled.set()
+        await allow_retire.wait()
+        return await retire(session, project_name)
+
+    async def _paused_finish(storage):
+        settling.set()
+        await allow_finish.wait()
+        return await finish(storage)
+
+    monkeypatch.setattr(project_retirement, "retire_project_records", _retire_after_fill)
+    monkeypatch.setattr(ObjectContentStorage, "finish", _paused_finish)
+    projects_app = build_projects_client(monkeypatch, project, session_factory=sessions).app
+    upload_url = "/api/v1/projects/demo/upload/character?name=Alice"
+    image = solid_png_bytes((10, 200, 10), size=(64, 64))
+    async with (
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=api.app), base_url="http://test") as client,
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=projects_app), base_url="http://test") as projects_client,
+    ):
+        deleting = asyncio.create_task(projects_client.delete("/api/v1/projects/demo"))
+        await asyncio.wait_for(filled.wait(), 10)
+        uploading = asyncio.create_task(client.post(upload_url, files={"file": ("alice.png", image, "image/png")}))
+        await asyncio.wait_for(settling.wait(), 10)
+        cleanup = await client.post("/api/v1/object-storage/work-cache/cleanup", json={})
+        assert cleanup.status_code == 200, cleanup.text
+        allow_retire.set()
+        deleted = await asyncio.wait_for(deleting, 10)
+        allow_finish.set()
+        uploaded = await asyncio.wait_for(uploading, 10)
+
+    assert deleted.status_code == 200, deleted.text
+    assert uploaded.status_code == 409, uploaded.text
+    [tombstone] = list(project.layout.deleted_projects_dir.iterdir())
+    history = json.loads((tombstone / "versions" / "versions.json").read_text(encoding="utf-8"))
+    assert [record.get("storage") for record in history["characters"]["Alice"]["versions"]] == [None]
+    assert bucket.objects == {}
+    assert await _objects(sessions) == []
+    assert await _refs(sessions) == []
+
+
+async def test_choosing_remote_storage_and_deleting_the_connection_do_not_both_succeed(
+    api, sessions, bucket, monkeypatch
+):
+    """把新增图片改为保存到对象存储与删除连接同时发生：两者串行，不会留下目标为对象存储而没有连接的状态。"""
+    await _remote(sessions)
+    await _target(sessions, "local")
+    checked, proceed = asyncio.Event(), asyncio.Event()
+    save_target = object_storage.set_new_content_target
+
+    async def _paused(session, target):
+        checked.set()
+        await proceed.wait()
+        await save_target(session, target)
+
+    monkeypatch.setattr(object_storage, "set_new_content_target", _paused)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api.app), base_url="http://test") as client:
+        selecting = asyncio.create_task(
+            client.put("/api/v1/object-storage/new-image-target", json={"target": "object_storage"})
+        )
+        await asyncio.wait_for(checked.wait(), 10)
+        trying_lock, acquired_lock = asyncio.Event(), asyncio.Event()
+        shared_lock = object_storage.connection_change_lock()
+
+        @asynccontextmanager
+        async def observed_lock():
+            trying_lock.set()
+            async with shared_lock:
+                acquired_lock.set()
+                yield
+
+        monkeypatch.setattr(object_storage, "connection_change_lock", observed_lock)
+        deleting = asyncio.create_task(client.delete("/api/v1/object-storage/connection"))
+        await asyncio.wait_for(trying_lock.wait(), 10)
+        assert not acquired_lock.is_set()  # 删除已到真实共享锁，等待设置提交之后再核对
+        proceed.set()
+        selected = await asyncio.wait_for(selecting, 10)
+        deleted = await asyncio.wait_for(deleting, 10)
+        final = (await client.get("/api/v1/object-storage/connection")).json()
+
+    assert selected.status_code == 200, selected.text
+    assert deleted.status_code == 409, deleted.text
+    assert final["connection"] is not None
+    assert final["new_image_target"] == "object_storage"
+
+
+async def test_connection_moved_before_the_first_object_is_registered_fails_the_commit(
+    api, sessions, project, bucket, monkeypatch
+):
+    """提交取得连接后、登记首个对象前，另一位管理员把桶换掉：这次提交在上传前失败、不发布版本，之后的提交写新桶。"""
+    await _remote(sessions)
+    entered, release = threading.Event(), threading.Event()
+    original = ObjectContentStorage.persist
+
+    def persist(storage: ObjectContentStorage, *args: Any) -> Any:
+        if not entered.is_set():
+            entered.set()
+            release.wait(10)
+        return original(storage, *args)
+
+    monkeypatch.setattr(ObjectContentStorage, "persist", persist)
+    before = (project.get_project_path("demo") / "project.json").read_bytes()
+    upload = asyncio.create_task(asyncio.to_thread(_upload, api, solid_png_bytes((5, 50, 150), size=(64, 64))))
+    try:
+        assert await asyncio.to_thread(entered.wait, 10)
+        moved = await asyncio.to_thread(
+            api.put, "/api/v1/object-storage/connection", json={**CONNECTION, "bucket": "replacement-bucket"}
+        )
+        assert moved.status_code == 200, moved.text
+    finally:
+        release.set()
+    failed = await upload
+    assert failed.status_code == 502, failed.text
+    assert bucket.calls == []
+    assert await _objects(sessions) == []
+    assert (project.get_project_path("demo") / "project.json").read_bytes() == before
+    assert not (project.get_project_path("demo") / "versions" / "versions.json").is_file() or "Alice" not in (
+        json.loads((project.get_project_path("demo") / "versions" / "versions.json").read_text()).get("characters", {})
+    )
+
+    assert _upload(api, solid_png_bytes((5, 50, 150), size=(64, 64))).status_code == 200
+    assert {location[0] for location in bucket.objects} == {"replacement-bucket"}
+    assert [row.bucket for row in await _objects(sessions)] == ["replacement-bucket"]
 
 
 # ---- 远端图片参与时效判定、生成与编辑 ---------------------------------------------------------------
@@ -1074,6 +1736,63 @@ async def test_manual_image_upload_follows_the_storage_choice(api, sessions, pro
     preview = api.get(f"/api/v1/files/demo/{entry.artifact_path}")
     assert preview.status_code == 200
     assert preview.content == saved
+
+
+async def test_split_of_an_evicted_remote_grid_fetches_it_and_its_references(api, sessions, project, bucket):
+    """联合图与生成时的参考资产图都是缓存已清理的远端图片：切分照常进行，切出的分镜图带上参考依据，时效判定为当前。"""
+    await _remote_alice_with_evicted_cache(api, sessions, project)
+    scene_ids = [f"E1S0{index}" for index in range(1, 5)]
+    segments = [
+        {
+            "segment_id": scene_id,
+            "novel_text": "t",
+            "duration_seconds": 5,
+            "characters_in_segment": ["Alice"],
+            "scenes": [],
+            "props": [],
+            "image_prompt": "安静的房间",
+            "video_prompt": "镜头缓慢推进",
+            "generated_assets": {"storyboard_image": None, "status": "pending"},
+        }
+        for scene_id in scene_ids
+    ]
+    script = {"episode": 1, "title": "E1", "content_mode": "narration", "segments": segments}
+    await asyncio.to_thread(project.save_script, "demo", script, "episode_1.json", validate=False)
+    await asyncio.to_thread(
+        project.update_project, "demo", lambda data: data.update(generation_mode="storyboard", grid_storyboard=True)
+    )
+    project_dir = project.get_project_path("demo")
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=scene_ids,
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="p",
+        model="m",
+        video_aspect_ratio="9:16",
+    )
+    grid.status = "completed"
+    grid.grid_image_path = f"grids/{grid.id}.png"
+    grid.reference_images = [ReferenceImage(path="characters/Alice.png", name="Alice", ref_type="character")]
+    GridManager(project_dir).save(grid)
+    uploaded = api.post(
+        f"/api/v1/projects/demo/grids/{grid.id}/upload",
+        files={"file": ("grid.png", solid_png_bytes((90, 30, 160), size=(360, 640)), "image/png")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    assert _cleanup(api)["removed"] == 2
+    assert not (project_dir / grid.grid_image_path).exists()
+    assert not (project_dir / "characters" / "Alice.png").exists()
+
+    split = api.post(f"/api/v1/projects/demo/grids/{grid.id}/split")
+    assert split.status_code == 200, split.text
+    assert split.json()["updated_scene_ids"] == scene_ids
+    storyboard = ArtifactCurrencyResolver(project_dir).compare(
+        ArtifactKey.episode_storyboard(1, "E1S01"), artifact_path="storyboards/scene_E1S01.png"
+    )
+    assert storyboard.status is ArtifactStatus.CURRENT
 
 
 async def test_settings_enable_remote_storage_and_switch_back_only_affect_new_versions(api, sessions, project, bucket):

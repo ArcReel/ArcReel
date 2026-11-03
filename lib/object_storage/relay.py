@@ -69,12 +69,23 @@ def relay_deletable_at(relay: RelayObject, link: ProviderAssetLink | None) -> da
     created = _aware(relay.created_at)
     if relay.url_expires_at is None:
         return created + RELAY_UNSIGNED_GRACE
-    expired = _aware(relay.url_expires_at) + RELAY_EXPIRED_GRACE
+    return signed_content_retained_until(created, _aware(relay.url_expires_at), link)
+
+
+def signed_content_retained_until(
+    signed_at: datetime, url_expires_at: datetime, link: ProviderAssetLink | None
+) -> datetime:
+    """签发给入库任务 ``link`` 的内容（中转副本，或直接签名的正式对象）至少保留到的时间。
+
+    任务有了定论后自 ``signed_at`` 起至少保留 :data:`RELAY_MIN_RETENTION`；没有定论或任务记录已不在时保留到
+    下载地址过期再加 :data:`RELAY_EXPIRED_GRACE`。
+    """
+    expired = url_expires_at + RELAY_EXPIRED_GRACE
     if link is None:
         return expired
     if link.state in _SETTLED_STATES:
-        settled = _aware(link.settled_at) if link.settled_at else created
-        return min(max(created + RELAY_MIN_RETENTION, settled), expired)
+        settled = _aware(link.settled_at) if link.settled_at else signed_at
+        return min(max(signed_at + RELAY_MIN_RETENTION, settled), expired)
     return expired
 
 
@@ -182,5 +193,6 @@ __all__ = [
     "record_relay_object",
     "relay_deletable_at",
     "relay_object_key",
+    "signed_content_retained_until",
     "sweep_relay_objects",
 ]

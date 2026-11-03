@@ -23,18 +23,21 @@ from lib.db.repositories.project_records import (
     retired_agent_session_ids,
 )
 from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async, run_sync_transaction
+from lib.material.formal_objects import retiring_project_references
 from lib.project.task_project_claim import restore_task_project_claims, revoke_task_project_claims
 
 
 @asynccontextmanager
-async def retiring_project(session_factory: async_sessionmaker[AsyncSession], project_name: str) -> AsyncGenerator[str]:
-    """收尾项目名下的现有项目，``async with`` 块拿到墓碑名，在块里把项目目录移成同名的已删除项目。
+async def retiring_project(session_factory: async_sessionmaker[AsyncSession], project_dir: Path) -> AsyncGenerator[str]:
+    """收尾目录 ``project_dir`` 里的现有项目，``async with`` 块拿到墓碑名，在块里把项目目录移成同名的已删除项目。
 
-    进入时在一个事务里取消排队中的任务、把记录改挂墓碑名，并作废执行中任务的认领；块正常结束才
-    提交，提交开始后不被取消打断。块或提交抛错时事务回滚、认领恢复，现有项目的记录保持原样，目录
-    由块的调用方还原。
+    进入时在一个事务里先补齐项目此刻实际持有的正式对象引用（已发布、尚未结算的提交只有占用），再取消排队中的
+    任务、把记录改挂墓碑名，并作废执行中任务的认领；块正常结束才提交，提交开始后不被取消打断。块或提交抛错时
+    事务回滚、认领恢复，现有项目的记录保持原样，目录由块的调用方还原。从补齐到提交或回滚，这个目录上的新远端
+    图片保存在上传前失败，墓碑里不会有没被引用持有的远端版本。
     """
-    async with session_factory() as session:
+    project_name = project_dir.name
+    async with session_factory() as session, retiring_project_references(session, project_name, project_dir):
         tombstone, running_task_ids = await retire_project_records(session, project_name)
         revoke_task_project_claims(running_task_ids)
         try:
@@ -80,8 +83,8 @@ async def _session_rekey(session: AsyncSession, tombstone: str, project_dir: Pat
     )
 
 
-type RetireProject = Callable[[str], AbstractContextManager[str]]
-"""在工作线程里收尾 ``project_name`` 名下的现有项目，``with`` 块里替换项目目录，语义同 :func:`retiring_project`。"""
+type RetireProject = Callable[[Path], AbstractContextManager[str]]
+"""在工作线程里收尾目录里的现有项目，``with`` 块里替换项目目录，语义同 :func:`retiring_project`。"""
 
 
 def retire_project_on(bridge: EventLoopBridge, session_factory: async_sessionmaker[AsyncSession]) -> RetireProject:
@@ -91,8 +94,8 @@ def retire_project_on(bridge: EventLoopBridge, session_factory: async_sessionmak
     """
 
     @contextmanager
-    def _retire(project_name: str) -> Generator[str]:
-        retirement = retiring_project(session_factory, project_name)
+    def _retire(project_dir: Path) -> Generator[str]:
+        retirement = retiring_project(session_factory, project_dir)
         tombstone = bridge.run(retirement.__aenter__())
         try:
             yield tombstone

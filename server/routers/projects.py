@@ -1214,7 +1214,7 @@ async def delete_project(name: str, _t: Translator):
         # 排队任务不会在移走的目录上开跑，执行中的任务照常跑完但放弃落盘。
         tombstone: str | None = None
         try:
-            async with retiring_project(async_session_factory, project_dir.name) as tombstone:
+            async with retiring_project(async_session_factory, project_dir) as tombstone:
                 await run_sync_transaction(deleted_projects.move_in, manager.layout, project_dir, tombstone)
         except BaseException:
             if tombstone is not None:

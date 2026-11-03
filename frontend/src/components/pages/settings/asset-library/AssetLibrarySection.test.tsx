@@ -41,7 +41,12 @@ const CONNECTION = {
   updated_at: "2026-11-03T00:00:00Z",
 };
 
-const LOCAL_ONLY = { connection: null, new_image_target: "local" as const, retained_relay_objects: 0 };
+const LOCAL_ONLY = {
+  connection: null,
+  new_image_target: "local" as const,
+  retained_relay_objects: 0,
+  unreleased_image_objects: 0,
+};
 
 function renderGuarded() {
   const location = memoryLocation({ path: "/", record: true });
@@ -151,11 +156,12 @@ describe("AssetLibrarySection", () => {
     expect(within(targets).getByRole("radio", { name: /^对象存储/ })).toBeChecked();
   });
 
-  it("桶里还有未清理的中转副本时，编辑与删除连接前提示改动后需要手动清理", async () => {
+  it("桶里还有未清理的中转副本与待删除图片对象时，编辑与删除连接前提示改动后需要手动清理", async () => {
     vi.mocked(API.getObjectStorageConnection).mockResolvedValue({
       ...LOCAL_ONLY,
       connection: CONNECTION,
       retained_relay_objects: 3,
+      unreleased_image_objects: 2,
     });
     const user = userEvent.setup();
     render(<AssetLibrarySection />);
@@ -163,10 +169,13 @@ describe("AssetLibrarySection", () => {
     await user.click(await screen.findByRole("button", { name: "编辑对象存储" }));
     const dialog = await screen.findByRole("dialog", { name: "编辑对象存储" });
     expect(within(dialog).getByText(/桶里还有 3 个中转副本尚未清理/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/还有 2 个没有保存成功或不再使用的图片对象等待删除/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "取消" }));
 
     await user.click(screen.getByRole("button", { name: "删除对象存储连接" }));
-    expect(within(await screen.findByRole("alertdialog")).getByText(/桶里还有 3 个中转副本尚未清理/)).toBeInTheDocument();
+    const confirm = await screen.findByRole("alertdialog");
+    expect(within(confirm).getByText(/桶里还有 3 个中转副本尚未清理/)).toBeInTheDocument();
+    expect(within(confirm).getByText(/还有 2 个没有保存成功或不再使用的图片对象等待删除/)).toBeInTheDocument();
   });
 
   it("一条绑定提交时其他行不能并发修改，完成后恢复", async () => {

@@ -79,10 +79,16 @@ _LEASES: Counter[str] = Counter()
 _LAST_USED: dict[str, float] = {}
 
 
+def _lease_key(path: Path) -> str:
+    """使用登记按真实路径记：登记方经 ``get_project_path`` 拿到的是真实路径，清理方枚举的是项目目录下的原路径，
+    数据目录经过符号链接时两种写法不同，按真实路径比对才对得上。"""
+    return os.path.realpath(path)
+
+
 @contextmanager
 def hold_work_file(path: Path) -> Generator[Path]:
     """登记 ``path`` 正在使用，期间清理不会删除它。可嵌套，线程安全。"""
-    key = os.path.abspath(path)
+    key = _lease_key(path)
     with _LEASE_GUARD:
         _LEASES[key] += 1
     try:
@@ -96,11 +102,11 @@ def hold_work_file(path: Path) -> Generator[Path]:
 
 
 def _in_use_or_recent(path: Path, stat_result: os.stat_result, idle_before: float) -> bool:
-    key = os.path.abspath(path)
-    with _LEASE_GUARD:
-        if _LEASES.get(key):
-            return True
-        last_used = _LAST_USED.get(key, 0.0)
+    """调用方持有使用登记锁。"""
+    key = _lease_key(path)
+    if _LEASES.get(key):
+        return True
+    last_used = _LAST_USED.get(key, 0.0)
     return max(stat_result.st_mtime, last_used) > idle_before
 
 
@@ -341,7 +347,17 @@ async def fetch_object_content(
 
 def in_use_or_recent(path: Path, stat_result: os.stat_result, idle_before: float) -> bool:
     """工作文件此刻有使用登记，或在 ``idle_before`` 之后写入或用过；清理须跳过它。"""
-    return _in_use_or_recent(path, stat_result, idle_before)
+    with _LEASE_GUARD:
+        return _in_use_or_recent(path, stat_result, idle_before)
+
+
+def evict_idle_work_file(path: Path, stat_result: os.stat_result, idle_before: float) -> tuple[int, int, int]:
+    """调用方确认远端已存储且摘要一致后，原子复核使用登记并删除本地缓存。"""
+    with _LEASE_GUARD:
+        if _in_use_or_recent(path, stat_result, idle_before):
+            return 0, 0, 1
+        path.unlink()  # hard-delete: derived -- 远端已确认保存的图片工作文件，可从对象存储取回
+    return 1, stat_result.st_size, 0
 
 
 def _install(project_path: Path, work_file: _WorkFile, data: bytes) -> None:
@@ -488,13 +504,9 @@ async def local_work_files(
         MaterialConnectionUnavailableError, MaterialFetchFailedError: 远端取回失败。
     """
     project_path = Path(project_path)
-    real_root, relative = await asyncio.to_thread(_project_relative_paths, project_path, paths)
-    with contextlib.ExitStack() as stack:
-        # 清理方按它枚举到的项目路径比对登记：调用方的路径写法之外，真实路径写法也登记
-        for rel in relative:
-            stack.enter_context(hold_work_file(real_root / rel))
-        async with held_work_files(project_path, relative, session_factory=session_factory):
-            yield
+    _real_root, relative = await asyncio.to_thread(_project_relative_paths, project_path, paths)
+    async with held_work_files(project_path, relative, session_factory=session_factory):
+        yield
 
 
 # ---- 清理 -------------------------------------------------------------------------------------
@@ -517,12 +529,11 @@ def _evict(project_path: Path, work_file: _WorkFile, idle_before: float) -> tupl
             stat_result = target.stat()
         except OSError:
             return 0, 0, 0
-        if _in_use_or_recent(target, stat_result, idle_before):
+        if in_use_or_recent(target, stat_result, idle_before):
             return 0, 0, 1
         if not _same_work_file(project_path, work_file, data) or sha256_file(target) != work_file.digest:
             return 0, 0, 0
-        target.unlink()  # hard-delete: derived -- 远端已确认保存的内容版本的本地工作文件，可从对象存储取回
-    return 1, stat_result.st_size, 0
+        return evict_idle_work_file(target, stat_result, idle_before)
 
 
 async def cleanup_work_cache(
@@ -567,6 +578,7 @@ __all__ = [
     "cleanup_work_cache",
     "ensure_content_version_file",
     "ensure_work_file",
+    "evict_idle_work_file",
     "fetch_object_content",
     "held_work_files",
     "hold_work_file",

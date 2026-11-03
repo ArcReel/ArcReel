@@ -109,7 +109,10 @@ export function ObjectStorageBlock() {
 
   const settings = load.status === "ready" ? load.settings : null;
   const connection = settings?.connection ?? null;
-  const retainedRelayObjects = settings?.retained_relay_objects ?? 0;
+  const uncleaned: UncleanedObjects = {
+    relay: settings?.retained_relay_objects ?? 0,
+    images: settings?.unreleased_image_objects ?? 0,
+  };
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
@@ -163,14 +166,14 @@ export function ObjectStorageBlock() {
       {editing && (
         <ObjectStorageDialog
           connection={connection}
-          retainedRelayObjects={retainedRelayObjects}
+          uncleaned={uncleaned}
           onCancel={closeEditor}
           onSaved={handleSaved}
         />
       )}
       <DeleteObjectStorageDialog
         open={deleting}
-        retainedRelayObjects={retainedRelayObjects}
+        uncleaned={uncleaned}
         onClose={() => setDeleting(false)}
         onDeleted={() => {
           setDeleting(false);
@@ -325,20 +328,31 @@ function NewImageTargetField({
 }
 
 /** 尚未清理的中转副本提示：更换桶或 Endpoint、删除连接后，这些副本不再自动清理。 */
-function RetainedRelayNotice({ count }: { count: number }) {
+/** 桶里尚未清理、更换桶或 Endpoint 与删除连接后不再自动删除的对象：中转副本与没有引用的待删除图片对象。 */
+interface UncleanedObjects {
+  relay: number;
+  images: number;
+}
+
+function UncleanedObjectsNotice({ counts }: { counts: UncleanedObjects }) {
   const { t } = useTranslation("dashboard");
-  if (count <= 0) return null;
-  return <p className="text-sm text-muted-foreground">{t("object_storage_retained_relay", { count })}</p>;
+  if (counts.relay <= 0 && counts.images <= 0) return null;
+  return (
+    <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+      {counts.relay > 0 && <p>{t("object_storage_retained_relay", { count: counts.relay })}</p>}
+      {counts.images > 0 && <p>{t("object_storage_unreleased_images", { count: counts.images })}</p>}
+    </div>
+  );
 }
 
 function ObjectStorageDialog({
   connection,
-  retainedRelayObjects,
+  uncleaned,
   onCancel,
   onSaved,
 }: {
   connection: ObjectStorageConnection | null;
-  retainedRelayObjects: number;
+  uncleaned: UncleanedObjects;
   onCancel: () => void;
   onSaved: (connection: ObjectStorageConnection) => void;
 }) {
@@ -459,7 +473,7 @@ function ObjectStorageDialog({
                   ? t("credential_keep_existing", { masked: connection.secret_access_key_masked })
                   : undefined,
               })}
-              {!creating && <RetainedRelayNotice count={retainedRelayObjects} />}
+              {!creating && <UncleanedObjectsNotice counts={uncleaned} />}
               {error && (
                 <p role="alert" className="text-sm wrap-break-word text-destructive">
                   {error}
@@ -484,12 +498,12 @@ function ObjectStorageDialog({
 
 function DeleteObjectStorageDialog({
   open,
-  retainedRelayObjects,
+  uncleaned,
   onClose,
   onDeleted,
 }: {
   open: boolean;
-  retainedRelayObjects: number;
+  uncleaned: UncleanedObjects;
   onClose: () => void;
   onDeleted: () => void;
 }) {
@@ -524,7 +538,7 @@ function DeleteObjectStorageDialog({
         <AlertDialogBody>
           <div className="flex flex-col gap-2">
             <AlertDialogDescription>{t("object_storage_delete_desc")}</AlertDialogDescription>
-            <RetainedRelayNotice count={retainedRelayObjects} />
+            <UncleanedObjectsNotice counts={uncleaned} />
             {error && (
               <p role="alert" className="text-sm wrap-break-word text-destructive">
                 {error}

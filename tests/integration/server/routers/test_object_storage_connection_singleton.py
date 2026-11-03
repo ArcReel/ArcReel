@@ -3,6 +3,9 @@
 两个请求都先读到「还没有连接」再各自插入，是先查后插会留下两条连接的交错；用屏障让两次读取都完成
 后再继续，确定性地复现这一交错。``concurrent_session_factory`` 为每个请求提供独立连接，PostgreSQL 与
 SQLite（WAL 文件库）上都按真实的唯一索引冲突运行。
+
+同一进程里连接变更经连接锁串行（``connection_change_lock``），这一交错只会发生在锁之外（例如另一个进程）。
+用例为每个请求换一把独立的锁，验证唯一索引与重做这道兜底仍然成立。
 """
 
 from __future__ import annotations
@@ -61,6 +64,7 @@ async def test_concurrent_first_saves_leave_one_connection(
         return conn
 
     monkeypatch.setattr(ObjectStorageConnectionRepository, "get", _get_after_both_read)
+    monkeypatch.setattr(object_storage, "connection_change_lock", asyncio.Lock)
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         responses = await asyncio.wait_for(

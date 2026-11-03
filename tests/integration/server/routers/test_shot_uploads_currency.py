@@ -5,6 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Literal
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -27,6 +28,7 @@ from server.services.project.workflow_planner import WorkflowPlanner
 from server.services.tasks import generation_tasks, reference_video_tasks
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolRequest
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import bind_session_factory
 
 _STORYBOARD = "storyboards/scene_E1S01.png"
 _VIDEO = "videos/scene_E1S01.mp4"
@@ -111,6 +113,22 @@ def _upload(client: TestClient, kind: str, filename: str, content: bytes) -> Non
     assert response.status_code == 200, response.text
 
 
+async def _upload_with_test_sessions(
+    client: TestClient, monkeypatch, session_factory, kind: str, filename: str, content: bytes
+) -> None:
+    """异步用例里上传：上传经正式提交读取全局设置，改走本用例的数据库，并在本用例的事件循环上发请求。
+
+    PostgreSQL 连接绑定建立它的事件循环；进程级引擎与 TestClient 自己的事件循环都会取到别的循环建的连接。
+    """
+    bind_session_factory(monkeypatch, session_factory)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=client.app), base_url="http://test") as http:
+        response = await http.post(
+            f"/api/v1/projects/demo/shots/E1S01/upload/{kind}?script_file=episode_1.json",
+            files={"file": (filename, BytesIO(content), "application/octet-stream")},
+        )
+    assert response.status_code == 200, response.text
+
+
 def _edit_segment(pm: ProjectManager, **fields: object) -> None:
     with pm.locked_script("demo", "episode_1.json", validate=False) as script:
         script["segments"][0].update(fields)
@@ -171,8 +189,9 @@ async def test_missing_only_batch_does_not_regenerate_an_uploaded_storyboard(
     tmp_path, monkeypatch, session_factory, source: Literal["embedded", "mcp"]
 ):
     client, pm, project_dir = _client(monkeypatch, tmp_path, image_prompt="", characters=["Alice"])
-    with client:
-        _upload(client, "storyboard", "board.png", _png((10, 10, 200)))
+    await _upload_with_test_sessions(
+        client, monkeypatch, session_factory, "storyboard", "board.png", _png((10, 10, 200))
+    )
     _edit_segment(pm, image_prompt="黄昏的街角")
 
     queue = GenerationQueue(session_factory=session_factory, project_manager=pm)
@@ -205,8 +224,9 @@ async def test_episode_asset_batch_keeps_uploaded_storyboard_while_generating_it
     tmp_path, monkeypatch, session_factory
 ):
     client, pm, project_dir = _client(monkeypatch, tmp_path, image_prompt="", characters=["Alice"])
-    with client:
-        _upload(client, "storyboard", "board.png", _png((10, 10, 200)))
+    await _upload_with_test_sessions(
+        client, monkeypatch, session_factory, "storyboard", "board.png", _png((10, 10, 200))
+    )
     uploaded = (project_dir / _STORYBOARD).read_bytes()
     entry = ProjectArtifactManifestAdapter(project_dir).get_entry(_STORYBOARD_KEY)
     queue = GenerationQueue(session_factory=session_factory, project_manager=pm)

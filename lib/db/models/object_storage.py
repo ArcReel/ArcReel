@@ -77,9 +77,9 @@ class FormalObject(TimestampMixin, Base):
     对象 key 按内容摘要命名（``arcreel-materials/`` 前缀，与中转副本分开），同一连接里同字节的内容版本共用一个
     对象，归属由 :class:`FormalObjectRef` 记录。记录在上传之前创建，上传中途失败或进程退出也能找回定位。
 
-    ``state``：``uploading`` 已登记、远端尚未确认；``stored`` 远端已确认保存；``orphaned`` 本次提交新建、
-    确认没有任何引用，等待删除（失败时记下原因与下次重试时间）；``deleted`` 已删除。
-    ``created_attempt`` 是上传它的那次正式提交，失败补偿只删除本次提交新建的对象。
+    ``state``：``uploading`` 已登记、远端尚未确认；``stored`` 远端已确认保存；``orphaned`` 确认没有任何引用，
+    等待删除（失败时记下原因与下次重试时间）；``deleted`` 已删除。
+    ``created_attempt`` 是最近一次负责上传它的正式提交，启动补做据此找回中断的提交。
     """
 
     __tablename__ = "object_storage_formal_object"

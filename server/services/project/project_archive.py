@@ -48,12 +48,18 @@ from lib.asset_library.links import (
 from lib.catalog import query as catalog
 from lib.config.resolver import VideoGenerationType, project_video_backend_ids
 from lib.episode.episode_ledger import parse_positive_episode_num
+from lib.infra.api_errors import BadGatewayError
 from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async
 from lib.infra.content_digest import digest_stream, sha256_file
 from lib.infra.json_io import load_json
 from lib.infra.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.infra.validation_messages import ValidationResult, default_translate
-from lib.material.formal_objects import ObjectContentStorage, iter_version_records, stores_remotely
+from lib.material.formal_objects import (
+    ObjectContentStorage,
+    RemoteSaveFailedError,
+    iter_version_records,
+    stores_remotely,
+)
 from lib.material.storage import CONTENT_DIGEST, CONTENT_VERSION_ID, STORAGE, ObjectLocator, new_content_version_id
 from lib.material.work_files import (
     MaterialFetchFailedError,
@@ -83,6 +89,8 @@ from lib.project.resource_paths import (
     CHARACTER_DERIVATIVE_RESOURCE_TYPE,
     END_FRAME_RESOURCE_TYPE,
     resource_extension,
+    resource_id_segments,
+    resource_of_path,
     resource_relative_path,
 )
 from lib.script.reference_video.draft_validation import dialogue_speakers
@@ -825,8 +833,14 @@ class ProjectArchiveService:
                     )
                     with commit as storage:
                         if storage is not None:
+                            # 仅当前版本的包裁掉了生成图片的版本记录：先补登成内容版本，才能按目标存储保存。
+                            self._track_current_images(staging_dir)
                             # 安装前保存：保存失败时什么也没安装，本次新建的对象由结算补偿删除。
-                            self._store_imported_images(staging_dir, storage)
+                            try:
+                                self._store_imported_images(staging_dir, storage)
+                            except RemoteSaveFailedError as exc:
+                                # 新导入没有「原来的版本」：按导入的结果说明，没有写入任何项目
+                                raise BadGatewayError("archive_import_remote_save_failed", **exc.params) from exc
                             storage.track(self.project_manager.projects_dir / target_name)
                         self._install_project_dir(
                             staging_dir,
@@ -2145,7 +2159,57 @@ class ProjectArchiveService:
         return payload, records
 
     def _has_importable_images(self, project_dir: Path) -> bool:
-        return bool(self._importable_image_records(project_dir)[1])
+        return bool(self._importable_image_records(project_dir)[1] or self._untracked_current_images(project_dir))
+
+    def _untracked_current_images(self, project_dir: Path) -> list[tuple[str, str, Path]]:
+        """暂存目录里没有版本记录的当前正式图片：``(资源类型, 资源 ID, 文件)``。
+
+        仅当前版本的包按 ``CURRENT_EXPORT_VERSION_RETENTION`` 裁掉生成图片的版本记录，只带当前正式文件。
+        资产图以 project.json 的资产图字段为准，其余图片取规范路径。尾帧不经存储选择，不在其列。
+        """
+        payload = self._load_json_file(project_dir / "versions" / "versions.json")
+        payload = payload if isinstance(payload, dict) else {}
+        project = self._load_json_file(project_dir / self.project_manager.PROJECT_FILE)
+        project = project if isinstance(project, dict) else {}
+
+        candidates: dict[tuple[str, str], str] = {}
+        for spec in ASSET_SPECS.values():
+            bucket = project.get(spec.bucket_key)
+            for name, entry in bucket.items() if isinstance(bucket, dict) else ():
+                sheet = entry.get(spec.sheet_field) if isinstance(entry, dict) else None
+                if isinstance(sheet, str) and sheet:
+                    candidates[(spec.bucket_key, str(name))] = sheet
+        for resource_type in ("storyboards", "grids", CHARACTER_DERIVATIVE_RESOURCE_TYPE):
+            segments = resource_id_segments(resource_type)
+            sample = Path(resource_relative_path(resource_type, "/".join(["x"] * segments)))
+            subdir = project_dir / sample.parents[segments - 1]
+            for path in sorted(subdir.rglob(f"*{resource_extension(resource_type)}")) if subdir.is_dir() else ():
+                rel = path.relative_to(project_dir).as_posix()
+                resource = resource_of_path(rel)
+                if resource is not None and resource[0] == resource_type:
+                    candidates.setdefault(resource, rel)
+
+        result: list[tuple[str, str, Path]] = []
+        for (resource_type, resource_id), rel in candidates.items():
+            if not stores_remotely(resource_type) or resource_type == END_FRAME_RESOURCE_TYPE:
+                continue
+            bucket = payload.get(resource_type)
+            history = bucket.get(resource_id) if isinstance(bucket, dict) else None
+            if isinstance(history, dict) and history.get("versions"):
+                continue
+            path = try_safe_join(project_dir, rel)
+            if path is not None and path.is_file() and not path.is_symlink():
+                result.append((resource_type, resource_id, path))
+        return result
+
+    def _track_current_images(self, project_dir: Path) -> None:
+        """为没有版本记录的当前正式图片补登一条内容版本（同 ``VersionManager.ensure_current_tracked``）。
+
+        只在目标实例把新图片保存到对象存储时调用；导入到本地时照旧不补登，仅当前版本的范围语义不变。
+        """
+        versions = VersionManager(project_dir)
+        for resource_type, resource_id, path in self._untracked_current_images(project_dir):
+            versions.ensure_current_tracked(resource_type, resource_id, path, prompt="")
 
     def _store_imported_images(self, project_dir: Path, storage: ObjectContentStorage) -> None:
         """把暂存目录里的图片版本保存为目标实例的正式对象，并在版本记录上写下定位。
@@ -2539,7 +2603,7 @@ class ProjectArchiveService:
         deleted_dir: Path | None = None
 
         try:
-            with self._retire_project(target_dir.name) as tombstone:
+            with self._retire_project(target_dir) as tombstone:
                 deleted_dir = deleted_projects.move_in(self.project_manager.layout, target_dir, tombstone)
                 prepared_dir.rename(target_dir)
         except BaseException:
