@@ -41,6 +41,7 @@ from lib.db.repositories.asset_library_repo import AssetLibraryRepository
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.object_storage import client as storage_client
+from lib.project.asset_types import DERIVATIVES_FIELD
 from lib.project.project_manager import ProjectManager
 from server.agent_toolset.declaration import ToolDeclaration
 from server.agent_toolset.embedded import embedded_server
@@ -48,7 +49,7 @@ from server.agent_toolset.remote import remote_tool
 from server.agent_toolset.toolset import AGENT_TOOLSET
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.routers import asset_library, files, provider_asset_links, versions
+from server.routers import asset_library, derivative_uploads, files, provider_asset_links, versions
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import CallerContext, ProjectScope, Services
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -161,7 +162,13 @@ def api(sessions, project) -> Generator[TestClient]:
 
     app.dependency_overrides[get_async_session] = _session
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    for router in (files.router, versions.router, provider_asset_links.router, asset_library.router):
+    for router in (
+        files.router,
+        derivative_uploads.router,
+        versions.router,
+        provider_asset_links.router,
+        asset_library.router,
+    ):
         app.include_router(router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(app)
     with TestClient(app) as client:
@@ -785,6 +792,130 @@ async def test_import_commit_failure_keeps_selected_version_and_no_link(
     assert await _all_links(sessions) == []
 
 
+# ── 角色衍生图 ───────────────────────────────────────────────────────
+# 衍生图走自己的手动上传成品路径（规范路径固定为 .png），关联编排与资产图共用；
+# 这里只覆盖衍生特有的部分：落盘与版本、PNG 封装下的原像素保真、关联可用与解除，以及提交钩子的回滚。
+
+DERIVATIVE = {"resource_type": "character_derivatives", "resource_id": "Alice/战斗装"}
+DERIVATIVE_SHEET = Path("characters") / "derivatives" / "Alice" / "战斗装.png"
+
+
+@pytest.fixture
+def derivative(project) -> None:
+    def _register(entry: dict[str, Any]) -> None:
+        entry.setdefault(DERIVATIVES_FIELD, {})["战斗装"] = {"description": "换上黑色重甲", "character_sheet": ""}
+
+    project.update_asset_entry("character", "demo", "Alice", _register)
+
+
+def _upload_derivative(api: TestClient, content: bytes) -> None:
+    resp = api.post(
+        "/api/v1/projects/demo/characters/Alice/derivatives/战斗装/upload",
+        files={"file": ("armor.png", content, "image/png")},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def _derivative_panel(api: TestClient) -> dict[str, Any]:
+    resp = api.get(LINKS, params=DERIVATIVE)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _derivative_versions(api: TestClient) -> dict[str, Any]:
+    resp = api.get("/api/v1/projects/demo/versions/character-derivative/Alice/战斗装")
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _import_derivative(api: TestClient, account_id: int) -> httpx.Response:
+    return api.post(IMPORT, json={**DERIVATIVE, "account_id": account_id, "asset_id": "asset-20261103-b"})
+
+
+def _pixels(content: bytes) -> bytes:
+    with Image.open(BytesIO(content)) as image:
+        return image.convert("RGB").tobytes()
+
+
+def _jpeg_bytes() -> bytes:
+    buffer = BytesIO()
+    image = Image.new("RGB", (400, 400), (10, 10, 200))
+    for x in range(0, 400, 7):
+        image.putpixel((x, x), (250, 250, 250))
+    image.save(buffer, format="JPEG", quality=90)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("original_format", ["png", "jpeg"])
+async def test_derivative_import_saves_original_pixels_as_uploaded_version_with_active_link(
+    api, sessions, project, derivative, public_dns, original_format
+):
+    """衍生图导入闭环：素材内容成为衍生的手动上传新版本，关联属于这个版本且可用；解除后图片保留。"""
+    account_id = await _configure(sessions, object_storage=False)
+    _upload_derivative(api, solid_png_bytes((200, 10, 10), size=(400, 400)))
+    version_a = _derivative_panel(api)["content_version"]
+    original = solid_png_bytes((10, 10, 200), size=(400, 400)) if original_format == "png" else _jpeg_bytes()
+
+    control = ControlPlane(asset_status=[_active_image()])
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=control)
+        router.get(ASSET_URL).mock(return_value=httpx.Response(200, content=original))
+        resp = _import_derivative(api, account_id)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+
+    # 衍生规范路径是 .png：PNG 原样保存，JPEG 只换封装，像素与素材一致
+    saved = (project.get_project_path("demo") / DERIVATIVE_SHEET).read_bytes()
+    if original_format == "png":
+        assert saved == original
+    else:
+        assert saved.startswith(b"\x89PNG")
+        assert _pixels(saved) == _pixels(original)
+    history = _derivative_versions(api)
+    assert history["current_version"] == 2
+    assert history["versions"][-1]["source"] == "manual_upload"
+    assert history["versions"][-1]["content_version_id"] == body["content_version"]["id"] != version_a["id"]
+
+    link = body["link"]
+    assert (link["state"], link["usable"], link["provider_asset_id"]) == ("active", True, "asset-20261103-b")
+    assert link["content_version_id"] == body["content_version"]["id"]
+    assert [shown["id"] for shown in _derivative_panel(api)["links"]] == [link["id"]]
+    assert ASSET_SIGNATURE not in resp.text
+
+    # 切回旧版本不继承关联；回到导入的版本后解除，只解除关系，图片仍在
+    assert api.post("/api/v1/projects/demo/versions/character-derivative/Alice/战斗装/restore/1").status_code == 200
+    assert _derivative_panel(api)["links"] == []
+    assert api.post("/api/v1/projects/demo/versions/character-derivative/Alice/战斗装/restore/2").status_code == 200
+    assert api.delete(f"{LINKS}/{link['id']}").status_code == 204
+    assert _derivative_panel(api)["links"] == []
+    assert (await _link(sessions, link["id"])).selected is False
+    assert (project.get_project_path("demo") / DERIVATIVE_SHEET).read_bytes() == saved
+
+
+async def test_derivative_import_failing_after_link_keeps_selected_version_and_no_link(
+    api, sessions, project, derivative, public_dns, monkeypatch
+):
+    """衍生的正式提交在关联落库后失败：衍生图与版本历史保持原样，也不留下关联。"""
+    account_id = await _configure(sessions, object_storage=False)
+    image_a = solid_png_bytes((5, 5, 5), size=(400, 400))
+    _upload_derivative(api, image_a)
+    before = _derivative_versions(api)
+    _fail_after_link(monkeypatch)
+
+    control = ControlPlane(asset_status=[_active_image()])
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=control)
+        router.get(ASSET_URL).mock(
+            return_value=httpx.Response(200, content=solid_png_bytes((9, 9, 9), size=(400, 400)))
+        )
+        with pytest.raises(RuntimeError):
+            _import_derivative(api, account_id)
+
+    assert (project.get_project_path("demo") / DERIVATIVE_SHEET).read_bytes() == image_a
+    assert _derivative_versions(api) == before
+    assert await _all_links(sessions) == []
+
+
 # ── Agent 工具 ───────────────────────────────────────────────────────
 # 工具经两宿主的真实 adapter 调用，与 Web 共用同一组关联记录；领域规则已由上面的 Web 用例覆盖，
 # 这里只验证明确指令、立即返回、两宿主结果一致，以及结果里不带密钥与签名。
@@ -937,3 +1068,34 @@ async def test_agent_selects_an_existing_library_image_as_a_new_version(api, ses
     for result in (listed, selected):
         assert "TEST-SIGNATURE" not in _tool_text(result)
         assert SK not in _tool_text(result)
+
+
+async def test_agent_selects_a_library_image_for_a_character_derivative(
+    api, sessions, derivative, public_dns, agent_services
+):
+    """Agent 也能为角色衍生图选择已有素材，与 Web 共用同一导入路径与关联。"""
+    account_id = await _configure(sessions, object_storage=False)
+    control = ControlPlane(asset_status=[_active_image()])
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=control)
+        router.get(ASSET_URL).mock(
+            return_value=httpx.Response(200, content=solid_png_bytes((10, 10, 200), size=(400, 400)))
+        )
+        selected, selected_json = await _embedded(
+            agent_services,
+            "select_provider_library_asset",
+            {
+                "resource_type": "character_derivative",
+                "resource_id": "Alice/战斗装",
+                "account_id": account_id,
+                "asset_id": "asset-20261103-b",
+            },
+        )
+
+    assert selected.isError is False
+    chosen = selected_json["provider_asset_selection"]
+    assert chosen["content_version"]["version"] == 1
+    assert (chosen["link"]["state"], chosen["link"]["usable"]) == ("active", True)
+    assert _derivative_versions(api)["versions"][-1]["source"] == "manual_upload"
+    assert [link["id"] for link in _derivative_panel(api)["links"]] == [chosen["link"]["id"]]
+    assert "TEST-SIGNATURE" not in _tool_text(selected)

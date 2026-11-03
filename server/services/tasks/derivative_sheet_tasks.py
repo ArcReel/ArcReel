@@ -48,6 +48,7 @@ from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from lib.prompts.prompt_builders import build_character_derivative_prompt
 from server.services.admission.reference_admission import input_refusal_error
 from server.services.tasks.formal_image_commit import (
+    ContentVersionCommitHook,
     FormalImageCommitOutcome,
     FormalImagePlan,
     StagedImageCommit,
@@ -142,11 +143,13 @@ def derivative_sheet_commit_callback(
     outcome_box: list[FormalImageCommitOutcome],
     project_manager: ProjectManager | None = None,
     selected_upload: bool = False,
+    on_commit: ContentVersionCommitHook | None = None,
 ) -> StagedImageCommit:
     """衍生资产图的正式活化回调：写回衍生条目 + 版本活化 + 清单登记同一次提交。
 
     生成、图片编辑与作者上传共用它，三条路线的写回口径因此不分叉。``selected_upload``
     标记作者上传：上传的图是成品，依据只由图字节决定，由规划器在选中上传版本后投影。
+    ``on_commit`` 在同一次提交的最后收到新选中的内容版本，抛错时整次提交回滚。
     """
     pm = project_manager or get_project_manager()
     project_path = pm.get_project_path(project_name)
@@ -172,6 +175,7 @@ def derivative_sheet_commit_callback(
         outcome_box=outcome_box,
         commit_metadata=_commit_metadata,
         selected_upload=selected_upload,
+        on_commit=on_commit,
     )
 
 

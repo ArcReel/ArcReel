@@ -312,7 +312,7 @@ export default {
   editor_derivative_removed: "Phái sinh này đã bị xóa hoặc đổi tên. Các thay đổi chưa lưu vẫn được giữ; lưu hoặc bỏ thay đổi để dùng trạng thái hiện tại.",
   "provider_asset_select_from_library": "Chọn từ thư viện tư liệu của nhà cung cấp",
   "provider_asset_dialog_title": "Chọn từ thư viện tư liệu của nhà cung cấp",
-  "provider_asset_dialog_desc": "Chọn một tư liệu hình ảnh khả dụng. ArcReel lấy ảnh gốc về, lưu thành phiên bản mới của ảnh tài sản này và liên kết phiên bản đó với tư liệu.",
+  "provider_asset_dialog_desc": "Chọn một tư liệu hình ảnh khả dụng. ArcReel lấy ảnh gốc về, lưu thành phiên bản mới của ảnh này và liên kết phiên bản đó với tư liệu.",
   "provider_asset_account": "Tài khoản thư viện tư liệu",
   "provider_asset_no_account": "Chưa có tài khoản thư viện tư liệu. Hãy thêm tài khoản trong mục Thư viện tư liệu và lưu trữ của Cài đặt rồi chọn lại.",
   "provider_asset_open_settings": "Mở cài đặt",

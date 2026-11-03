@@ -27,10 +27,8 @@ from server.services.project.provider_asset_import import import_provider_asset
 from server.services.tasks.image_edit_tasks import edit_version_resource_type
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest
 
-#: 可上传到素材库的图片类型（与 inspect_images 同一套单数名称）。
+#: 可上传到素材库、也可从素材库选择已有图片的类型（与 inspect_images 同一套单数名称）。
 LinkableImageType = Literal["character", "scene", "prop", "product", "character_derivative"]
-#: 可从素材库选择已有图片的类型：只有资产图，角色衍生图没有导入入口。
-ImportableImageType = Literal["character", "scene", "prop", "product"]
 
 _RESOURCE_ID = "资源 ID：资产为资产名称；character_derivative 为「本体名/衍生名」"
 _ACCOUNT_ID = "素材库账号 ID，取自 get_provider_asset_links 返回的 accounts[].id"
@@ -72,8 +70,8 @@ class UploadToProviderAssetLibraryRequest(BaseModel):
 class SelectProviderLibraryAssetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    resource_type: ImportableImageType = Field(description="要保存到的资产图类型")
-    resource_id: str = Field(min_length=1, max_length=512, description="资产名称")
+    resource_type: LinkableImageType = Field(description="要保存到的图片类型")
+    resource_id: str = Field(min_length=1, max_length=512, description=_RESOURCE_ID)
     account_id: StrictInt = Field(ge=1, description=_ACCOUNT_ID)
     asset_id: str = Field(
         min_length=1, max_length=256, description="供应商素材 ID，取自 list_provider_library_assets 的 items[].id"
@@ -224,7 +222,6 @@ def select_summary(value: dict[str, Any]) -> str:
 
 
 __all__ = [
-    "ImportableImageType",
     "LinkableImageType",
     "ListProviderLibraryAssetsRequest",
     "ProviderAssetLinksRequest",
