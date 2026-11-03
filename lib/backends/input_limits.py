@@ -50,6 +50,15 @@ class InputLimit[N: (int, float)]:
     def at_most(cls, maximum: N) -> InputLimit[N]:
         return cls(LimitState.BOUNDED, maximum)
 
+    @classmethod
+    def from_json(cls, value: N | None) -> InputLimit[N]:
+        """:meth:`to_json` 的逆：``None`` 为未收录，其余为上限（``0`` 即不接受）。
+
+        读已按接口形状存下的生效值（如视频能力 ``VideoCapabilities`` 的参考图与参考音频上限）时用它，
+        不支持与上限为 0 在这一形状里同为 ``0``，读回后的判定（候选、执行时的校验、编排层的裁剪）相同。
+        """
+        return cls.unrecorded() if value is None else cls.at_most(value)
+
     @property
     def accepts_input(self) -> bool:
         """能不能带上这类输入：未收录，或上限大于 0。"""

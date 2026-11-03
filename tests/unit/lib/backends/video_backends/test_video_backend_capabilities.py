@@ -94,28 +94,24 @@ class TestGrokVideoCapabilities:
 
         with patch("lib.backends.video_backends.grok.create_grok_client"):
             caps = GrokVideoBackend(api_key="test-key").video_capabilities
-        assert caps.max_reference_images > 0
-        assert caps.max_reference_images == 7
+        # 通道实现了参考图且不设上限，各型号的上限来自条目
+        assert caps.max_reference_images is None
         assert not hasattr(caps, "reference_images_with_start_frame")
 
 
 class TestVideoCapabilitiesForModel:
-    """各 backend 的 client-free 静态 caps 方法：按 model_id 纯计算，不构造实例 / 不需 api_key。
+    """各 backend 的 client-free 静态 caps 方法给出通道声明，不构造实例 / 不需 api_key；生效能力再与条目两侧求值。
 
     resolver 解析参考图上限走这条纯函数路径，故不应触发 SDK client 构造或 api_key 校验。"""
 
     def test_ark_seedance_2_returns_nine(self):
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.backends.video_backends.ark import ArkVideoBackend
 
-        # 不构造实例（即不构造 Ark SDK client、不需 api_key）即可取得 caps
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0")
-        assert caps.max_reference_images == 9
-        assert caps.max_reference_images > 0
-
-    def test_ark_non_seedance_2_returns_zero(self):
-        from lib.backends.video_backends.ark import ArkVideoBackend
-
-        assert ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0").max_reference_images == 0
+        # 不构造实例（即不构造 Ark SDK client、不需 api_key）即可取得通道声明：不设参考图上限
+        assert ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-260128").max_reference_images is None
+        # 生效上限来自条目
+        assert builtin_video_capabilities_for_model("ark", "doubao-seedance-2-0-260128").max_reference_images == 9
 
     def test_vidu_returns_seven(self):
         from lib.backends.video_backends.vidu import ViduVideoBackend
@@ -154,18 +150,18 @@ class TestVideoCapabilitiesForModel:
         [("kling-v3", True), ("kling-video-o1", False)],
     )
     def test_kling_declares_text_to_video(self, model: str, expected: bool):
-        from lib.backends.video_backends.kling import KlingVideoBackend
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 
-        assert KlingVideoBackend.video_capabilities_for_model(model).text_to_video is expected
+        assert builtin_video_capabilities_for_model("kling", model).text_to_video is expected
 
     @pytest.mark.parametrize(
         ("model", "expected"),
-        [("viduq3-pro", True), ("viduq3-pro-fast", False), ("vidu2.0", False)],
+        [("viduq3-pro", True), ("viduq3", False), ("vidu2.0", False)],
     )
     def test_vidu_declares_text_to_video(self, model: str, expected: bool):
-        from lib.backends.video_backends.vidu import ViduVideoBackend
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 
-        assert ViduVideoBackend.video_capabilities_for_model(model).text_to_video is expected
+        assert builtin_video_capabilities_for_model("vidu", model).text_to_video is expected
 
     def test_v2_returns_four(self):
         from lib.custom_provider.endpoints import ENDPOINT_REGISTRY

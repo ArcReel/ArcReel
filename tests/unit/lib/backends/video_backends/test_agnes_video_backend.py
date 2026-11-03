@@ -111,7 +111,8 @@ class TestCapabilities:
         caps = backend.video_capabilities
         assert caps.first_frame is True
         assert caps.last_frame is True
-        assert caps.max_reference_images == 5
+        # v2.5 契约的通道不设参考图上限，各型号的上限来自条目
+        assert caps.max_reference_images is None
         assert caps.audio_track is VideoAudioMode.ALWAYS_ON
 
     @pytest.mark.parametrize(
@@ -123,7 +124,9 @@ class TestCapabilities:
         ],
     )
     def test_video_capabilities_by_model(self, model: str, max_reference_images: int, audio_track: VideoAudioMode):
-        caps = AgnesVideoBackend.video_capabilities_for_model(model)
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+
+        caps = builtin_video_capabilities_for_model("agnes", model)
         assert caps.first_frame is True
         assert caps.last_frame is True
         assert caps.max_reference_images == max_reference_images

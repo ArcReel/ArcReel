@@ -147,13 +147,15 @@ class TestEndpointFallthrough:
 
         assert get_endpoint_spec("dashscope-async-video").video_max_reference_images is None
 
-    def test_backend_caps_supply_real_limit(self):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+    def test_entry_supplies_real_limit(self):
+        """通道不设参考图上限，自定义供应商下按名字对应的条目给出真实上限（两侧求值，docs/adr/0104）。"""
+        from lib.custom_provider.capabilities import two_sided_video_capabilities
 
-        assert (
-            DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-r2v").video_capabilities.max_reference_images == 9
-        )
-        assert DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v").video_capabilities.max_reference_images == 5
+        def limit(model: str) -> int | None:
+            return two_sided_video_capabilities(endpoint="dashscope-async-video", model_id=model).max_reference_images
+
+        assert limit("happyhorse-1.0-r2v") == 9
+        assert limit("wan2.7-r2v") == 5
 
 
 class TestInferEndpoint:

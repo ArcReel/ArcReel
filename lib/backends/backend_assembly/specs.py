@@ -560,20 +560,42 @@ def get_provider_spec(provider_id: str, media_type: str) -> ProviderSpec:
 
 
 def builtin_video_capabilities_for_model(provider_id: str, model_id: str) -> VideoCapabilities:
-    """读取内置视频能力：调用通道的声明，用户添加的模型再叠加通道事实的能力覆盖（docs/adr/0104）。
+    """读取内置视频的生效能力：调用通道的声明与模型条目两侧求值，用户添加的模型再叠加能力覆盖（docs/adr/0104）。
 
     覆盖整维替换、优先级最高；音频两维合起来无意义时按不支持参考音频处理，与自定义供应商同一口径。
     """
-    return apply_user_added_video_overrides(
+    return effective_builtin_video_capabilities(
         declared_builtin_video_capabilities(provider_id, model_id), provider_id, model_id
     )
 
 
-def apply_user_added_video_overrides(caps: VideoCapabilities, provider_id: str, model_id: str) -> VideoCapabilities:
-    """在调用通道给出的能力上叠加内置供应商下用户添加的模型的通道事实覆盖（docs/adr/0104）。
+def two_sided_builtin_video_capabilities(
+    channel: VideoCapabilities, provider_id: str, model_id: str
+) -> VideoCapabilities:
+    """调用通道给出的能力与模型条目两侧求值，不含能力覆盖；设置页的原值就是它。
 
-    基底由调用方给定：规划层传无请求上下文的声明，执行闸门传按档位解析的能力，两边叠加口径相同。
+    条目取供应商模型对应的那个：官方收录的取清单所引的条目，用户添加的取条目绑定或按名字现查的结果。
     """
+    from lib.backends.video_capabilities import effective_video_capabilities, entry_video_facts
+
+    entry = catalog.provider_model_entry(provider_id, model_id, "video")
+    return effective_video_capabilities(channel, entry_video_facts(entry))
+
+
+def effective_builtin_video_capabilities(
+    channel: VideoCapabilities, provider_id: str, model_id: str
+) -> VideoCapabilities:
+    """内置视频的生效能力：``channel`` 与模型条目两侧求值，再叠加用户添加的模型的能力覆盖（docs/adr/0104）。
+
+    基底由调用方给定：规划层传无请求上下文的声明，执行闸门传按档位解析的能力，两边求值口径相同。
+    """
+    return apply_user_added_video_overrides(
+        two_sided_builtin_video_capabilities(channel, provider_id, model_id), provider_id, model_id
+    )
+
+
+def apply_user_added_video_overrides(caps: VideoCapabilities, provider_id: str, model_id: str) -> VideoCapabilities:
+    """在两侧求值的结果上叠加内置供应商下用户添加的模型的能力覆盖，整维替换（docs/adr/0104）。"""
     overrides = catalog.user_added_capability_overrides(provider_id, model_id)
     if not overrides:
         return caps
@@ -588,7 +610,7 @@ def apply_user_added_video_overrides(caps: VideoCapabilities, provider_id: str, 
 
 
 def declared_builtin_video_capabilities(provider_id: str, model_id: str) -> VideoCapabilities:
-    """内置视频调用通道对模型声明的能力，不含用户的能力覆盖；声明式供应商从随版定义读，其余沿用 backend registry。"""
+    """内置视频调用通道的声明（通道事实），不含模型条目与用户的能力覆盖；声明式供应商从随版定义读，其余沿用 backend registry。"""
     spec = get_provider_spec(provider_id, "video")
     if spec.registry_backend == "declarative":
         from lib.custom_provider.builtin_definitions import declarative_video_capabilities
@@ -600,7 +622,8 @@ def declared_builtin_video_capabilities(provider_id: str, model_id: str) -> Vide
         return declarative_video_capabilities(definition)
     from lib.backends.video_backends.registry import video_capabilities_for_model
 
-    # 调用通道按模型对应的条目认定能力：官方收录的取清单所引的条目，用户添加的取条目绑定或按名字现查的结果。
+    # 调用通道只按模型对应的条目认定请求形态（音轨、提示词长度上限等），输入能力不按名字认定：官方收录的取清单所引
+    # 的条目，用户添加的取条目绑定或按名字现查的结果。
     return video_capabilities_for_model(
         spec.registry_backend, model_id, catalog.provider_model_entry(provider_id, model_id, "video")
     )

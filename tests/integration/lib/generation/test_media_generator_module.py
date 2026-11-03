@@ -1284,9 +1284,17 @@ class TestMediaGenerator:
         """在内置供应商下装入一个用户添加的视频模型（模型键与 _FakeVideoBackend.model 一致），按参数给能力覆盖。"""
         from lib.catalog import query as catalog
 
-        def install(provider_id: str, overrides: dict[str, object]) -> None:
+        def install(provider_id: str, overrides: dict[str, object], *, entry_binding: str | None = None) -> None:
             catalog.install_user_added_models(
-                [catalog.UserAddedModel(provider_id, _FakeVideoBackend.model, "video", capability_overrides=overrides)]
+                [
+                    catalog.UserAddedModel(
+                        provider_id,
+                        _FakeVideoBackend.model,
+                        "video",
+                        entry_binding=entry_binding,
+                        capability_overrides=overrides,
+                    )
+                ]
             )
 
         yield install
@@ -1361,14 +1369,15 @@ class TestMediaGenerator:
         assert gen.ledger.started == []
 
     async def test_user_override_keeps_tier_aware_base(self, tmp_path, user_added_video_model):
-        """覆盖叠在按档位解析的能力上：未覆盖的尾帧仍随档位放行，覆盖的参考图上限同时生效。"""
+        """覆盖叠在按档位解析的能力与条目两侧求值的结果上：未覆盖的尾帧仍随档位放行（条目接受尾帧），
+        覆盖的参考图上限同时生效。"""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         class _TierAwareVideoBackend(_FakeVideoBackend):
             def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None):
                 return VideoCapabilities(last_frame=service_tier == "pro")
 
-        user_added_video_model("kling", {"max_reference_images": 2})
+        user_added_video_model("kling", {"max_reference_images": 2}, entry_binding="kuaishou/kling-v3")
         gen = _build_generator(tmp_path)
         gen._video_provider_id = "kling"
         gen._video_backend = _TierAwareVideoBackend(video_capabilities=VideoCapabilities())

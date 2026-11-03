@@ -590,8 +590,8 @@ def provider_models(provider_id: str) -> list[ProviderModelView]:
 def user_added_capability_overrides(provider_id: str, model_id: str) -> Mapping[str, object]:
     """内置供应商下用户添加的模型的能力覆盖；官方收录的模型、不在目录中的模型为空。
 
-    模型事实维度已并进 :func:`get_model` 的目录信息；通道事实维度（输入模式、参考上限、音轨形态等）由调用通道
-    一侧的能力声明合并（``lib.backends.backend_assembly.specs.builtin_video_capabilities_for_model``）。
+    模型事实维度已并进 :func:`get_model` 的目录信息；通道事实维度（输入模式、参考上限、音轨形态等）在调用通道
+    的声明与模型条目两侧求值之后整维替换（``lib.backends.backend_assembly.specs.builtin_video_capabilities_for_model``）。
     """
     indexed = _indexed_models(provider_id).get(model_id)
     return indexed.capability_overrides if indexed is not None else {}

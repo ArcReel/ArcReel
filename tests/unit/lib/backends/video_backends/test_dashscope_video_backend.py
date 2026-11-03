@@ -113,6 +113,19 @@ def _ref(tmp_path: Path, name: str) -> Path:
     return p
 
 
+def _effective(model: str) -> VideoCapabilities:
+    """内置百炼通道下该型号的生效能力：通道声明与模型条目两侧求值（docs/adr/0104），执行闸门把它放进请求。"""
+    from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+
+    return builtin_video_capabilities_for_model("dashscope", model)
+
+
+def _profile_key(model: str) -> str | None:
+    from lib.backends.video_backends.dashscope import _profile_key_for_model
+
+    return _profile_key_for_model(model)
+
+
 class TestCapabilities:
     def test_name_and_model(self):
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
@@ -121,29 +134,35 @@ class TestCapabilities:
         assert b.name == PROVIDER_DASHSCOPE
         assert b.model == "happyhorse-1.0-i2v"
 
-    def test_happyhorse_r2v_caps(self):
+    def test_channel_declares_every_input_path_without_a_reference_cap(self):
+        """通道声明与型号名无关：首尾帧、文生、参考图、参考音频都实现了，参考图与参考音频段数不设上限。"""
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
-        vc = b.video_capabilities
-        assert vc.max_reference_images > 0
+        for model in ("happyhorse-1.0-r2v", "wan2.7-i2v", "proxy-custom-video"):
+            caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+            assert caps.text_to_video is True
+            assert caps.first_frame is True
+            assert caps.last_frame is True
+            assert caps.max_reference_images is None
+            assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
+            assert caps.max_reference_audio_count is None
+
+    def test_happyhorse_r2v_caps(self):
+        vc = _effective("happyhorse-1.0-r2v")
         assert vc.max_reference_images == 9
         assert vc.first_frame is False
 
     def test_happyhorse_11_caps(self):
-        """1.1 三模态各自登记能力档：t2v 无首帧（未登记会回落默认档的 first_frame=True，
-        被误判进 i2v 桶），i2v 有首帧无参考图，r2v 参考图 9 张且无首帧。"""
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-        t2v = DashScopeVideoBackend.video_capabilities_for_model("happyhorse-1.1-t2v")
+        """1.1 三模态的输入能力来自各自的条目：t2v 无首帧，i2v 有首帧无参考图，r2v 参考图 9 张且无首帧。"""
+        t2v = _effective("happyhorse-1.1-t2v")
         assert t2v.first_frame is False
         assert t2v.max_reference_images == 0
 
-        i2v = DashScopeVideoBackend.video_capabilities_for_model("happyhorse-1.1-i2v")
+        i2v = _effective("happyhorse-1.1-i2v")
         assert i2v.first_frame is True
         assert i2v.max_reference_images == 0
 
-        r2v = DashScopeVideoBackend.video_capabilities_for_model("happyhorse-1.1-r2v")
+        r2v = _effective("happyhorse-1.1-r2v")
         assert r2v.first_frame is False
         assert r2v.max_reference_images == 9
 
@@ -154,58 +173,45 @@ class TestCapabilities:
         assert DashScopeVideoBackend(api_key="sk").model == "happyhorse-1.1-i2v"
 
     def test_wan_r2v_caps(self):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-        b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
-        vc = b.video_capabilities
+        vc = _effective("wan2.7-r2v")
         assert vc.max_reference_images == 5
         assert vc.first_frame is True
 
     def test_t2v_caps(self):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-        b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
-        assert b.video_capabilities.first_frame is False
-        assert b.video_capabilities.max_reference_images == 0
+        vc = _effective("happyhorse-1.0-t2v")
+        assert vc.first_frame is False
+        assert vc.max_reference_images == 0
 
     def test_i2v_caps(self):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+        assert _effective("wan2.7-i2v").first_frame is True
 
-        b = DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v")
-        assert b.video_capabilities.first_frame is True
-
-    def test_decorated_model_name_resolves_r2v_caps(self):
+    def test_decorated_model_name_resolves_r2v_request_shape(self):
         """代理中转的前缀/后缀装饰名（infer_endpoint 会按子串路由到 dashscope-async-video）
-        必须解析出真实 r2v caps，而非退回统一回落 丢掉 reference_images。"""
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+        必须解析出 r2v 的请求形态（必须带参考图），而非退回通道声明。"""
+        from lib.backends.video_backends.dashscope import _requires_reference_images
 
-        for model, expected_max in (
-            ("proxy/happyhorse-1.0-r2v", 9),
-            ("provider:wan2.7-r2v", 5),
-            ("wan2.7-r2v-0715", 5),  # 后缀版本号
-            ("Pro/HappyHorse-1.0-R2V", 9),  # 大小写不敏感
+        for model, expected_key in (
+            ("proxy/happyhorse-1.0-r2v", "happyhorse-1.0-r2v"),
+            ("provider:wan2.7-r2v", "wan2.7-r2v"),
+            ("wan2.7-r2v-0715", "wan2.7-r2v"),  # 后缀版本号
+            ("Pro/HappyHorse-1.0-R2V", "happyhorse-1.0-r2v"),  # 大小写不敏感
         ):
-            # 实例侧（_build_media 据此构造 media）
-            b = DashScopeVideoBackend(api_key="sk", model=model)
-            assert b.video_capabilities.max_reference_images > 0
-            assert b.video_capabilities.max_reference_images == expected_max
-            # resolver 侧（纯函数，不构造 backend）
-            assert DashScopeVideoBackend.video_capabilities_for_model(model).max_reference_images == expected_max
+            assert _profile_key(model) == expected_key
+            assert _requires_reference_images(model) is True
 
     def test_alnum_glued_prefix_does_not_resolve_r2v_caps(self):
-        """字母数字直接粘连的前缀（无分隔符）不算装饰名，须落回统一回落。
+        """字母数字直接粘连的前缀（无分隔符）不算装饰名，认不得请求形态档。
 
         与上一条用例的边界相反："myhappyhorse-1.0-r2v" 去掉 "my" 后与
         "happyhorse-1.0-r2v" 逐字符相同，若子串匹配不做标识符边界校验就会误判命中——
         代理装饰名靠 "/" ":" 等非字母数字分隔符与真实型号名区分，"my" 直接粘连不满足。
         """
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        assert DashScopeVideoBackend.video_capabilities_for_model("myhappyhorse-1.0-r2v").max_reference_images == 0
+        assert _profile_key("myhappyhorse-1.0-r2v") is None
 
     @pytest.mark.parametrize("model", ["wan2.7-i2vfoo", "happyhorse-1.0-r2vfoo"])
     def test_alnum_glued_suffix_does_not_resolve_known_profile(self, model):
-        """字母数字直接粘连的后缀同样不算装饰名，须落回统一回落。
+        """字母数字直接粘连的后缀同样不算装饰名，认不得请求形态档。
 
         与前两条用例互补的第三个边界方向："wan2.7-i2vfoo" 截断掉 "foo" 后与 key "wan2.7-i2v"
         逐字符相同，若子串匹配只做左侧边界校验、不做右侧校验，未知变体后缀会被截断误判成已知
@@ -213,16 +219,15 @@ class TestCapabilities:
         """
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
-        assert caps.max_reference_images == 0
-        assert caps.max_prompt_chars is None
+        assert _profile_key(model) is None
+        assert DashScopeVideoBackend.video_capabilities_for_model(model).max_prompt_chars is None
 
     def test_unknown_bare_series_falls_back_to_default(self):
-        """仅系列名无变体后缀（裸 "happyhorse"）无法判别 t2v/i2v/r2v → 通用默认（无 r2v）。"""
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+        """仅系列名无变体后缀（裸 "happyhorse"）无法判别 t2v/i2v/r2v → 认不得请求形态档，取通道声明。"""
+        from lib.backends.video_backends.dashscope import _CHANNEL_CAPABILITIES, DashScopeVideoBackend
 
-        b = DashScopeVideoBackend(api_key="sk", model="happyhorse")
-        assert b.video_capabilities.max_reference_images == 0
+        assert _profile_key("happyhorse") is None
+        assert DashScopeVideoBackend(api_key="sk", model="happyhorse").video_capabilities is _CHANNEL_CAPABILITIES
 
     def test_wan27_declares_prompt_char_limit(self):
         """wan2.7 全家族 prompt ≤ 5000 字符；超限官方静默截断并照常计费，故须付费前拦。"""
@@ -311,7 +316,11 @@ class TestReferenceToVideo:
             with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(
                     VideoGenerationRequest(
-                        prompt="p", output_path=tmp_path / "o.mp4", reference_images=refs, resolution="1080p"
+                        prompt="p",
+                        output_path=tmp_path / "o.mp4",
+                        reference_images=refs,
+                        resolution="1080p",
+                        video_capabilities=_effective("wan2.7-r2v"),
                     )
                 )
         assert ei.value.code == "video_reference_images_exceeded"
@@ -324,13 +333,16 @@ class TestReferenceToVideo:
         with pytest.raises(VideoCapabilityError) as ei:
             DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v")._build_payload(
                 VideoGenerationRequest(
-                    prompt="p", output_path=tmp_path / "o.mp4", reference_images=[_ref(tmp_path, "r.png")]
+                    prompt="p",
+                    output_path=tmp_path / "o.mp4",
+                    reference_images=[_ref(tmp_path, "r.png")],
+                    video_capabilities=_effective("wan2.7-i2v"),
                 )
             )
         assert ei.value.code == "video_reference_images_unsupported"
 
     async def test_start_image_rejected_when_model_has_no_first_frame(self, tmp_path: Path):
-        # 型号档案声明 first_frame=False 时带首帧不静默丢弃：否则照常计费，成片没用上首帧
+        # 生效能力 first_frame=False（条目记录不接受首帧）时带首帧不静默丢弃：否则照常计费，成片没用上首帧
         post = AsyncMock(return_value=_resp(_submit()))
         client = _client(post=post, get=AsyncMock())
         p1, p2, p3 = _patches(client, AsyncMock())
@@ -341,7 +353,14 @@ class TestReferenceToVideo:
 
             b = DashScopeVideoBackend(api_key="sk", model="wan2.7-t2v")
             with pytest.raises(VideoCapabilityError) as ei:
-                await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", start_image=start))
+                await b.generate(
+                    VideoGenerationRequest(
+                        prompt="p",
+                        output_path=tmp_path / "o.mp4",
+                        start_image=start,
+                        video_capabilities=_effective("wan2.7-t2v"),
+                    )
+                )
         assert ei.value.code == "video_first_frame_unsupported"
         post.assert_not_awaited()
 
@@ -879,18 +898,14 @@ class TestWan27ReferenceVoice:
         return p
 
     def test_r2v_declares_audio_capability(self):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-        caps = DashScopeVideoBackend.video_capabilities_for_model("wan2.7-r2v")
+        caps = _effective("wan2.7-r2v")
         assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
-        # 音频逐段挂参考素材项，段数上限即参考素材总数上限
+        # 音频逐段挂参考素材项，段数上限即参考素材总数上限（条目记录）
         assert caps.max_reference_audio_count == 5
+        assert caps.reference_audio_per_image is True
 
     def test_i2v_declares_no_audio_capability(self):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-        caps = DashScopeVideoBackend.video_capabilities_for_model("wan2.7-i2v")
-        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+        assert _effective("wan2.7-i2v").reference_audio_mode is ReferenceAudioMode.NONE
 
     def test_audio_attached_to_reference_items_in_order(self, tmp_path):
         payload = self._backend()._build_payload(
@@ -1019,6 +1034,7 @@ class TestWan27ReferenceVoice:
                     output_path=tmp_path / "o.mp4",
                     start_image=self._refs(tmp_path, 1)[0],
                     reference_audio_files=[self._audio(tmp_path, "a.mp3")],
+                    video_capabilities=_effective("wan2.7-i2v"),
                 )
             )
 
@@ -1052,7 +1068,7 @@ class TestWan27ReferenceVoice:
 
 
 class TestWan2Aliases:
-    """wan2.7 的 model_id 能力档解析：连字符/下划线别名与点号形态须归同一档；WAN2_PATTERN 只认
+    """wan2.7 的 model_id 请求形态档解析：连字符/下划线别名与点号形态须归同一档；WAN2_PATTERN 只认
     2.7，其余 2.x 小版本（2.1/2.2 等）不在本正则确权范围内（见 WAN2_PATTERN 处的说明）。
     """
 
@@ -1067,10 +1083,8 @@ class TestWan2Aliases:
         """
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
-        assert caps.first_frame is True
-        assert caps.max_reference_images == 5
-        assert caps.max_reference_audio_count == 5
+        assert _profile_key(model) == "wan2.7-r2v"
+        assert DashScopeVideoBackend.video_capabilities_for_model(model).reference_audio_per_image is True
 
     @pytest.mark.parametrize("model", ["wan-2.7-image-to-video", "wan_2.7-image2video", "wan_2.7_image_to_video"])
     def test_image_to_video_alias_gets_wan27_i2v_capabilities(self, model):
@@ -1081,22 +1095,15 @@ class TestWan2Aliases:
         """
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
-        assert caps.first_frame is True
-        # r2v 同样 first_frame=True，靠 max_reference_images 区分二者：i2v 无参考图能力，
-        # 缺这条断言时归一化误落 r2v 档案也会通过。
-        assert caps.max_reference_images == 0
-        assert caps.max_prompt_chars == 5000
+        assert _profile_key(model) == "wan2.7-i2v"
+        assert DashScopeVideoBackend.video_capabilities_for_model(model).max_prompt_chars == 5000
 
     def test_fully_underscored_t2v_alias_does_not_get_default_first_frame(self):
-        """ "wan_2.7_t2v" 的版本号与模态后缀均用下划线分隔；t2v 无首帧能力，与统一回落
-        的默认 first_frame=True 恰好相反，能验证确实解析到了 wan2.7-t2v 而非静默落回默认档。
-        """
+        """ "wan_2.7_t2v" 的版本号与模态后缀均用下划线分隔，须确实解析到 wan2.7-t2v 而非静默落回通道声明。"""
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        caps = DashScopeVideoBackend.video_capabilities_for_model("wan_2.7_t2v")
-        assert caps.first_frame is False
-        assert caps.max_prompt_chars == 5000
+        assert _profile_key("wan_2.7_t2v") == "wan2.7-t2v"
+        assert DashScopeVideoBackend.video_capabilities_for_model("wan_2.7_t2v").max_prompt_chars == 5000
 
     @pytest.mark.parametrize("model", ["swan2", "vendorwan2", "wan20", "swan2.7-r2v", "vendorwan2.7-t2v"])
     def test_substring_without_boundary_does_not_get_wan2_capabilities(self, model):
@@ -1109,9 +1116,8 @@ class TestWan2Aliases:
         """
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
-        assert caps.max_reference_images == 0
-        assert caps.max_prompt_chars is None
+        assert _profile_key(model) is None
+        assert DashScopeVideoBackend.video_capabilities_for_model(model).max_prompt_chars is None
 
     @pytest.mark.parametrize("model", ["wan-2.1-r2v", "wan_2.2-i2v"])
     def test_non_27_alias_forms_fall_back_to_default_profile(self, model):
@@ -1121,9 +1127,8 @@ class TestWan2Aliases:
         """
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
-        assert caps.max_reference_images == 0
-        assert caps.max_prompt_chars is None
+        assert _profile_key(model) is None
+        assert DashScopeVideoBackend.video_capabilities_for_model(model).max_prompt_chars is None
 
 
 class TestWan3:
@@ -1165,9 +1170,7 @@ class TestWan3:
         return p
 
     def test_declares_capabilities(self):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-        caps = DashScopeVideoBackend.video_capabilities_for_model("wan3.0-video")
+        caps = _effective("wan3.0-video")
         assert caps.first_frame is True
         assert caps.last_frame is True
         assert caps.max_reference_images == 10
@@ -1187,20 +1190,16 @@ class TestWan3:
         """
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
-        assert caps.last_frame is True
-        assert caps.max_reference_images == 10
-        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
-        assert caps.max_prompt_chars == 20000
+        assert _profile_key(model) == "wan3.0-video"
+        assert DashScopeVideoBackend.video_capabilities_for_model(model).max_prompt_chars == 20000
 
     @pytest.mark.parametrize("model", ["swan3", "vendorwan3", "wan30"])
     def test_wan3_substring_without_boundary_does_not_get_wan3_capabilities(self, model):
         """含 "wan3" 子串但两侧非字母数字边界不成立的型号名，不得被误判为万相 3.0 家族。"""
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
-        assert caps.max_reference_images == 0
-        assert caps.max_prompt_chars is None
+        assert _profile_key(model) is None
+        assert DashScopeVideoBackend.video_capabilities_for_model(model).max_prompt_chars is None
 
     def test_first_and_last_frame_in_media(self, tmp_path):
         payload = self._backend()._build_payload(
@@ -1286,12 +1285,13 @@ class TestWan3:
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
         with pytest.raises(VideoCapabilityError) as ei:
-            DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v")._build_payload(
+            DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")._build_payload(
                 VideoGenerationRequest(
                     prompt="p",
                     output_path=tmp_path / "o.mp4",
                     start_image=self._file(tmp_path, "s.png"),
                     end_image=self._file(tmp_path, "e.png"),
+                    video_capabilities=_effective("happyhorse-1.0-i2v"),
                 )
             )
         assert ei.value.code == "video_last_frame_unsupported"

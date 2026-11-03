@@ -198,13 +198,13 @@ class TestRegistry:
         for key in ("openai-video",):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is None
 
-    def test_dashscope_caps_fn_reads_per_model_limit_without_client(self):
-        """dashscope-async-video 的 caps_fn 是纯函数：按 model_id 返回真实参考图上限
-        （happyhorse-r2v=9 / wan2.7-r2v=5），resolver 据此解析而无需构造 backend / api_key。"""
+    def test_dashscope_caps_fn_reads_channel_declaration_without_client(self):
+        """dashscope-async-video 的 caps_fn 是纯函数：给出通道声明（不设参考图上限、按名字认的请求形态），
+        resolver 据此与条目两侧求值而无需构造 backend / api_key。"""
         caps_fn = ENDPOINT_REGISTRY["dashscope-async-video"].video_caps_for_model
         assert caps_fn is not None
-        assert caps_fn("happyhorse-1.0-r2v", None).max_reference_images == 9
-        assert caps_fn("wan2.7-r2v", None).max_reference_images == 5
+        assert caps_fn("happyhorse-1.0-r2v", None).max_reference_images is None
+        assert caps_fn("wan2.7-r2v", None).reference_audio_per_image is True
 
     def test_minimax_declarative_endpoints_expose_definition_capabilities(self):
         s2v = ENDPOINT_REGISTRY["minimax-s2v-01"].video_caps_for_model
@@ -219,32 +219,30 @@ class TestRegistry:
         assert fast is not None
         assert fast("MiniMax-Hailuo-2.3-Fast", None).text_to_video is False
 
-    def test_kling_caps_fn_reads_per_model_limit_without_client(self):
-        """kling-video 的 caps_fn 是纯函数：v3-omni / video-o1 多图主体 R2V max_ref=4，turbo 等其余档
-        走首尾帧无参考（max_ref=0），未登记 model（bearer 透传）回落保守默认，resolver 据此解析而无需
-        构造 backend / api_key。"""
+    def test_kling_caps_fn_reads_channel_declaration_without_client(self):
+        """kling-video 的 caps_fn 是纯函数：多图主体子路径的通道上限 4 与型号无关，旧型号在无档位上下文时
+        保守关尾帧；各型号接不接受参考图由条目决定，resolver 据此两侧求值而无需构造 backend / api_key。"""
+        from lib.custom_provider.capabilities import two_sided_video_capabilities
+
         caps_fn = ENDPOINT_REGISTRY["kling-video"].video_caps_for_model
         assert caps_fn is not None
-        omni = caps_fn("kling-v3-omni", None)
-        assert omni.max_reference_images > 0
-        assert omni.max_reference_images == 4
-        o1 = caps_fn("kling-video-o1", None)
-        assert o1.max_reference_images > 0
-        assert o1.max_reference_images == 4
-        turbo = caps_fn("kling-v2-5-turbo", None)
-        assert turbo.first_frame is True
-        assert turbo.max_reference_images == 0
-        assert turbo.max_reference_images == 0
-        # 中转 model_id 带厂商前缀（仓库既有约定 / 与 :）+ 非规范大小写：归一化后仍能精确命中已登记档
+        for model_id in ("kling-v3-omni", "kling-v2-5-turbo", "kling-v4", "vendor/some-unknown-model"):
+            assert caps_fn(model_id, None).max_reference_images == 4
+        assert caps_fn("kling-v2-5-turbo", None).last_frame is False
+
+        def effective(model_id: str):
+            return two_sided_video_capabilities(endpoint="kling-video", model_id=model_id)
+
+        assert effective("kling-v3-omni").max_reference_images == 4
+        assert effective("kling-video-o1").max_reference_images == 4
+        assert effective("kling-v2-5-turbo").max_reference_images == 0
+        # 中转 model_id 带厂商前缀（仓库既有约定 / 与 :）+ 非规范大小写：归一化后仍对应条目
         for prefixed_id in ("vendor/Kling-V3-Omni", "provider:kling-v3-omni"):
-            prefixed = caps_fn(prefixed_id, None)
-            assert prefixed.max_reference_images > 0
-            assert prefixed.max_reference_images == 4
-        # 未登记 model（未来版本 kling-v4 / 归一化后仍不匹配的中转自定义 id）→ 保守默认，不按子串猜能力
-        for unknown_id in ("kling-v4", "vendor/some-unknown-model"):
-            unknown = caps_fn(unknown_id, None)
-            assert unknown.max_reference_images == 0
-            assert unknown.max_reference_images == 0
+            assert effective(prefixed_id).max_reference_images == 4
+        # 对应不上条目的型号只受通道约束，尾帧按保守回落不开
+        unknown = effective("kling-v4")
+        assert unknown.max_reference_images == 4
+        assert unknown.last_frame is False
 
     def test_negative_int_cap_rejected_at_validation(self):
         """import 期不变式拒绝负数 int cap：下游 references[:-1] 会误丢最后一张而非裁成 0 张。"""

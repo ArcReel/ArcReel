@@ -7,6 +7,9 @@
 图片的参考图上限是两侧求值的结果（``lib.backends.image_capabilities.image_reference_limit``），没有自己的能力覆盖，
 按生效的图生图求值：``None`` 为未收录，``0`` 为不接受参考图（条目记为 0 张，或图生图不在生效能力里）。
 
+视频的输入模式与数量上限（文生视频、首帧、尾帧、参考图、参考音频）的原值同样是调用通道声明与模型条目两侧求值的
+结果（``lib.backends.video_capabilities``），数量上限 ``None`` 为未收录、``0`` 为不接受；ComfyUI 端点不读条目。
+
 只有用户负责的供应商模型可以修改：自定义供应商的模型，以及内置供应商下用户添加的模型。ComfyUI 端点只开放视频
 的可选时长，且端点驱动不了时长时这一维也不开放（docs/adr/0082）。图片的文生图、图生图只开放调用通道实现了的
 那一维：通道没实现的能力覆盖为开启也打不开。
@@ -30,7 +33,10 @@ from arcreel_market_core.video_backend_contract import (
     VideoCapabilities,
     audio_capability_pair_is_coherent,
 )
-from lib.backends.backend_assembly.specs import declared_builtin_video_capabilities
+from lib.backends.backend_assembly.specs import (
+    declared_builtin_video_capabilities,
+    two_sided_builtin_video_capabilities,
+)
 from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_capabilities import (
     builtin_channel_capabilities,
@@ -44,7 +50,7 @@ from lib.custom_provider.capabilities import (
     CHANNEL_FACT_OVERRIDE_KEYS,
     capability_type_name,
     capability_value_matches,
-    system_video_capabilities,
+    two_sided_video_capabilities,
 )
 from lib.custom_provider.endpoints import EndpointSpec, endpoint_reference_image_limit
 from lib.custom_provider.model_facts import (
@@ -234,7 +240,7 @@ def custom_capability_view(
                 "resolutions": list(video.resolutions) if video.resolutions is not None else None,
             }
             try:
-                caps = system_video_capabilities(
+                caps = two_sided_video_capabilities(
                     endpoint=endpoint, model_id=model_id, endpoint_spec=spec, entry_binding=entry_binding
                 )
             except ValueError:
@@ -276,7 +282,9 @@ def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -
                 "resolutions": list(model.resolutions) or None,
             }
             try:
-                declared = declared_builtin_video_capabilities(provider_id, model_id)
+                declared = two_sided_builtin_video_capabilities(
+                    declared_builtin_video_capabilities(provider_id, model_id), provider_id, model_id
+                )
             except ValueError:
                 logger.warning("无法读取内置视频能力: provider=%r model_id=%r", provider_id, model_id)
                 declared = VideoCapabilities()
@@ -403,11 +411,15 @@ def check_user_added_overrides(
             )
     if any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
         try:
-            declared = declared_builtin_video_capabilities(provider_id, model_id)
+            base = two_sided_builtin_video_capabilities(
+                declared_builtin_video_capabilities(provider_id, model_id), provider_id, model_id
+            )
         except ValueError:
-            declared = VideoCapabilities()
-        mode = overrides.get("reference_audio_mode", declared.reference_audio_mode)
-        count = overrides.get("max_reference_audio_count", declared.max_reference_audio_count)
-        if not audio_capability_pair_is_coherent(mode=mode, count=int(count) if isinstance(count, int) else 0):
+            base = VideoCapabilities()
+        mode = overrides.get("reference_audio_mode", base.reference_audio_mode)
+        count = overrides.get("max_reference_audio_count", base.max_reference_audio_count)
+        if count is not None and not isinstance(count, int):
+            count = 0
+        if not audio_capability_pair_is_coherent(mode=mode, count=count):
             raise OverrideRejected("capability_override_audio_pair_incoherent", model_id=model_id)
     return dict(overrides)

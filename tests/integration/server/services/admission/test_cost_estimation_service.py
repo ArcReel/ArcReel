@@ -204,7 +204,7 @@ class TestCostEstimationService:
         [
             ("gemini-aistudio", "veo-3.1-generate-preview", "1080p", 8),
             ("grok", "grok-imagine-video-1.5", "1080p", 8),
-            ("dashscope", "happyhorse-1.1-i2v", "1080p", 8),
+            ("dashscope", "wan3.0-video", "1080p", 8),
             ("grok", "grok-imagine-video", "720p", 8),
             ("minimax", "MiniMax-H3", "2k", 6),
             ("minimax", "MiniMax-Hailuo-2.3", "1080p", 6),

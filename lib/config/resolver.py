@@ -26,6 +26,7 @@ from lib.backends.backend_assembly.specs import (
     builtin_effective_generate_audio_for_model,
     builtin_video_capabilities_for_model,
 )
+from lib.backends.input_limits import InputLimit
 from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
 from lib.catalog import builtin_models
 from lib.catalog import query as catalog
@@ -342,7 +343,7 @@ def video_capability_satisfied(
     *,
     generation_type: VideoGenerationType,
     first_frame: bool,
-    max_reference_images: int,
+    max_reference_images: int | None,
     text_to_video: bool = True,
     has_image: bool = True,
 ) -> bool:
@@ -352,11 +353,12 @@ def video_capability_satisfied(
     函数，不各写一份布尔式：下拉挡掉的组合解析层必然也挡，反之亦然。``has_image`` 区分
     i2v 桶内的纯文生与带首帧请求。取标量参数而非
     ``VideoCapabilities``，一是不在 lib.config 层导入 arcreel_market_core.video_backend_contract（分层契约），二是让
-    内置（backend 声明）与自定义供应商（endpoint ⊕ 模型级覆盖的合成）两条来源都能直接喂进来。
+    内置与自定义供应商的生效能力（条目与通道两侧求值 ⊕ 能力覆盖）都能直接喂进来。``max_reference_images`` 是参考图
+    上限的生效值：``None`` 为未收录（接受参考图、不限张数），``0`` 为不接受。
     """
     if generation_type == "i2v":
         return first_frame if has_image else text_to_video
-    return max_reference_images > 0
+    return InputLimit.from_json(max_reference_images).accepts_input
 
 
 def builtin_video_audio_track(provider_id: str, model_id: str, *, generation_type: VideoGenerationType) -> str | None:
@@ -935,12 +937,12 @@ class ConfigResolver:
               "model": str,
               "supported_durations": list[int],    # 来自 model (单一真相源)；ComfyUI 端点上可为空集
               "max_duration": int,                 # max(supported_durations) 派生；空集时为 0
-              "max_reference_images": int,         # backend 声明；custom: 合成后的生效值
-              "first_frame": bool,                 # 生效值（系统判定 ⊕ 用户覆盖），与执行层同源
+              "max_reference_images": int | None,  # 生效值（条目与通道两侧求值 ⊕ 能力覆盖）；None 未收录，0 不接受
+              "first_frame": bool,                 # 生效值（两侧求值 ⊕ 能力覆盖），与执行层同源
               "last_frame": bool,                  # 同上
               "generate_audio": bool,              # backend 默认执行档生效后的计价参数
               "requested_generate_audio": bool,    # 用户在 project.json/全局设置里的无声意图请求值，非计价口径
-              "max_reference_audio_count": int,    # 每请求可携带的参考音频段数上限（backend 声明）
+              "max_reference_audio_count": int | None,  # 每请求参考音频段数上限的生效值；None 未收录
               "reference_audio_per_image": bool,   # 音频是否须逐段挂在具体参考素材项上（backend 声明）
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
@@ -1396,8 +1398,7 @@ class ConfigResolver:
         """能力闸：校验解析出的模型具备该桶所需能力，不满足直接报错、不静默换模型。
 
         判定经 ``video_capability_satisfied`` 与桶候选下拉（``lib.backends.generation_type_buckets``）共用一份
-        口径：内置模型两维都取 backend ``VideoCapabilities``（与请求构造同源，也是这两维唯一的
-        声明处；目录的模型信息不声明视频能力位）。身份先过
+        口径：两维都取调用通道声明与模型条目两侧求值的生效能力（docs/adr/0104），与执行闸门同一个结果。身份先过
         ``_ensure_video_identity_resolvable``，悬空引用（模型被删 /
         能力被事后修改 / 供应商被删 / endpoint 变更）在此统一报错兜底，写入侧不拦截、不级联清理
         （``docs/adr/0054``）。
@@ -1630,9 +1631,8 @@ class ConfigResolver:
             if model_info is None:
                 raise ValueError(f"model not found in registry: {provider_id}/{model_id}")
             supported_durations = list(model_info.supported_durations or [])
-            # 视频能力位与参考图上限只在 backend 声明：backend 是执行期真正构造请求的一方，
-            # 也是能力闸（`_ensure_video_bucket_capability`）与桶候选下拉
-            # （`lib.backends.generation_type_buckets`）的口径，展示层与执行层因此严格同源。
+            # 视频能力位与参考图上限取调用通道声明与模型条目两侧求值的生效值，与执行闸门、能力闸
+            # （`_ensure_video_bucket_capability`）与桶候选下拉（`lib.backends.generation_type_buckets`）同一个结果。
             try:
                 builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id)
             except ValueError as exc:

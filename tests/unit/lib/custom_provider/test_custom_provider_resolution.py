@@ -153,7 +153,9 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
         ("newapi-video", "vid-model", 0, "storyboard"),
         # 未声明（None）：按 model_id 调 backend 纯 caps 函数读上限，不构造 backend
         ("ark-seedance", "doubao-seedance-2-0", 9, "storyboard"),
-        ("ark-seedance", "doubao-seedance-1-0", 0, "storyboard"),  # 非 seedance-2 → 0，证明纯函数仍按 model 分支
+        # 条目显式记录不接受参考图 → 0（HappyHorse 1.0 i2v）；对应不上条目 → 只受通道约束（方舟通道不设上限，为未收录）
+        ("dashscope-async-video", "happyhorse-1.0-i2v", 0, "storyboard"),
+        ("ark-seedance", "doubao-seedance-1-0", None, "storyboard"),
         ("vidu-video", "viduq3-turbo", 7, "storyboard"),
         # MiniMax 声明式端点：S2V-01 端点单脸参考 → 1；海螺系列走首帧无参考 → 0。S2V-01 端点无首帧能力，
         # 只能落 r2v 桶，项目须是参考生视频才解析得到它。参考上限由端点声明；模型名不取 S2V-01，
@@ -163,10 +165,10 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
     ],
 )
 async def test_custom_video_max_reference_images_from_endpoint(
-    db_session: AsyncSession, endpoint: str, model_id: str, expected_max_refs: int, generation_mode: str
+    db_session: AsyncSession, endpoint: str, model_id: str, expected_max_refs: int | None, generation_mode: str
 ):
-    """custom 视频 model 的 max_reference_images 经 ENDPOINT_REGISTRY 派生：endpoint cap
-    为显式 int 时直接用；为 None 时按 model_id 调 backend 纯 caps 函数读上限，均不静默落默认值。
+    """custom 视频 model 的 max_reference_images 由通道声明（ENDPOINT_REGISTRY 的显式 int，或 backend 纯 caps
+    函数）与按名字对应的条目两侧求值，取较小值；都没有声明时为未收录（docs/adr/0104）。
 
     perf 回归护栏：无论哪条路径都断言 `CustomProviderRepository.get_provider` 未被调用——
     旧 fallthrough 会多查一次 provider 行 + 构造 backend，新路径纯函数解析不应触发。"""

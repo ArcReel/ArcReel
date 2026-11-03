@@ -6,13 +6,11 @@
   整维替换；ComfyUI 端点不看条目）与调用通道声明（内置 backend 的 ``CHANNEL_CAPABILITIES``、自定义供应商
   endpoint spec 的 ``image_capabilities``）都满足的部分，与执行层 ``MediaGenerator`` 的能力校验同一个结果；
   图生图另须参考图上限的生效值接受参考图（条目显式记为 0 张时不进 i2i 桶）；
-- 内置视频：backend ``VideoCapabilities``，i2v 取 ``first_frame``、r2v 取 ``max_reference_images``；
-- 自定义供应商视频：endpoint 系统判定 ⊕ 模型级覆盖的既有合成点，同样取 ``first_frame`` 与
-  ``max_reference_images``。
+- 视频：生效能力（``lib.backends.video_capabilities``），即调用通道声明（内置 backend 的 ``VideoCapabilities``、
+  自定义供应商 endpoint 的系统判定）与模型条目两侧求值、再叠加能力覆盖的结果，i2v 取 ``first_frame``、r2v 取
+  参考图上限的生效值（未收录或大于 0 即接受；条目显式记为 0 张时不进 r2v 桶）。ComfyUI 端点不看条目。
 
-内置视频两个维度取 backend 而非模型目录：backend 的能力声明与请求构造同源
-（例如 ``vidu`` 按端点白名单算 caps，白名单外的 model 提交首帧会在构造请求时报错），registry
-不声明这两维。桶承诺的是「选中的组合执行得了」，故以执行期同源的那一份为准。视频两维的判定式本身由
+桶承诺的是「选中的组合执行得了」，故与执行闸门读同一个求值结果。视频两维的判定式本身由
 ``lib.config.resolver.video_capability_satisfied`` 提供，与解析层的能力闸共用同一份，两处不会漂。
 
 判定不出（endpoint 已下线、backend 未声明能力函数）时返回空集而非全集：候选列表宁缺勿滥，
@@ -67,7 +65,7 @@ def _image_buckets(
     return frozenset(buckets)
 
 
-def _video_buckets(has_i2v: bool, max_reference_images: int) -> frozenset[GenerationTypeBucket]:
+def _video_buckets(has_i2v: bool, max_reference_images: int | None) -> frozenset[GenerationTypeBucket]:
     return frozenset(
         generation_type
         for generation_type in ("i2v", "r2v")

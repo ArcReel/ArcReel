@@ -81,6 +81,14 @@ def _bearer_backend(model: str | None = None) -> KlingVideoBackend:
     return KlingVideoBackend(auth_mode="bearer", api_key="static-key", model=model)
 
 
+def _effective(model: str, service_tier: str = "std") -> VideoCapabilities:
+    """内置可灵通道下该型号在给定档位的生效能力：档位感知的通道声明与模型条目两侧求值（docs/adr/0104）。"""
+    from lib.backends.backend_assembly.specs import effective_builtin_video_capabilities
+
+    channel = _jwt_backend(model).video_capabilities_for_tier(service_tier)
+    return effective_builtin_video_capabilities(channel, "kling", model)
+
+
 def _request(tmp_path: Path, **overrides) -> VideoGenerationRequest:
     kwargs: dict = {
         "prompt": "a cat walking",
@@ -115,9 +123,9 @@ class TestConstructionAndCapabilities:
         assert caps.first_frame is True
         # turbo 尾帧仅 pro 档生效，声明按默认档保守为 False（std 档提交会被 _build_payload 拒绝）
         assert caps.last_frame is False
-        # turbo 不建模参考图（多图主体留 v3-omni/o1）
-        assert caps.max_reference_images == 0
-        assert caps.max_reference_images == 0
+        # 多图主体子路径的通道上限与型号无关；turbo 不接受参考图来自条目（显式 0）
+        assert caps.max_reference_images == 4
+        assert _effective("kling-v2-5-turbo").max_reference_images == 0
 
 
 class TestVideoCapabilitiesForTier:
@@ -154,26 +162,30 @@ class TestVideoCapabilitiesForTier:
 
 
 class TestPerModelCapabilities:
+    """各型号的输入能力来自条目，与通道声明（多图主体子路径上限 4、尾帧的档位约束）两侧求值。"""
+
     def test_v3_t2v_i2v_no_audio_no_reference(self):
-        b = _jwt_backend("kling-v3")
-        vc = b.video_capabilities
+        vc = _effective("kling-v3")
         assert vc.first_frame is True
         assert vc.last_frame is True
         assert vc.max_reference_images == 0
 
     def test_v3_omni_declares_reference_images(self):
-        b = _jwt_backend("kling-v3-omni")
-        vc = b.video_capabilities
-        assert vc.max_reference_images == 4  # 保守值，待控制台核对
+        # 条目记录 7，通道的多图主体子路径一次只承载 4 张，取较小值
+        assert _effective("kling-v3-omni").max_reference_images == 4
 
     def test_v2_6_declares_generate_audio_no_reference(self):
-        b = _jwt_backend("kling-v2-6")
-        assert b.video_capabilities.max_reference_images == 0
+        assert _effective("kling-v2-6").max_reference_images == 0
+
+    def test_v2_5_turbo_last_frame_opens_only_on_pro_tier(self):
+        """条目记录 turbo 接受尾帧，旧型号在 pro 档才放开尾帧是通道的档位约束，两侧都满足才开。"""
+        assert _effective("kling-v2-5-turbo", "std").last_frame is False
+        assert _effective("kling-v2-5-turbo", "pro").last_frame is True
 
     def test_video_o1_i2v_only_with_reference_images(self):
-        b = _jwt_backend("kling-video-o1")
         # 多图主体 R2V
-        vc = b.video_capabilities
+        vc = _effective("kling-video-o1")
+        assert vc.text_to_video is False
         assert vc.last_frame is True
         assert vc.max_reference_images == 4
 
@@ -185,29 +197,25 @@ class TestPerModelCapabilities:
         assert effective_generate_audio_for_model("kling", "kling-video-o1") is False
         assert backend._effective_audio(request, subpath="text2video") is False
 
-    def test_unknown_model_falls_back_to_default_caps(self):
-        # bearer 透传原生 model_name：未登记 → 保守默认（t2v+i2v、尾帧仅 pro 档，声明按 std 档保守
-        # 为 False；无音频/参考）
-        b = _bearer_backend("kling-some-passthrough")
-        vc = b.video_capabilities
-        assert vc.last_frame is False
-        assert vc.max_reference_images == 0
+    def test_unknown_model_gets_the_channel_declaration(self):
+        # bearer 透传原生 model_name：未登记的型号拿通道声明，不按名字猜输入能力；尾帧对不上条目时由两侧求值关掉
+        vc = _bearer_backend("kling-some-passthrough").video_capabilities
+        assert vc.text_to_video is True
+        assert vc.first_frame is True
+        assert vc.max_reference_images == 4
 
     def test_prefixed_and_cased_model_normalizes_to_registered_caps(self):
-        # 中转 model_id 带厂商前缀（仓库既有约定 / 与 :）+ 非规范大小写/空白：归一化后实例 caps 仍精确命中
-        # 已登记档，生成时防御与 resolver 裁剪同源——否则编排层放 4 张参考图、backend 却按默认 0 拒收。
+        # 中转 model_id 带厂商前缀（仓库既有约定 / 与 :）+ 非规范大小写/空白：归一化后仍命中已登记的请求形态
+        # （v3-omni 走 omni 音轨形态），生成时防御与 resolver 裁剪同源。
+        registered = _bearer_backend("kling-v3-omni").video_capabilities
         for model in ("vendor/Kling-V3-Omni", "provider:kling-v3-omni", "  provider:kling-v3-omni  "):
-            vc = _bearer_backend(model).video_capabilities
-            assert vc.max_reference_images > 0
-            assert vc.max_reference_images == 4
+            assert _bearer_backend(model).video_capabilities == registered
 
     def test_future_version_does_not_inherit_caps_by_substring(self):
-        # kling-v4 含子串 "kling-v3"？不含——但即便形如 kling-v3-omni-pro 也不得被子串误判继承能力；
-        # 未登记一律保守默认，不猜未知 model 的参考图上限。
+        # 形如 kling-v3-omni-pro 的未登记型号不得被子串误判继承已登记型号的请求形态，拿通道声明本身。
+        unlisted = _bearer_backend("kling-some-passthrough").video_capabilities
         for model in ("kling-v4", "kling-v3-omni-pro"):
-            vc = _bearer_backend(model).video_capabilities
-            assert vc.max_reference_images == 0
-            assert vc.max_reference_images == 0
+            assert _bearer_backend(model).video_capabilities == unlisted
 
 
 class TestModeAndResolution:
@@ -381,9 +389,15 @@ class TestCapabilityValidation:
         return paths
 
     def test_reference_images_on_unsupported_model_raises(self, tmp_path):
-        # kling-v3 未声明多图主体能力：带参考图即拒绝，不误升级到 multi-image2video 子路径
+        # kling-v3 的条目不接受参考图：带参考图即拒绝，不误升级到 multi-image2video 子路径
         with pytest.raises(VideoCapabilityError) as exc:
-            _jwt_backend("kling-v3")._build_payload(_request(tmp_path, reference_images=self._refs(tmp_path, 1)))
+            _jwt_backend("kling-v3")._build_payload(
+                _request(
+                    tmp_path,
+                    reference_images=self._refs(tmp_path, 1),
+                    video_capabilities=_effective("kling-v3"),
+                )
+            )
         assert exc.value.code == "video_reference_images_unsupported"
 
     def test_reference_images_over_limit_raises(self, tmp_path):
@@ -395,9 +409,11 @@ class TestCapabilityValidation:
         assert exc.value.params["count"] == 5
 
     def test_text2video_on_model_without_t2v_raises(self, tmp_path):
-        # kling-video-o1 不支持文生视频：无首帧/无参考即拒绝，不回落 text2video 子路径
+        # kling-video-o1 的条目不接受文生视频：无首帧/无参考即拒绝，不回落 text2video 子路径
         with pytest.raises(VideoCapabilityError) as exc:
-            _jwt_backend("kling-video-o1")._build_payload(_request(tmp_path))
+            _jwt_backend("kling-video-o1")._build_payload(
+                _request(tmp_path, video_capabilities=_effective("kling-video-o1"))
+            )
         assert exc.value.code == "video_capability_missing_t2v"
 
     def test_reference_at_limit_allowed(self, tmp_path):
@@ -629,7 +645,15 @@ class TestPayloadBuilding:
         first.write_bytes(b"\x89PNG\r\n1")
         last.write_bytes(b"\x89PNG\r\n2")
         with pytest.raises(VideoCapabilityError) as exc:
-            _jwt_backend("kling-unlisted-model")._build_payload(_request(tmp_path, start_image=first, end_image=last))
+            # 对应不上条目的型号尾帧按保守回落不开（通道本身实现了尾帧）
+            _jwt_backend("kling-unlisted-model")._build_payload(
+                _request(
+                    tmp_path,
+                    start_image=first,
+                    end_image=last,
+                    video_capabilities=_effective("kling-unlisted-model"),
+                )
+            )
         assert exc.value.code == "video_last_frame_unsupported"
 
     def test_reference_audio_rejected(self, tmp_path):
