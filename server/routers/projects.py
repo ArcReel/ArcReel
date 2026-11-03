@@ -56,7 +56,7 @@ from lib.episode.episode_target_duration import (
     is_valid_episode_target_duration,
 )
 from lib.episode.source_kinds import SourceKind
-from lib.generation.task_failure import FAILURE_CODE_KEYS
+from lib.generation.task_failure import failure_message_key
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError, planning_durations
 from lib.i18n import render_generation_input_error, render_message
 from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
@@ -2060,7 +2060,9 @@ async def set_project_source(
                 # 文本模型已不在供应商清单中：回传「重新选择模型」指引，而非笼统的生成失败
                 logger.warning("上传后概览生成失败：模型不在清单中 (%s)", ov_err)
                 result["overview"] = None
-                result["overview_error"] = render_message(FAILURE_CODE_KEYS[ov_err.code], ov_err.params, _t, names)
+                result["overview_error"] = render_message(
+                    failure_message_key(ov_err.code, ov_err.params), ov_err.params, _t, names
+                )
             except Exception as ov_err:
                 # 概览生成是上传的可选后续步骤，失败仅降级回传提示、不影响上传成功。
                 # 裸 str(ov_err) 可能携带服务器路径等内部细节，回传翻译后的通用文案。

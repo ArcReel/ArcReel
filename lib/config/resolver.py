@@ -31,12 +31,8 @@ from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import (
-    DEFAULT_AUDIO_BACKEND,
-    DEFAULT_IMAGE_BACKEND,
     DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
     DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
-    DEFAULT_TEXT_BACKEND,
-    DEFAULT_VIDEO_BACKEND,
     ConfigService,
 )
 from lib.custom_provider import is_custom_provider, parse_provider_id
@@ -182,8 +178,6 @@ class _LayeredBackendKeys:
     """
 
     media_type: str
-    # 全局层值含 "/" 但解析异常时的兜底，形如 "provider/model"（ConfigService._parse_backend 的 fallback）
-    parse_fallback: str
     project_bucket_key: str | None = None
     project_default_key: str | None = None
     global_bucket_key: str | None = None
@@ -199,7 +193,6 @@ class _LayeredBackendKeys:
 _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
     generation_type: _LayeredBackendKeys(
         media_type="image",
-        parse_fallback=DEFAULT_IMAGE_BACKEND,
         project_bucket_key=f"image_provider_{generation_type}",
         project_default_key="default_image_backend",
         global_bucket_key=f"default_image_backend_{generation_type}",
@@ -215,7 +208,6 @@ _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
 _VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
     generation_type: _LayeredBackendKeys(
         media_type="video",
-        parse_fallback=DEFAULT_VIDEO_BACKEND,
         project_bucket_key=f"video_provider_{generation_type}",
         project_default_key="video_backend",
         global_bucket_key=f"default_video_backend_{generation_type}",
@@ -229,7 +221,6 @@ _VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
 # 任务类型桶的调用方（费用估算、限流路由兜底、配置展示）解析，不施加桶键覆盖也不过能力闸。
 _VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
     media_type="video",
-    parse_fallback=DEFAULT_VIDEO_BACKEND,
     project_default_key="video_backend",
     global_default_key="default_video_backend",
 )
@@ -239,7 +230,6 @@ _VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
 # audio_backend 字段，全局默认层用 default_audio_backend 设置键。
 _AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
     media_type="audio",
-    parse_fallback=DEFAULT_AUDIO_BACKEND,
     project_default_key="audio_backend",
     global_default_key="default_audio_backend",
 )
@@ -399,7 +389,6 @@ _TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
 _TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
     tier: _LayeredBackendKeys(
         media_type="text",
-        parse_fallback=DEFAULT_TEXT_BACKEND,
         project_bucket_key=tier_key,
         project_default_key="default_text_backend",
         global_bucket_key=tier_key,
@@ -786,7 +775,7 @@ class ConfigResolver:
         """解析当前项目应使用的视频 (provider_id, model_id)。
 
         优先级：项目级 `project.json.video_backend` > 系统设置 `default_video_backend` >
-        系统默认 `DEFAULT_VIDEO_BACKEND` > auto-resolve（按 registry 顺序挑第一个 ready）。
+        auto-resolve（按 registry 顺序挑第一个 ready 且目录里有可用默认视频模型的供应商）。
 
         返回字面配置结果，不做自定义供应商的身份收敛——供配置展示与「当前选的是哪个」类
         判断使用；要拿运行时实际执行的身份请用 ``resolve_video_backend()``。
@@ -1205,11 +1194,13 @@ class ConfigResolver:
         if keys.global_bucket_key is not None:
             raw = settings.get(keys.global_bucket_key, "")
             if "/" in raw:
-                return ConfigService._parse_backend(raw, keys.parse_fallback)
+                provider_id, model_id = raw.split("/", 1)
+                return provider_id, model_id
         if keys.global_default_key is not None:
             raw = settings.get(keys.global_default_key, "")
             if "/" in raw:
-                return ConfigService._parse_backend(raw, keys.parse_fallback)
+                provider_id, model_id = raw.split("/", 1)
+                return provider_id, model_id
         return await self._auto_resolve_backend(svc, session, keys.media_type, keys.generation_type)
 
     async def _resolve_image_provider_model(
@@ -1327,9 +1318,9 @@ class ConfigResolver:
     ) -> CustomProviderModel | None:
         """校验视频身份现在仍解析得到，悬空即报错。
 
-        判的是身份存在性而非能力声明：内置模型看模型目录，不在该供应商的视频模型清单里（已下架、
-        已改名，或所引模型不是视频模型）时抛 ``ModelNotInCatalogError``，与装配层、图片路径同一个
-        「请重新选择模型」；自定义模型看 DB（供应商被删、模型被删或禁用、endpoint 改成其它媒体类型），
+        判的是身份存在性而非能力声明：内置模型看模型目录，已下线时抛 ``ModelDiscontinuedError``（带下线日期与后继），
+        不在该供应商的视频模型清单里（已改名，或所引模型不是视频模型）时抛 ``ModelNotInCatalogError``，与装配层、
+        图片路径同一个「请重新选择模型」（``catalog.require_callable``）；自定义模型看 DB（供应商被删、模型被删或禁用、endpoint 改成其它媒体类型），
         悬空抛 ``VideoBucketCapabilityError``。自定义模型命中时返回该行，供调用方就地合成能力、不重复
         查库；内置返回 None。
 
@@ -1338,8 +1329,7 @@ class ConfigResolver:
         """
         provider_id, model_id = selected.provider_id, selected.model_id
         if not is_custom_provider(provider_id):
-            if catalog.get_model(provider_id, model_id, media_type="video") is None:
-                raise ModelNotInCatalogError(provider_id=provider_id, model_id=model_id, media_type="video")
+            catalog.require_callable(provider_id, model_id, "video")
             return None
 
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
@@ -1865,7 +1855,7 @@ class ConfigResolver:
         for provider_id in PROVIDER_REGISTRY:
             if provider_id not in ready:
                 continue
-            # 供应商一级的默认只在没有任何默认模型设置时用于自动挑选；用户停用了它就不挑。
+            # 供应商一级的默认只在没有任何默认模型设置时用于自动挑选；已下线时目录不给默认，用户停用了它也不挑。
             model_id = catalog.default_model(provider_id, media_type)
             if model_id is not None and model_id not in ready[provider_id].disabled_models:
                 return provider_id, model_id

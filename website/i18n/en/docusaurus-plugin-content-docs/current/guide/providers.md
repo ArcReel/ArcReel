@@ -90,7 +90,10 @@ Project-level overrides are suitable when:
 ### 3.1 Enabling and Disabling Models {#enable-models}
 
 The detail page of a Preset Provider lists all of its models grouped into text, image, video, and audio. Each row shows the model name,
-model ID, and a price summary; models that are discontinued, or whose calls will be recorded as "Unpriced", are flagged.
+model ID, and a price summary; models that are retiring, discontinued, or whose calls will be recorded as "Unpriced", are flagged,
+and the retiring flag shows the shutdown date. From its shutdown date (a UTC date) on, a model counts as discontinued: it stays in the list,
+but it no longer appears among any model candidates, even if you enabled it by hand, and it no longer serves as the provider's default model;
+calls from places that still select it fail with an error that gives the shutdown date and the officially recommended successor.
 Use "All / Enabled" to switch what is shown.
 
 - Turning off a model's switch disables it immediately: disabled models no longer appear among the global and project default model
@@ -714,7 +717,7 @@ Each Agent provider can have a multiplier, applied to the cost of every Agent ca
 
 The Agent provider list in Settings shows the model actually called by the main model and by each of the four tiers (Haiku, Sonnet, Opus, and subagent), along with whether each tier is priced and which model in the catalog it matches. Tiers that match no model show "Unpriced", and their calls are recorded as unpriced. Tiers left empty in the official Anthropic preset are resolved by Claude Code, and their cost is computed from the model actually called.
 
-For an unpriced tier, choose "Select model" to pick a model from the catalog by hand; the tier's calls are then priced as the selected model, and "Unbind" returns it to automatic matching by model name. The selection is stored only on that Agent provider: it does not change the catalog entry or its official updates. If the selected model is later delisted from the catalog, the tier falls back to matching by model name and shows "Selected model delisted"; you can still unbind it.
+For an unpriced tier, choose "Select model" to pick a model from the catalog by hand; the tier's calls are then priced as the selected model, and "Unbind" returns it to automatic matching by model name. The selection is stored only on that Agent provider: it does not change the catalog entry or its official updates. If the selected model later disappears from the catalog, the tier falls back to matching by model name and shows "Selected model discontinued"; you can still unbind it.
 
 Use ArcReel's cost tracking for:
 

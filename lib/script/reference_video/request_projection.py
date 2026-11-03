@@ -574,6 +574,7 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
     "video_capability_missing_t2v": ("configure_video_model", (("text",),)),
     "video_capability_reference_unavailable": ("configure_video_model", (("text",),)),
     "model_not_in_provider_catalog": ("configure_video_model", (("text",),)),
+    "model_discontinued": ("configure_video_model", (("text",),)),
 }
 
 

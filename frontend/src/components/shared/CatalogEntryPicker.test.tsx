@@ -92,7 +92,7 @@ describe("CatalogEntryPicker", () => {
     const { onSelect } = renderPicker({ mediaType: "text" });
 
     const option = await screen.findByRole("option", { name: /GPT-4o/ });
-    expect(option).toHaveTextContent("已下架");
+    expect(option).toHaveTextContent("已下线");
     await user.click(option);
 
     expect(onSelect).toHaveBeenCalledWith(CATALOG[3]);

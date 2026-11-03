@@ -11,6 +11,7 @@ t2i+i2i、i2i-only 两类图片模型，一个 ready 供应商就能把四个桶
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -19,18 +20,19 @@ from fastapi.testclient import TestClient
 
 from lib.backends.generation_type_buckets import builtin_model_buckets, custom_model_buckets
 from lib.catalog import query as catalog
-from lib.catalog.builtin_models import disabled_without_state
+from lib.catalog.builtin_models import disabled_builtin_models, disabled_without_state, list_builtin_models
 from lib.catalog.query import factory_snapshot
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
 from lib.db.base import Base
+from lib.db.repositories.builtin_provider_model_repo import BuiltinProviderModelRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
 from server.routers import system_config as system_config_router
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.catalog_support import install_catalog, with_entry_changes
+from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes
 
 CANDIDATES_URL = "/api/v1/system/config/model-candidates"
 
@@ -59,11 +61,16 @@ DS_AUDIO = "dashscope/qwen3-tts-flash"
 # ---------------------------------------------------------------------------
 
 
-def _make_mock_svc(ready_providers: list[str]) -> ConfigService:
+def _make_mock_svc(ready_providers: list[str], model_states=None) -> ConfigService:
+    """``model_states`` 给出会话工厂时，停用集合按内置供应商模型表计算（含用户手动启用过的状态行）。"""
     ready = set(ready_providers)
     svc = MagicMock(spec=ConfigService)
 
     async def _get_all_providers_status() -> list[ProviderStatus]:
+        disabled: dict[str, frozenset[str]] = {}
+        if model_states is not None:
+            async with model_states() as session:
+                disabled = await disabled_builtin_models(session)
         return [
             ProviderStatus(
                 name=name,
@@ -73,8 +80,8 @@ def _make_mock_svc(ready_providers: list[str]) -> ConfigService:
                 capabilities=catalog.provider_capabilities(name),
                 required_keys=list(meta.required_keys),
                 credential_count=1 if name in ready else 0,
-                # 没有内置供应商模型状态行的实例：条目已下架的模型为停用
-                disabled_models=disabled_without_state(name),
+                # 没有内置供应商模型状态行的实例：条目已下线的模型为停用
+                disabled_models=disabled[name] if model_states is not None else disabled_without_state(name),
             )
             for name, meta in PROVIDER_REGISTRY.items()
         ]
@@ -113,8 +120,9 @@ def _make_app(mock_svc: ConfigService, engine, factory) -> FastAPI:
 def make_client(session_factory_and_engine):
     factory, engine = session_factory_and_engine
 
-    def _make(ready_providers: list[str] | None = None) -> TestClient:
-        return TestClient(_make_app(_make_mock_svc(ready_providers or []), engine, factory))
+    def _make(ready_providers: list[str] | None = None, *, with_model_states: bool = False) -> TestClient:
+        svc = _make_mock_svc(ready_providers or [], factory if with_model_states else None)
+        return TestClient(_make_app(svc, engine, factory))
 
     return _make
 
@@ -190,6 +198,34 @@ class TestBuiltinBucketFiltering:
         assert DS_R2V not in body["video"]["default"]
         assert DS_R2V not in body["video"]["buckets"]["r2v"]
         assert DS_R2V not in body["video"]["buckets"]["i2v"]
+
+    async def test_manually_enabled_discontinued_model_stays_out_of_candidates(
+        self, make_client, session_factory_and_engine, monkeypatch
+    ):
+        """关停日期已到的模型，用户手动启用过也不进入任何候选，但仍在供应商模型列表里、显示已启用与已下线。"""
+        factory, _engine = session_factory_and_engine
+        model_id = DS_R2V.split("/", 1)[1]
+        install_catalog(
+            monkeypatch,
+            with_entry_changes(factory_snapshot(), "dashscope", model_id, shutdown_date=date(2026, 11, 24)),
+        )
+        set_catalog_today(monkeypatch, date(2026, 11, 23))
+        with make_client(["dashscope"], with_model_states=True) as client:
+            async with factory() as session:
+                await BuiltinProviderModelRepository(session).set_enabled("dashscope", model_id, True)
+                await session.commit()
+            before = client.get(CANDIDATES_URL).json()
+            set_catalog_today(monkeypatch, date(2026, 11, 24))
+            after = client.get(CANDIDATES_URL).json()
+            async with factory() as session:
+                listed = {item.view.model_id: item for item in await list_builtin_models(session, "dashscope")}
+
+        assert DS_R2V in before["video"]["default"]
+        assert DS_R2V in before["video"]["buckets"]["r2v"]
+        assert DS_R2V not in after["video"]["default"]
+        assert DS_R2V not in after["video"]["buckets"]["r2v"]
+        assert DS_R2V not in after["video"]["buckets"]["i2v"]
+        assert (listed[model_id].enabled, listed[model_id].view.lifecycle.status) == (True, "discontinued")
 
     def test_agnes_25_candidates_are_visible_and_legacy_models_are_hidden(self, make_client):
         with make_client(["agnes"]) as client:

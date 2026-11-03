@@ -17,6 +17,7 @@ function item(overrides: Partial<ProviderModelItem> & Pick<ProviderModelItem, "m
     official: true,
     flags: [],
     price: null,
+    lifecycle: { status: "available", shutdown_date: null, successor: null },
     endpoint: null,
     ...overrides,
   };
@@ -91,7 +92,7 @@ describe("ProviderModelList", () => {
     expect(within(text).getByText("$0.05/百万 token 输入，$0.15–0.3/百万 token 输出")).toBeInTheDocument();
     // 没有显示名时显示模型 ID
     expect(within(text).getAllByText("chat-legacy")).toHaveLength(2);
-    expect(within(text).getByText("已下架")).toBeInTheDocument();
+    expect(within(text).getByText("已下线")).toBeInTheDocument();
     expect(within(text).getByText("未定价")).toBeInTheDocument();
     expect(within(image).getByText("Image One")).toBeInTheDocument();
     // 改过模型信息的行带「已修改」

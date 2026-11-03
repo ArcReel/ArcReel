@@ -168,7 +168,7 @@ describe("AgentConfigTab", () => {
       "默认模型claude-sonnet-4已定价Claude Sonnet 4",
       "Haiku 模型由 Claude Code 决定",
       "Sonnet 模型claude-sonnet-4已定价Claude Sonnet 4手动选择解除绑定",
-      "Opus 模型gw-opus未定价所选模型已下架选择模型解除绑定",
+      "Opus 模型gw-opus未定价所选模型已下线选择模型解除绑定",
       "子智能体模型claude-sonnet-4已定价Claude Sonnet 4",
     ]);
   });
@@ -234,7 +234,7 @@ describe("AgentConfigTab", () => {
       expect(within(screen.getByRole("listitem", { name: "Haiku 模型" })).queryByRole("button", { name: "解除绑定" })).not.toBeInTheDocument();
     });
 
-    it("所选模型已下架的档位仍可解除绑定", async () => {
+    it("所选模型已下线的档位仍可解除绑定", async () => {
       // 档位已回到按名字对应而已定价，但存着的绑定还在，用户须能清掉
       setupBaseMocks({
         credentials: [credentialWith({ entry_display_name: "Claude Haiku 4.5", binding_stale: true, priced: true })],
@@ -246,11 +246,11 @@ describe("AgentConfigTab", () => {
       const user = userEvent.setup();
 
       const row = await screen.findByRole("listitem", { name: "Haiku 模型" });
-      expect(row).toHaveTextContent("所选模型已下架");
+      expect(row).toHaveTextContent("所选模型已下线");
       await user.click(within(row).getByRole("button", { name: "解除绑定" }));
 
       await waitFor(() => expect(unbind).toHaveBeenCalledWith(1, "haiku"));
-      await waitFor(() => expect(screen.getByRole("listitem", { name: "Haiku 模型" })).not.toHaveTextContent("已下架"));
+      await waitFor(() => expect(screen.getByRole("listitem", { name: "Haiku 模型" })).not.toHaveTextContent("已下线"));
       expect(within(screen.getByRole("listitem", { name: "Haiku 模型" })).queryByRole("button", { name: "解除绑定" })).not.toBeInTheDocument();
     });
 
