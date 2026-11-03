@@ -237,7 +237,7 @@ export interface ProjectData {
   audio_backend?: string | null;
   narration_voice?: string | null;
   narration_speed?: number | null;
-  /** 源文语言码（zh / en / vi），由内容分析写入；界面只读，用于口播语速的单位名词 */
+  /** 源文语言码（zh / en / vi / ru），由内容分析写入；界面只读，用于口播语速的单位名词 */
   source_language?: string | null;
   /** 口播语速估算（阅读单位 / 秒）项目级覆盖；留空即按项目语言的默认速度估算 */
   speech_rate_units_per_second?: number | null;

@@ -30,6 +30,12 @@ class TestSpeechRateUnitsPerSecond:
         assert speech_rate_units_per_second("zh") > 0
         assert speech_rate_units_per_second("en") > 0
         assert speech_rate_units_per_second("vi") > 0
+        assert speech_rate_units_per_second("ru") > 0
+
+    def test_ru_shares_latin_word_rate(self):
+        # ru 按词计，语速与 en / vi 同档（2.5 词/秒）
+        assert speech_rate_units_per_second("ru") == speech_rate_units_per_second("en")
+        assert speech_rate_units_per_second("ru") == speech_rate_units_per_second("vi")
 
     def test_language_code_is_case_insensitive(self):
         assert speech_rate_units_per_second("EN") == speech_rate_units_per_second("en")
