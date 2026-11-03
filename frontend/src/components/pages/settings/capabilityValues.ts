@@ -14,6 +14,28 @@ export const BOOL_KEYS = new Set<CapabilityKey>([
   "last_frame",
 ]);
 
+/** 界面上的维度顺序，与服务端 `OVERRIDE_KEY_ORDER` 一致：模型事实在前（时长联动约束紧跟可选时长），通道事实随后。 */
+export const CAPABILITY_KEY_ORDER: readonly CapabilityKey[] = [
+  "image_input",
+  "structured_output",
+  "max_output_tokens",
+  "text_to_image",
+  "image_to_image",
+  "durations",
+  "duration_constraints",
+  "resolutions",
+  "text_to_video",
+  "first_frame",
+  "last_frame",
+  "max_reference_images",
+  "reference_audio_mode",
+  "max_reference_audio_count",
+  "max_reference_audio_total_seconds",
+  "max_prompt_chars",
+  "audio_track",
+  "reference_route_audio_track",
+];
+
 export const ENUM_OPTIONS: Partial<Record<CapabilityKey, string[]>> = {
   reference_audio_mode: ["none", "direct"],
   audio_track: ["controllable", "always_on", "always_off"],
@@ -44,9 +66,9 @@ export function scalarText(value: unknown): string {
     : JSON.stringify(value);
 }
 
-/** 维度取值的文字：原值与修改后的值共用。`null` 表示不加约束。 */
+/** 维度取值的文字：原值与修改后的值共用。`null` 表示两侧都没有声明，显示「未收录」。 */
 export function capabilityValueText(t: TFunction, key: CapabilityKey, value: unknown): string {
-  if (value === null || value === undefined) return t("pm_cap_value_unlimited");
+  if (value === null || value === undefined) return t("pm_cap_value_unrecorded");
   if (BOOL_KEYS.has(key)) return t(value ? "pm_cap_value_supported" : "pm_cap_value_unsupported");
   if (key === "durations") {
     const list = value as number[];

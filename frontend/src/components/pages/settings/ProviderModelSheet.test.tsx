@@ -192,6 +192,26 @@ describe("ProviderModelSheet", () => {
     expect(screen.queryByRole("button", { name: /移除/ })).not.toBeInTheDocument();
   });
 
+  it("shows the effective capabilities of an official model read-only", async () => {
+    const effective = { durations: [4, 8], resolutions: null, last_frame: false, max_reference_images: 3 };
+    vi.spyOn(API, "getProviderModel").mockResolvedValue({
+      ...unmatchedVideo(),
+      model: item({ model_id: "veo-3", official: true, endpoint: null, flags: [] }),
+      multiplier: null,
+      capabilities: { media_type: "video", editable: [], base: effective, overrides: {}, effective },
+      endpoint: null,
+    });
+    renderSheet({ providerId: "gemini-aistudio", providerName: "Gemini", custom: undefined, open: { modelId: "veo-3", key: 1 } });
+
+    expect(await screen.findByText("这个供应商支持的参数")).toBeInTheDocument();
+    expect(screen.getByText("这些值跟随官方数据，不能修改。")).toBeInTheDocument();
+    expect(within(rowOf("可选时长")).getByText("4, 8 秒")).toBeInTheDocument();
+    expect(within(rowOf("分辨率")).getByText("未收录")).toBeInTheDocument();
+    expect(within(rowOf("尾帧")).getByText("不支持")).toBeInTheDocument();
+    expect(within(rowOf("参考图上限")).getByText("3")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^修改「/ })).not.toBeInTheDocument();
+  });
+
   it("warns that modified request URLs go back to default when the endpoint changes, and saves without them", async () => {
     const user = userEvent.setup();
     const requested = { ...VIDEO_ENDPOINT, requests: [SUBMIT] };

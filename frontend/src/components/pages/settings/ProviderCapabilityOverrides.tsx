@@ -10,6 +10,7 @@ import type { CapabilityKey, CapabilityOverrides, ProviderModelCapabilities } fr
 import { DurationParseError, compactRangeFormat, parseDurationInput } from "@/utils/duration_format";
 import {
   BOOL_KEYS,
+  CAPABILITY_KEY_ORDER,
   ENUM_OPTIONS,
   asConstraints,
   capabilityValueText,
@@ -20,7 +21,7 @@ import {
 } from "./capabilityValues";
 import { DURATION_ERROR_KEY } from "./durationErrors";
 
-/** 数值维度：`nullable` 的留空表示不加约束，`min` 是允许的最小值。 */
+/** 数值维度：`nullable` 的留空表示未收录，`min` 是允许的最小值。 */
 const NUMBER_KEYS: Partial<Record<CapabilityKey, { min: number; nullable: boolean; float?: boolean }>> = {
   max_output_tokens: { min: 1, nullable: false },
   max_reference_images: { min: 0, nullable: false },
@@ -42,8 +43,9 @@ interface Props {
 }
 
 /**
- * 「这个供应商支持的参数」：每个维度一行原值与「修改」，修改后整维替换并可编辑，「恢复」即去掉这一维的覆盖。
- * 原值是没有修改时运行时采用的值（对应条目的值，对应不上条目时为回落的结果）。可选时长下方紧跟时长联动约束。
+ * 「这个供应商支持的参数」：每个维度一行。可以修改的维度显示原值与「修改」，修改后整维替换并可编辑，「恢复」即去掉
+ * 这一维的覆盖；不能修改的维度（官方收录的模型的全部维度、图片的参考图上限等）只读显示生效值。原值是没有修改时运行时
+ * 采用的值（模型条目与调用通道两侧求值的结果），两侧都没有声明的数值显示「未收录」。可选时长下方紧跟时长联动约束。
  */
 export function ProviderCapabilityOverrides({ capabilities, value, onChange, onValidityChange }: Props) {
   const { t } = useTranslation("dashboard");
@@ -71,11 +73,22 @@ export function ProviderCapabilityOverrides({ capabilities, value, onChange, onV
     return Object.keys(constraints.by_resolution ?? {});
   })();
 
+  const editable = new Set(capabilities.editable);
   return (
     <ul className="flex flex-col divide-y divide-border/60 rounded-lg border border-border">
-      {capabilities.editable.map((key) => {
-        const overridden = key in value;
+      {displayedKeys(capabilities).map((key) => {
         const label = t(`pm_cap_${key}`);
+        if (!editable.has(key)) {
+          return (
+            <li key={key} className={cn("flex items-center gap-2 px-3 py-2", key === "duration_constraints" && "pl-6")}>
+              <span className="w-36 shrink-0 text-sm">{label}</span>
+              <span className="min-w-0 flex-1 truncate text-sm text-subtle-foreground">
+                {capabilityValueText(t, key, key in capabilities.effective ? capabilities.effective[key] : capabilities.base[key])}
+              </span>
+            </li>
+          );
+        }
+        const overridden = key in value;
         const base = capabilities.base[key];
         return (
           <li
@@ -124,7 +137,13 @@ export function ProviderCapabilityOverrides({ capabilities, value, onChange, onV
   );
 }
 
-/** 点「修改」时的起始值：原值；不加约束的维度给一个可直接编辑的起点。 */
+/** 要显示的维度：可以修改的与只读的，按界面顺序。 */
+function displayedKeys(capabilities: ProviderModelCapabilities): CapabilityKey[] {
+  const shown = new Set<string>([...capabilities.editable, ...Object.keys(capabilities.base)]);
+  return CAPABILITY_KEY_ORDER.filter((key) => shown.has(key));
+}
+
+/** 点「修改」时的起始值：原值；未收录的维度给一个可直接编辑的起点。 */
 function initialOverride(key: CapabilityKey, base: unknown): unknown {
   if (base !== null && base !== undefined) return structuredClone(base);
   if (BOOL_KEYS.has(key)) return true;
@@ -234,7 +253,7 @@ export function CapabilityValueEditor({ dimension, label, value, resolutions, on
       label={editLabel}
       initial={value === null || value === undefined ? "" : scalarText(value)}
       inputMode={numeric.float ? "decimal" : "numeric"}
-      hint={numeric.nullable ? t("pm_cap_empty_unlimited_hint") : undefined}
+      hint={numeric.nullable ? t("pm_cap_empty_unrecorded_hint") : undefined}
       parse={(text) => {
         const trimmed = text.trim();
         if (!trimmed) return numeric.nullable ? { value: null } : { error: t("pm_cap_error_required") };
@@ -319,7 +338,7 @@ interface ConstraintsEditorProps {
   onValidityChange: (valid: boolean) => void;
 }
 
-/** 时长联动约束：每个分辨率一行可选时长，另有「使用参考图时」一行；留空表示这一行不加约束。 */
+/** 时长联动约束：每个分辨率一行可选时长，另有「使用参考图时」一行；留空表示这一行不限定时长。 */
 function ConstraintsEditor({ value, resolutions, onChange, onValidityChange }: ConstraintsEditorProps) {
   const { t } = useTranslation("dashboard");
   // 各行输入是否合法只用来汇总成整维的合法性，不参与渲染

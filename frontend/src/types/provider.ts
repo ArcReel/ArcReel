@@ -209,8 +209,9 @@ export type CapabilityKey = keyof CapabilityOverrides;
 
 /**
  * 「这个供应商支持的参数」（GET /providers/{id}/models/{model}）：
- * `base` 是没有能力覆盖时运行时采用的值（对应条目的值，对应不上时为运行时回落），`null` 表示不加约束；
- * `overrides` 是生效的能力覆盖；`editable` 是可以修改的维度，按界面顺序，官方收录的模型为空。
+ * `base` 是没有能力覆盖时运行时采用的值（模型条目与调用通道两侧求值的结果），`null` 表示两侧都没有声明（未收录）；
+ * `overrides` 是生效的能力覆盖；`effective` 是叠加覆盖后的生效值；`editable` 是可以修改的维度，按界面顺序，
+ * 官方收录的模型为空。界面展示 `base` 里的全部维度，不在 `editable` 里的只读。
  */
 export interface ProviderModelCapabilities {
   media_type: ProviderModelItem["media_type"];
