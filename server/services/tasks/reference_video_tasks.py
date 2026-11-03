@@ -22,7 +22,7 @@ from lib.artifacts.visual_artifact_provenance import (
     build_reference_video_artifact_visual_basis,
     project_basis_style_description,
 )
-from lib.asset_library.generation_inputs import ReferenceAssetChoice, ReferenceImageSource
+from lib.asset_library.generation_inputs import ReferenceAssetChoice, ReferenceImageSource, reference_image_sources
 from lib.backends.provider_assets import ProviderInputImageRejectedError
 from lib.config.resolver import VideoGenerationType
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
@@ -38,7 +38,6 @@ from lib.generation.video_request_facts import (
     VideoRequestFactsFailure,
 )
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
-from lib.infra.content_digest import sha256_file
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
 from lib.project.project_manager import get_project_manager
@@ -58,6 +57,7 @@ from lib.script.reference_video.prompt_render import (
     render_video_unit_prompt,
     resolve_reference_audio_paths,
 )
+from lib.script.reference_video.provider_asset_links import lane_asset_link_check
 from lib.script.reference_video.request_projection import (
     ReferenceProjectionBlockedError,
     ReferenceRequestOptions,
@@ -272,24 +272,6 @@ def materialized_reference_video_visual_basis_digest(
     ).digest
 
 
-def _reference_image_sources(
-    project_path: Path, entries: Sequence[ResolvedReferenceAsset]
-) -> list[ReferenceImageSource]:
-    """直接调用（不经任务暂存）时将要发出的参考图：按来源文件当下的字节计算摘要。"""
-    root = project_path.resolve()
-    sources: list[ReferenceImageSource] = []
-    for entry in entries:
-        path = safe_join(project_path, entry.path, require_file=True)
-        sources.append(
-            ReferenceImageSource(
-                locator=path.relative_to(root).as_posix(),
-                sha256=sha256_file(path),
-                name=str(entry.reference.name),
-            )
-        )
-    return sources
-
-
 def _asset_uris(choices: Sequence[ReferenceAssetChoice | None]) -> list[str | None] | None:
     """与实发参考图同序的素材引用；没有一张以素材引用发出时为 None，请求与未接入素材库时完全一致。"""
     if all(choice is None for choice in choices):
@@ -410,7 +392,11 @@ async def execute_reference_video_task(
             return VideoRequestFactsFailure("reference_capability_unavailable", (("capability", generation_type),))
         return lane_request_facts
 
-    projection = await ReferenceUnitRequestProjector(_lane_request_facts, asset_availability).project_current(
+    # 供应商素材关联与读侧同一规则核对，按实际调用通道求范围；暂存参考图之后再按实发字节核对一次。
+    asset_links = lane_asset_link_check(choose=generator.choose_reference_image_assets, project_path=project_path)
+    projection = await ReferenceUnitRequestProjector(
+        _lane_request_facts, asset_availability, asset_links
+    ).project_current(
         project=project,
         script=script,
         unit=unit,
@@ -503,7 +489,11 @@ async def execute_reference_video_task(
     asset_choices: tuple[ReferenceAssetChoice | None, ...] = ()
     if task_id is None:
         asset_choices = await generator.choose_reference_image_assets(
-            await asyncio.to_thread(_reference_image_sources, project_path, constrained_entries)
+            await asyncio.to_thread(
+                reference_image_sources,
+                project_path,
+                [(entry.path, str(entry.reference.name)) for entry in constrained_entries],
+            )
         )
     if task_id is not None:
         artifact_episode = script_input.episode

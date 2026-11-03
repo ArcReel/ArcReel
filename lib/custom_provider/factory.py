@@ -13,6 +13,7 @@ from lib.custom_provider.backends import (
 )
 from lib.custom_provider.capabilities import synthesize_video_capabilities_with_overrides
 from lib.custom_provider.endpoints import EndpointSpec, get_endpoint_spec
+from lib.custom_provider.model_facts import model_entry
 from lib.custom_provider.path_overrides import effective_path_overrides
 
 if TYPE_CHECKING:
@@ -57,8 +58,13 @@ def create_custom_backend(
             endpoint_spec=spec,
         )
         # 一并记住 endpoint 与路径覆盖：两者都是 backend 构造的真正输入粒度，已提交任务的续跑
-        # 据此比对协议是否已被换掉（docs/adr/0054、docs/adr/0101）。
-        return backend.with_endpoint(endpoint, path_overrides=paths).with_video_capabilities(merged, overrides=applied)
+        # 据此比对协议是否已被换掉（docs/adr/0054、docs/adr/0101）。参考图槽位是否接受素材引用按模型对应的
+        # 条目认定（条目绑定优先），与内置供应商同一判定，不按模型名推断。
+        return (
+            backend.with_endpoint(endpoint, path_overrides=paths)
+            .with_video_capabilities(merged, overrides=applied)
+            .with_catalog_entry(model_entry(model_id, spec.media_type, entry_binding))
+        )
     if isinstance(backend, CustomImageBackend):
         return backend.with_model_capabilities(
             custom_image_model_capabilities(

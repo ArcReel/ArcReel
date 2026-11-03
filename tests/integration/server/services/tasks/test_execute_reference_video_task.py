@@ -2548,29 +2548,47 @@ async def test_selected_provider_assets_reach_request_and_checkpoint_without_cha
 
 
 @pytest.mark.asyncio
-async def test_unusable_provider_asset_link_fails_before_submission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """适用关联尚在入库：不提交、不留暂存，落库的失败原因点名图片并提示等待或解除关联。"""
+@pytest.mark.parametrize("unusable_from_call", [1, 2], ids=["at-projection", "after-staging"])
+async def test_unusable_provider_asset_link_fails_before_submission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unusable_from_call: int
+):
+    """适用关联尚在入库：不提交、不留暂存，落库的失败原因点名图片并提示等待或解除关联。
+
+    请求投影先按当前文件核对（与接收任务、批量预览同一问题码）；暂存之后按实发字节再核对一次，关联在两次之间
+    变得不可用时同样失败，问题码与提示相同。
+    """
     from lib.asset_library.generation_inputs import ProviderAssetLinkUnavailableError
     from lib.db.models.asset_library import ProviderAssetLink
     from lib.generation.task_failure import render_failure
     from lib.generation.task_failure_encoding import encode_task_failure_message
+    from lib.script.reference_video.request_projection import ReferenceProjectionBlockedError
     from server.services.tasks import reference_video_tasks as rvt
 
     proj_dir = _provider_asset_project(tmp_path, monkeypatch)
     persisted = _capturing_queue(monkeypatch, rvt)
     pending = ProviderAssetLink(id=7, state="processing", selected=True)
+    expected_error = ReferenceProjectionBlockedError if unusable_from_call == 1 else ProviderAssetLinkUnavailableError
+    calls = 0
+
+    async def _choose(sources):
+        nonlocal calls
+        calls += 1
+        if calls >= unusable_from_call:
+            raise ProviderAssetLinkUnavailableError(pending, index=1, name="张三")
+        return (None,) * len(sources)
+
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock()
-    fake_generator.choose_reference_image_assets = AsyncMock(
-        side_effect=ProviderAssetLinkUnavailableError(pending, index=1, name="张三")
-    )
+    fake_generator.choose_reference_image_assets = AsyncMock(side_effect=_choose)
     _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
 
-    with pytest.raises(ProviderAssetLinkUnavailableError) as excinfo:
+    with pytest.raises(expected_error) as excinfo:
         await rvt.execute_reference_video_task(
             "demo", "E1U1", {}, script_file="scripts/episode_1.json", user_id="u1", task_id="task-wait"
         )
 
+    assert calls == unusable_from_call
+    assert excinfo.value.code == "provider_asset_link_processing"
     assert fake_generator.generate_video_async.await_count == 0
     assert persisted == {}
     assert not (proj_dir / ".arcreel" / "tasks" / "task-wait" / "provider_media").exists()

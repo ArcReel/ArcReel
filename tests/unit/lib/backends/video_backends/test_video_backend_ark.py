@@ -920,9 +920,14 @@ class TestArkProviderAssets:
 
     @staticmethod
     def _backend(model: str = "doubao-seedance-2-0-260128") -> ArkVideoBackend:
+        """内置方舟清单里的模型，按装配时同样的方式带上它所引的条目。"""
+        from lib.catalog import query as catalog
+
         client = MagicMock()
         with patch("lib.backends.video_backends.ark.create_ark_client", return_value=client):
-            return ArkVideoBackend(api_key="TEST-ark-key", model=model)
+            return ArkVideoBackend(
+                api_key="TEST-ark-key", model=model, catalog_entry=catalog.provider_model_entry("ark", model, "video")
+            )
 
     @staticmethod
     def _rejection(code: str) -> Exception:
@@ -937,11 +942,16 @@ class TestArkProviderAssets:
         )
 
     def test_only_seedance_2_reference_slots_accept_asset_references(self):
+        """按模型条目认定：Seedance 2.0 / 2.5 的条目声明参考图槽位，1.x 不声明；没有条目时不按模型名推断。"""
         from lib.backends.provider_assets import REFERENCE_IMAGE_ROLE
 
         assert self._backend().provider_asset_roles == frozenset({REFERENCE_IMAGE_ROLE})
         assert self._backend("doubao-seedance-2-5-260628").provider_asset_roles == frozenset({REFERENCE_IMAGE_ROLE})
         assert self._backend(_SEEDANCE_1_5_PRO).provider_asset_roles == frozenset()
+        client = MagicMock()
+        with patch("lib.backends.video_backends.ark.create_ark_client", return_value=client):
+            unbound = ArkVideoBackend(api_key="TEST-ark-key", model="doubao-seedance-2-0-260128")
+        assert unbound.provider_asset_roles == frozenset()
 
     async def test_asset_reference_replaces_its_image_in_place(self, tmp_path):
         """素材引用占原图片的位置，不读本地内容；其余参考图照常内嵌，条目数量与顺序不变。"""
