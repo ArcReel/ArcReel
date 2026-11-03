@@ -23,6 +23,7 @@ from lib.backends.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageOutputMissingError,
     ImageRequestFacts,
     per_image_usage,
 )
@@ -33,7 +34,6 @@ from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.logging_utils import format_kwargs_for_log
-from lib.infra.retry import NonRetryableError
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +179,7 @@ class GeminiImageBackend:
 
         # 5. 解析响应并保存
         # 供应商已返回：解码与写盘不可被取消打断（docs/standards/backend.md「供应商返回之后的落账段不可中断」）
-        await run_noninterruptible_sync(self._process_image_response, response, request.output_path)
+        await run_noninterruptible_sync(self._process_image_response, response, request.output_path, self._image_model)
 
         return ImageGenerationResult(
             image_path=request.output_path,
@@ -195,7 +195,7 @@ class GeminiImageBackend:
             return img.copy()
 
     @staticmethod
-    def _process_image_response(response, output_path: Path) -> Image.Image:
+    def _process_image_response(response, output_path: Path, model: str) -> Image.Image:
         """解析图片生成响应并保存到文件。"""
         # 内容被拦截时（安全审核、禁止内容等）响应没有任何 part，``response.parts`` 为 None
         for part in response.parts or []:
@@ -204,35 +204,14 @@ class GeminiImageBackend:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
                 image.save(output_path)
                 return image
-        raise GeminiImageNotReturnedError(_describe_missing_image(response))
-
-
-class GeminiImageNotReturnedError(NonRetryableError):
-    """Gemini 没有返回图片（多为内容审核拦截）。同一请求重发会得到同样结果，不重试。"""
-
-
-def _enum_name(value: object) -> str | None:
-    # SDK 的枚举转 str 形如 ``FinishReason.IMAGE_SAFETY``，只取名字
-    return str(value).rsplit(".", 1)[-1] if value is not None else None
-
-
-def _describe_missing_image(response) -> str:
-    """拼出没有图片的原因：提示词被拦截的 block_reason、候选的 finish_reason / finish_message、模型回的文字。"""
-    reasons: list[str] = []
-    feedback = getattr(response, "prompt_feedback", None)
-    block_reason = _enum_name(getattr(feedback, "block_reason", None))
-    if block_reason:
-        reasons.append(f"block_reason={block_reason}")
-    candidates = getattr(response, "candidates", None) or []
-    if candidates:
-        finish_reason = _enum_name(getattr(candidates[0], "finish_reason", None))
-        if finish_reason and finish_reason != "STOP":
-            reasons.append(f"finish_reason={finish_reason}")
-        finish_message = getattr(candidates[0], "finish_message", None)
-        if isinstance(finish_message, str) and finish_message:
-            reasons.append(finish_message)
-    text = getattr(response, "text", None) if response.parts else None
-    if isinstance(text, str) and text.strip():
-        reasons.append(text.strip()[:200])
-    detail = "；".join(reasons)
-    return f"API 未返回图片（{detail}）" if detail else "API 未返回图片"
+        feedback = getattr(response, "prompt_feedback", None)
+        candidate = (getattr(response, "candidates", None) or [None])[0]
+        logger.warning(
+            "Gemini 未返回图片 model=%s block_reason=%s finish_reason=%s finish_message=%s text=%.200s",
+            model,
+            getattr(feedback, "block_reason", None),
+            getattr(candidate, "finish_reason", None),
+            getattr(candidate, "finish_message", None),
+            (getattr(response, "text", None) if response.parts else None) or "",
+        )
+        raise ImageOutputMissingError(model=model)
