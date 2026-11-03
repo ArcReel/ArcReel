@@ -211,7 +211,7 @@ def test_epub_reads_xml_declared_in_multibyte_encoding(epub_factory, tmp_path, e
         src,
         tmp_path / f"{encoding}.epub",
         replace={'encoding="utf-8"': f'encoding="{encoding}"'},
-        encodings={name: encoding for name in ("OEBPS/content.opf", "OEBPS/toc.ncx", "OEBPS/chap_1.xhtml")},
+        encodings=dict.fromkeys(("OEBPS/content.opf", "OEBPS/toc.ncx", "OEBPS/chap_1.xhtml"), encoding),
     )
     result = EpubExtractor().extract(src)
     assert "# 第一章 起点" in result.text
