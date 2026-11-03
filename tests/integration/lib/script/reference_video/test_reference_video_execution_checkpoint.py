@@ -314,7 +314,8 @@ def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_p
     assert restored.prompt_sha256 == "0a90e70b38c8a4b4675f11f2fca1da4324d41f12b15c9b6151581d41753c34b7"
     assert len(restored.request_digest) == 64
     assert restored.media[0].source_locator == "characters/Alice.png"
-    assert restored.schema_version == 4
+    assert restored.schema_version == 5
+    assert restored.provider_asset_references == ()
     assert restored.legacy_narration is None
     assert "narration" not in json.loads(checkpoint.to_json())
     assert "execution_narration" not in checkpoint_version_metadata(restored)
@@ -427,6 +428,7 @@ def test_legacy_checkpoint_remains_resumable_without_inventing_artifact_basis(tm
     raw = json.loads(_checkpoint(tmp_path / "demo").to_json())
     raw["schema_version"] = 1
     raw.pop("artifact_currency")
+    raw.pop("provider_asset_references")
     raw["narration"] = _LEGACY_NARRATION
     _redigest(raw)
 
@@ -443,6 +445,7 @@ def test_visual_only_checkpoint_remains_resumable_but_cannot_claim_complete_vide
     artifact_visual_basis = raw["artifact_currency"]["visual_basis"]
     raw["schema_version"] = 2
     raw.pop("artifact_currency")
+    raw.pop("provider_asset_references")
     raw["artifact_visual_basis"] = {
         "kind": artifact_visual_basis["kind"],
         "kind_version": artifact_visual_basis["kind_version"],
@@ -466,6 +469,7 @@ def test_narration_recording_checkpoint_stays_resumable_with_complete_currency(t
     raw = json.loads(checkpoint.to_json())
     raw["schema_version"] = 3
     raw["narration"] = _LEGACY_NARRATION
+    raw.pop("provider_asset_references")
     _redigest(raw)
 
     restored = ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
@@ -656,3 +660,72 @@ def test_storyboard_checkpoint_round_trip_and_four_resume_states(tmp_path: Path)
     assert (
         classify_video_resume_state({**base, "provider_job_id": "job-7"})[0] is VideoResumeState.IDENTITY_UNRECOVERABLE
     )
+
+
+def test_v4_checkpoint_without_provider_asset_references_stays_resumable(tmp_path: Path) -> None:
+    """升级前落库的 v4 检查点没有素材引用一项：照常接续，读出来是空的引用表。"""
+    raw = json.loads(_checkpoint(tmp_path / "demo").to_json())
+    raw["schema_version"] = 4
+    raw.pop("provider_asset_references")
+    _redigest(raw)
+
+    restored = ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
+
+    assert restored.schema_version == 4
+    assert restored.provider_asset_references == ()
+    assert json.loads(restored.to_json()) == raw
+
+
+def test_provider_asset_references_are_bound_to_staged_reference_images(tmp_path: Path) -> None:
+    """素材引用进请求摘要与版本元数据，只能指向暂存的参考图；改写引用会让摘要对不上。"""
+    from lib.script.reference_video.execution_checkpoint import ProviderAssetReference
+
+    base = _checkpoint(tmp_path / "demo")
+    ref = ProviderAssetReference(media_index=0, content_version_id="cv-alice-1", asset_uri="asset://asset-alice-1")
+    checkpoint = ReferenceSubmissionCheckpoint.create(
+        **{
+            **{name: getattr(base, name) for name in _CREATE_FIELDS},
+            "generation_type": base.generation_type,
+            "artifact_currency": base.artifact_currency,
+            "provider_asset_references": (ref,),
+        }
+    )
+
+    restored = ReferenceSubmissionCheckpoint.from_json(checkpoint.to_json())
+    assert restored.provider_asset_references == (ref,)
+    assert restored.request_digest != base.request_digest
+    assert checkpoint_version_metadata(restored)["execution_provider_asset_references"] == [ref.to_dict()]
+    assert "execution_provider_asset_references" not in checkpoint_version_metadata(base)
+
+    raw = json.loads(checkpoint.to_json())
+    raw["provider_asset_references"][0]["asset_uri"] = "asset://asset-someone-else"
+    with pytest.raises(ValueError, match="request_digest"):
+        ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
+
+    # 下标 1 是参考音频，不能以素材引用代替。
+    with pytest.raises(ValueError, match="staged reference image"):
+        replace(checkpoint, provider_asset_references=(replace(ref, media_index=1),))
+    with pytest.raises(ValueError, match="asset://"):
+        ProviderAssetReference(media_index=0, content_version_id="cv", asset_uri="https://cdn.example/a.png")
+
+
+_CREATE_FIELDS = (
+    "task_id",
+    "project_name",
+    "script_file",
+    "unit_id",
+    "provider_id",
+    "provider_model_id",
+    "backend_model_id",
+    "endpoint_guard",
+    "prompt",
+    "duration_seconds",
+    "aspect_ratio",
+    "resolution",
+    "generate_audio",
+    "service_tier",
+    "seed",
+    "visual_basis_digest",
+    "media",
+    "reference_audio_targets",
+)

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from openai import AsyncOpenAI
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.aspect_size import VIDEO_TIER_SHORT_EDGE, parse_aspect_ratio, resolution_to_short_edge
 from arcreel_market_core.video_backend_contract import (
     IMAGE_MIME_TYPES,
@@ -32,7 +33,12 @@ from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_cl
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, capabilities_by_names
+from lib.backends.video_backends.name_family import (
+    UNRECOGNIZED_MODEL_CAPABILITIES,
+    EntryBoundCapabilities,
+    capabilities_by_names,
+    match_by_names,
+)
 from lib.billing.metering import Usage
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.logging_utils import format_kwargs_for_log
@@ -94,16 +100,18 @@ def _video_error_message(video: object) -> str:
     return "unknown"
 
 
-def _resolve_size(model: str, resolution: str | None, aspect_ratio: str) -> str:
+def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, family_model: str | None = None) -> str:
     """比例优先：在 model+分辨率档对应的 sora 合法档中选比例最接近 aspect_ratio 的；并列取像素更高者。
 
     分辨率档只决定 720p vs 1080p 子集、不决定比例：sora-2-pro 选 1080p 时 9:16→1080x1920（精确且高清），
     sora-2（base）或缺分辨率时落 720p（缺分辨率默认 720P，不擅自升 1080p 以免超额计费）。size 必传以锁定
     比例，绝不出现「不传 size → 上游默认比例」。其它比例（1:1/21:9 等）sora 无对应档，吸附后告警。
+
+    ``family_model`` 是按名字族认得的 sora 型号（绑定条目的不透明模型取条目的名字），不给时按 ``model`` 判断。
     """
     aw, ah = parse_aspect_ratio(aspect_ratio)
     target = aw / ah
-    is_pro = "pro" in model.lower()
+    is_pro = "pro" in (family_model or model).lower()
     short = resolution_to_short_edge(resolution, tier_map=VIDEO_TIER_SHORT_EDGE)
     # sora 支持的短边档：base 仅 720；pro 增 1080。按「最近档」选（等距取更高档），避免把
     # short=1000 这类自定义分辨率值无故降到 720p（floor 会误降，最近档不会）。
@@ -139,7 +147,7 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str) -> str:
     return chosen
 
 
-class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
+class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """OpenAI Sora 视频生成后端。"""
 
     def __init__(
@@ -164,7 +172,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         return self._model
 
     @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
         """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
 
         Sora input_reference 为单张首帧图，参考图上限为 1；首帧与参考共享该单槽位。
@@ -182,11 +190,12 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
                 else None
             ),
             fallback=replace(UNRECOGNIZED_MODEL_CAPABILITIES, audio_track=VideoAudioMode.ALWAYS_ON),
+            entry=entry,
         )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model)
+        return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     @property
     def _request_base_url(self) -> str:
@@ -244,7 +253,14 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
             "seconds": str(request.duration_seconds),
         }
         # 始终下传合法 size 以锁定比例（sora 固定档，不传则上游用自家默认比例）
-        kwargs["size"] = _resolve_size(self._model, request.resolution, request.aspect_ratio)
+        kwargs["size"] = _resolve_size(
+            self._model,
+            request.resolution,
+            request.aspect_ratio,
+            family_model=match_by_names(
+                self._model, lambda name: name if name.startswith("sora-2") else None, entry=self._catalog_entry
+            ),
+        )
 
         # 收集所有参考图（start_image + reference_images）：存在性检查与读图都是阻塞 I/O，整体卸载到线程
         refs = await asyncio.to_thread(_encode_input_references, request, self._model)

@@ -19,6 +19,7 @@ from lib.backends.backend_assembly.specs import (
     _validate_provider_specs,
     get_provider_spec,
 )
+from lib.backends.provider_assets import InferenceCredentialRef
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
@@ -91,7 +92,9 @@ class TestBuildSimpleBaseUrlPriority:
         # ark-agent-plan 媒体侧复用 Ark backend，但 registry default 是独立的 /api/plan/v3
         # （非 ark 的 /api/v3）。
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="ark-agent-plan")
-        assert _built(get_provider_spec("ark-agent-plan", "video"), config, "doubao-seedance-2.0") == {
+        built = _built(get_provider_spec("ark-agent-plan", "video"), config, "doubao-seedance-2.0")
+        built["kwargs"].pop("catalog_entry")
+        assert built == {
             "media": "video",
             "backend": "ark-agent-plan",
             "kwargs": {
@@ -100,6 +103,37 @@ class TestBuildSimpleBaseUrlPriority:
                 "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
             },
         }
+
+    @pytest.mark.parametrize("provider_id", ["ark", "ark-agent-plan"])
+    def test_ark_video_reports_the_inference_credential_record(self, provider_id: str):
+        """方舟视频通道报出实际使用的凭证记录（供素材库核对绑定）；凭证不来自记录时不报出。"""
+        meta = PROVIDER_REGISTRY.get(provider_id)
+        assert meta is not None
+        config = dataclasses.replace(
+            _loaded(credentials={"api_key": "TEST-ark-key"}, provider_id=provider_id), credential_id=11
+        )
+        kwargs = _built(get_provider_spec(provider_id, "video"), config, "doubao-seedance-2-0-260128")["kwargs"]
+        assert kwargs["inference_credential"] == InferenceCredentialRef(
+            credential_type="builtin",
+            credential_id=11,
+            api_key="TEST-ark-key",
+            base_url=None,
+            default_base_url=meta.default_base_url,
+        )
+        plain = _loaded(credentials={"api_key": "TEST-ark-key"}, provider_id=provider_id)
+        assert "inference_credential" not in _built(get_provider_spec(provider_id, "video"), plain, "m")["kwargs"]
+
+    @pytest.mark.parametrize(
+        ("provider_id", "model_id"), [("ark", "doubao-seedance-2-0-260128"), ("ark-agent-plan", "doubao-seedance-2.0")]
+    )
+    def test_ark_video_carries_the_listed_model_entry(self, provider_id: str, model_id: str):
+        """方舟视频通道带上清单所引的条目，素材引用槽位按它认定；不在清单里的模型没有条目。"""
+        config = _loaded(credentials={"api_key": "TEST-ark-key"}, provider_id=provider_id)
+        spec = get_provider_spec(provider_id, "video")
+        entry = _built(spec, config, model_id)["kwargs"]["catalog_entry"]
+        assert entry is not None
+        assert entry.key.ref == "bytedance/doubao-seedance-2.0"
+        assert _built(spec, config, "proxy-seedance-2-0-anything")["kwargs"]["catalog_entry"] is None
 
     def test_grok_image_no_default_no_user_omits_base_url(self):
         # grok 无 registry default 且用户未配 → 不传 base_url（grok backend 不接受该参数）

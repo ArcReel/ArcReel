@@ -26,3 +26,6 @@ class LoadedConfig:
     # 简单族 _build_simple 不消费 rate_limiter（与迁移前 _fill_simple_provider_kwargs 一致：限流由
     # 简单后端各自的 httpx 客户端内建）；信封预留此槽供后续迁入的特例族 build 闭包（如 gemini 媒体）读取。
     rate_limiter: Any | None
+    # 叠加进 credentials 的生效凭证记录 ID；凭证来自供应商配置而非凭证记录时为 None。调用通道据此报出实际使用的
+    # 推理凭证，素材库按它的绑定选用供应商素材（见 lib.backends.provider_assets）。
+    credential_id: int | None = None

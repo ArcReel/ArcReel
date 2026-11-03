@@ -38,6 +38,7 @@ from lib.backends.image_backends.openrouter import IMAGES_PATH as OPENROUTER_IMA
 from lib.backends.image_backends.openrouter import MODELS_PATH as OPENROUTER_MODELS_PATH
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.minimax_shared import minimax_text_base_url
+from lib.backends.provider_assets import InferenceCredentialRef
 from lib.backends.text_backends.anthropic import AnthropicTextBackend
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
@@ -97,6 +98,7 @@ from lib.custom_provider.path_overrides import (
 )
 
 if TYPE_CHECKING:
+    from arcreel_catalog_core import CatalogEntry
     from lib.db.models.custom_provider import CustomProvider
 
 
@@ -142,9 +144,10 @@ class EndpointSpec:
     # 调 video_caps_for_model 按 model_id 读取该 model 的真实上限。
     video_max_reference_images: int | None = None
     # 当 video_max_reference_images 为 None 时，resolver 用此纯函数按 model_id 读 backend 声明的
-    # caps —— 不构造 SDK client、不查 provider 行。video_max_reference_images 为 int 时此字段应为
+    # caps —— 不构造 SDK client、不查 provider 行。第二个参数是模型对应的条目（条目绑定优先，否则按名字现查），
+    # backend 按它的名字认定通道能力（docs/adr/0104、0105）。video_max_reference_images 为 int 时此字段应为
     # None（endpoint 维度已能给出硬上限）。二者对每个 video endpoint 恰填其一（见注册表末尾不变式）。
-    video_caps_for_model: Callable[[str], VideoCapabilities] | None = None
+    video_caps_for_model: Callable[[str, CatalogEntry | None], VideoCapabilities] | None = None
     # 该 endpoint 的 delegate.generate() 是否真的读取 VideoGenerationRequest.end_image 并下传
     # 尾帧约束。仅 video 类有意义；False 时即便系统判定或用户覆盖把 last_frame 置为 True，执行层
     # 也会静默丢弃尾帧、按无约束生成——写入侧 last_frame 覆盖据此收窄可开启的 endpoint 范围。
@@ -633,12 +636,35 @@ def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
     return normalized + suffix
 
 
+def _custom_inference_credential(provider) -> InferenceCredentialRef | None:
+    """自定义供应商作为推理凭证的引用；尚未入库（没有记录 ID）的供应商没有可绑定的记录。
+
+    素材库绑定按自定义供应商记录与它配置里的原始 Base URL 确认（见 ``lib.asset_library.bindings``），
+    不按补全 ``/api/v3`` 后的请求地址。
+    """
+    credential_id = getattr(provider, "id", None)
+    if not isinstance(credential_id, int) or isinstance(credential_id, bool):
+        return None
+    return InferenceCredentialRef(
+        credential_type="custom",
+        credential_id=credential_id,
+        api_key=provider.api_key or "",
+        base_url=provider.base_url,
+    )
+
+
 def _build_ark_seedance(
     provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomVideoBackend:
     base_url = _ensure_url_path_suffix(provider.base_url, "/api/v3")
     layer = path_override_layer(_ARK_SEEDANCE_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
-    delegate = ArkVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer)
+    delegate = ArkVideoBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=layer,
+        inference_credential=_custom_inference_credential(provider),
+    )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -1232,7 +1258,7 @@ def declarative_endpoint_spec(
         request_path_template=declarative_request_path(definition),
         build_backend=_build_declarative_video(definition) if is_video else _build_declarative_image(definition),
         image_capabilities=None if is_video else image_capabilities_from_definition(definition),
-        video_caps_for_model=(lambda _model_id: caps) if caps is not None else None,
+        video_caps_for_model=(lambda _model_id, _entry=None: caps) if caps is not None else None,
         end_image_capable=caps.last_frame if caps is not None else False,
         reference_audio_capable=caps is not None and caps.reference_audio_mode is not ReferenceAudioMode.NONE,
         definition=definition,
@@ -1324,7 +1350,7 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
         request_path_template="/prompt",
         build_backend=_build_comfyui_runtime(definition),
         image_capabilities=None if is_video else binding_image_capabilities(definition),
-        video_caps_for_model=(lambda _model_id: caps) if caps is not None else None,
+        video_caps_for_model=(lambda _model_id, _entry=None: caps) if caps is not None else None,
         # 两个运输位与声明式端点同处理：从 caps 反推，而不是各写一份判据。
         end_image_capable=caps.last_frame if caps is not None else False,
         definition=definition,

@@ -541,7 +541,61 @@ Recommended key rotation procedure:
 5. Delete or deactivate the old Key;
 6. Update the secret-management records.
 
-## 12. Cost Tracking {#cost-tracking}
+## 12. Object Storage and Provider Asset Libraries {#object-storage-and-asset-library}
+
+Volcengine Ark and BytePlus provider asset libraries hold reviewed assets that generation requests reference as `asset://`. The **Asset library & storage** section of the global settings manages three settings related to the asset library. All three are optional; local projects keep working without them.
+
+- **Object storage**: your own TOS bucket, configured with region, Endpoint, bucket name, and Access Key. Saving the connection does not change where images are stored; images stay local. Enter a TOS Endpoint (such as `tos-cn-beijing.volces.com`); S3-compatible Endpoints that start with `tos-s3-` are not supported. After saving, use **Test connection** to confirm that the credentials can reach the bucket.
+- **Asset library accounts**: the Access Key for the asset library control plane. It is stored separately from the inference API Key and needs asset library permissions. When adding an account, choose a site (Volcano Engine (China) or BytePlus (international)) and enter a project; the default project is `default`. The provider isolates assets by project, so the inference key must belong to the same project. Control-plane requests go only to the official address of the selected site, never to the inference key's Base URL. A provider asset belongs only to the cloud account that created it, so links and ingestion jobs record the cloud account that the account's Access Key ID belonged to at the time. After you replace the account's Access Key ID with a different one, existing links stay with the original cloud account and are no longer used for generation, and unfinished ingestion jobs are not continued with the new Access Key; upload or select the image again under this account. Changing only the Secret Access Key does not affect existing links.
+- **Inference key bindings**: for each Volcengine Ark key or custom provider, choose the asset library account it may use. After you change the inference key's secret or Base URL, or the account's site, project, or Access Key ID, the binding shows **Needs confirmation**, and that account's assets are not used until you confirm again. A binding only records that you confirmed the inference key and the account belong together; the provider still checks permissions on every call.
+
+Access Keys are entered only on the settings page and are shown with only their first and last few characters when read back.
+
+### Upload Images to an Asset Library {#upload-to-asset-library}
+
+Choose **Upload to provider asset library** from the more-actions menu on a project asset card or on a derivative in the character details to upload the currently selected version of the image to each asset library account. Object storage must be configured first: ArcReel writes a copy of the image to your bucket, gives the provider a download URL that is valid for 24 hours, and then submits the asset. ArcReel therefore does not need a public address.
+
+- The provider reviews uploads asynchronously. The status moves through **Waiting to upload**, **Submitting**, and **Provider processing**, and ends as **Available** or **Failed**. Closing the window does not stop the upload, and only **Available** links are used for generation. On failure, the provider's error code and reason are shown.
+- A link belongs to a specific version of the image. If you select another version during the upload, the result still belongs to the version that was submitted. The newly selected version must be uploaded separately; switching back to the old version uses its link again.
+- If the result of the submission is unknown (for example, the network dropped), the status shows **Result unconfirmed**. ArcReel looks up the uploaded asset in the asset library from the submission record and does not create it again. If nothing turns up for a long time, unlink and upload again.
+- **Unlink** only removes the link inside ArcReel. It deletes neither the ArcReel image nor the asset in the provider's library. Rename or delete provider assets in the provider console. You can upload again after unlinking.
+- On the first upload, ArcReel creates an asset group named `ArcReel` in the account's project. The provider requires signing an authorization in its console before an asset group can be created; until then, uploads fail with the provider's error code.
+
+Relay copies in the bucket all live under the `arcreel-relay/` prefix and are cleaned up automatically by ArcReel. Once an upload has a result, its copy is kept for at least 1 hour after it was written and then deleted; if there is never a result, the copy is kept until 1 hour after the download URL expires. Failed deletions are retried automatically, and cleanup never touches other objects in the bucket. After you change the bucket or Endpoint of the object storage connection, relay copies left in the old bucket are no longer deleted automatically; remove them in the TOS console.
+
+### Select an Existing Image from an Asset Library {#select-from-asset-library}
+
+Choose **Select from provider asset library** from the more-actions menu on a project asset card or on a derivative in the character details to view the name, type, and availability of the assets in each account, and select an image that is already in the library to use as this asset image or derivative image. Selecting does not require object storage.
+
+- Only image assets whose status is **Available** can be selected. ArcReel queries the asset from the provider, retrieves the original image from the access URL the provider returns, and saves it as a new version in the same way as an uploaded image: the new version appears in the version history, can be previewed and edited, and you can switch back to earlier versions.
+- The new version is automatically linked to the selected asset with an **Available** link that records the asset library account's site, region, and project. Earlier versions do not inherit this link.
+- If the original image cannot be retrieved, nothing is imported, for example when the asset was deleted on the provider side, the access URL has expired, or the network dropped. The original image must be PNG, JPEG, or WebP and no larger than 30 MB. When an import fails, the image keeps its previous version and no link is created; try again later or select another asset.
+- Imports never compress or scale the original image, so the saved version matches the provider asset: asset images keep the original image bytes; derivative images are always saved as PNG, so a PNG original is saved as is and a JPEG or WebP original is converted to PNG with its original pixels.
+
+### Use the Asset Library During Generation {#generate-with-asset-library}
+
+Before a reference-to-video request is submitted, ArcReel determines the inference credential the video channel actually uses for this call, finds the asset library account that credential is bound to with a confirmed binding, and then checks, image by image, whether the currently selected version of each reference image has a link in that account. Links created by uploading and by importing follow the same rules.
+
+- **The link is available**: the reference image is sent as an `asset://` asset reference, and the other reference images are sent as image content as usual. The number and order of reference images and the image numbering in the prompt stay the same.
+- **No applicable link**: the image content is sent as usual. This applies when the inference credential has no binding or its binding needs to be confirmed again, when the current version has never been uploaded or imported, and when the model does not accept asset references.
+- **The link is not yet available or ingestion failed**: when the link is in the **Waiting to upload**, **Submitting**, **Provider processing**, **Result unconfirmed**, or **Failed** state, ArcReel does not fall back to sending the image content and does not submit a request to the provider. The pre-submission check, the batch generation preview, and the cost estimate already report this problem and give no estimate for that unit. During execution, ArcReel checks again against the images actually sent; if the state changes after submission, generation fails during execution. The message names the image by its number: you can generate once ingestion is available; when ingestion failed, the message includes the provider's error code. You can also unlink and send the plain image instead.
+
+Only reference images for the Seedance 2.0 and 2.5 model series on Volcano Engine Ark and BytePlus use asset references. Whether a model belongs to these series depends on the model it maps to in the model catalog, not on the model ID itself: this also applies to custom provider models that use the **Volcengine Ark (Seedance)** call endpoint and either match Seedance 2.0 or 2.5 by name or are linked to one with **Link to another model** in the model information. A model that does not map to the model catalog sends image content as usual, even if its ID contains the word Seedance. First frames, last frames, storyboard images, and image generation still send image content. After switching the inference credential, ArcReel decides again based on the new credential's binding, and links in the previous account no longer apply.
+
+When the provider rejects a request because an input image failed moderation (error codes that start with `InputImageSensitiveContentDetected`, for example `InputImageSensitiveContentDetected.PrivacyInformation`), ArcReel does not upload automatically, does not retry generation, and does not switch providers. The error shows the provider's error code and suggests uploading the related asset image to the provider asset library and generating again once ingestion is available. The error names the image only when the request contains a single reference image and no first or last frame; when the provider error does not identify the image, ArcReel does not guess. When the rejected image was already sent as an asset reference, the error instead suggests checking that asset in the provider console.
+
+### Use the Asset Library in a Conversation {#asset-library-in-agent}
+
+The ArcReel Agent and external Agents connected through remote MCP can perform the same asset library operations, using the same links as the asset cards:
+
+- check the links and ingestion status of an image's current version, and the available asset library accounts;
+- browse the existing assets in an asset library account, and save the image you choose as a new version of the asset image;
+- upload a specific image to the asset library when you explicitly ask for it;
+- unlink after you agree; neither the ArcReel image nor the provider asset is deleted.
+
+The Agent uploads only when you explicitly ask. After a provider rejects a generation during moderation, the Agent relays the reason and explains that you can upload; you decide, and it does not upload or generate again automatically. After an upload, the Agent receives the ingestion job right away and does not wait for provider review; you can ask the Agent to check the status later. Asset library accounts, object storage, and inference credential bindings are still configured in the **Asset library & storage** section. The Agent cannot see their keys, and it cannot rename or delete assets in the provider asset library.
+
+## 13. Cost Tracking {#cost-tracking}
 
 ArcReel can record costs by provider and media type, but keep in mind:
 
@@ -593,7 +647,7 @@ Use ArcReel's cost tracking for:
 
 It is not a substitute for the provider's official invoice.
 
-## 13. Troubleshooting {#troubleshooting}
+## 14. Troubleshooting {#troubleshooting}
 
 ### Connection Test Fails {#connection-test-failed}
 
@@ -639,7 +693,7 @@ Check:
 - Whether the pricing table needs to be updated;
 - Whether the provider changed its billing model.
 
-## 14. Documentation Update Principles {#doc-update-principles}
+## 15. Documentation Update Principles {#doc-update-principles}
 
 Provider models change frequently, so:
 

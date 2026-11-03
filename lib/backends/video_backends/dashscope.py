@@ -25,6 +25,7 @@ from typing import Literal
 
 import httpx
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
@@ -63,7 +64,7 @@ from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.providers import PROVIDER_DASHSCOPE
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import capabilities_by_names
+from lib.backends.video_backends.name_family import EntryBoundCapabilities, capabilities_by_names, capability_names
 from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
@@ -390,14 +391,14 @@ def _sent_resolution(request: VideoGenerationRequest) -> str:
     return (request.resolution or "720p").upper()
 
 
-def _is_wan3(model: str | None) -> bool:
+def _is_wan3(model: str | None, entry: CatalogEntry | None = None) -> bool:
     """识别 wan3.0 系列：它与其余型号在请求形态上有三处结构差异。
 
     一是单模型通吃文生/图生/参考生，参考图缺席是合法请求（其余带参考能力的型号都是 r2v
     专用，无参考图即无输入）；二是音轨由请求参数控制而非恒开；三是可走独立 maas 域名。
-    三处都按型号名分派，profile 表只承载 VideoCapabilities 声明。
+    三处与能力声明同读模型对应条目的名字，profile 表只承载 VideoCapabilities 声明。
     """
-    return bool(WAN3_PATTERN.search((model or "").strip().lower()))
+    return any(WAN3_PATTERN.search(name.strip().lower()) for name in capability_names(model or "", entry))
 
 
 def _find_known_profile_key(normalized: str, keys: Iterable[str]) -> str | None:
@@ -443,15 +444,15 @@ def _match_profile(model: str) -> VideoCapabilities | None:
     return None
 
 
-def _profile_for_model(model: str | None) -> VideoCapabilities:
-    """model 的能力档：名字按 name_family 的规则逐个解析，都认不得时取统一回落。
+def _profile_for_model(model: str | None, entry: CatalogEntry | None = None) -> VideoCapabilities:
+    """model 的能力档：名字按 name_family 的规则逐个解析（``entry`` 是对应的条目），都认不得时取统一回落。
 
     __init__ 与 video_capabilities_for_model 共用本函数，保持单一真相源。
     """
-    return capabilities_by_names(model or "", _match_profile)
+    return capabilities_by_names(model or "", _match_profile, entry=entry)
 
 
-class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
+class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """阿里百炼视频后端（异步 video-synthesis 端点）。"""
 
     def __init__(
@@ -474,6 +475,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         self._transport_layer = transport_layer
         self._video_capabilities = _profile_for_model(self._model)
 
+    def _on_catalog_entry_changed(self) -> None:
+        self._video_capabilities = _profile_for_model(self._model, self._catalog_entry)
+
     @property
     def name(self) -> str:
         return PROVIDER_DASHSCOPE
@@ -483,17 +487,17 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         return self._model
 
     @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
-        """按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
+    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
+        """按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。``entry`` 是模型对应的条目。
 
         resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
         保持 backend 为单一真相源。
         """
-        return _profile_for_model(model)
+        return _profile_for_model(model, entry)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model)
+        return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     @property
     def _request_base_url(self) -> str:
@@ -502,7 +506,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         提交与轮询共用同一个：任务 id 只在创建它的 endpoint 上可查，两者分家会让 wan3.0
         任务提交成功后轮询到 404。
         """
-        if self._wan3_base_url and _is_wan3(self._model):
+        if self._wan3_base_url and _is_wan3(self._model, self._catalog_entry):
             return self._wan3_base_url
         return self._base_url
 
@@ -575,7 +579,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         # 音轨开关只对 wan3.0 下发：其余型号恒有声，下发该参数会被上游当非法参数拒绝。本行就是
         # `_MODEL_PROFILES` 里 audio_track 声明的执行侧对应物（恒有声型号声明 ALWAYS_ON，wan3.0
         # 取默认的 CONTROLLABLE），改一侧须同改另一侧。
-        if _is_wan3(self._model):
+        if _is_wan3(self._model, self._catalog_entry):
             parameters["audio"] = request.generate_audio
         elif not request.generate_audio and self._video_capabilities.audio_track is VideoAudioMode.ALWAYS_ON:
             # 恒有声型号发不出静音请求；执行期能力被用户覆盖放宽时才会走到这里，付费前拒绝而不是照常出有声成片。
@@ -615,7 +619,11 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         provided = [r for r in (request.reference_images or []) if r]
         # r2v 必须有参考图：这是型号档案的事实，不随用户放宽参考图上限转移到 i2v 型号上，也不因用户把上限
         # 收窄为 0 而放行无参考图的请求。
-        if not provided and self._video_capabilities.max_reference_images > 0 and not _is_wan3(self._model):
+        if (
+            not provided
+            and self._video_capabilities.max_reference_images > 0
+            and not _is_wan3(self._model, self._catalog_entry)
+        ):
             raise VideoCapabilityError("video_reference_images_required", model=self._model)
         if caps.max_reference_images <= 0 and provided:
             raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)

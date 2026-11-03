@@ -29,11 +29,12 @@ async def _load_builtin_config(resolver: ConfigResolver, provider_id: str, rate_
     api_model_name 来源；rate_limiter 由调用方注入（共享实例）。这一段是唯一的 await/DB 触点，
     之后 sync 构造闭包只读信封。
     """
-    db_config = await resolver.provider_config(provider_id)
+    db_config, credential_id = await resolver.provider_config_with_credential(provider_id)
     return LoadedConfig(
         credentials=dict(db_config),
         provider_meta=PROVIDER_REGISTRY.get(provider_id),
         rate_limiter=rate_limiter,
+        credential_id=credential_id,
     )
 
 
@@ -73,7 +74,22 @@ async def assemble_backend(
     config = await _load_builtin_config(resolver, provider_id, rate_limiter)
     # 构造闭包可能读凭证文件（Vertex 服务账号 JSON），放线程里跑，不阻塞事件循环。工作线程里没有事件循环，
     # backend 构造时不能创建要求事件循环的 SDK 客户端（xai_sdk.AsyncClient 的做法见 grok_shared.LazyGrokClient）。
-    return await asyncio.to_thread(spec.build_backend, config, model_id)
+    backend = await asyncio.to_thread(spec.build_backend, config, model_id)
+    if media_type == "video" and model_id is not None:
+        backend = _with_model_entry(backend, provider_id, model_id)
+    return backend
+
+
+def _with_model_entry(backend: Any, provider_id: str, model_id: str) -> Any:
+    """让视频调用通道按模型对应的条目认定通道能力，与读侧 ``builtin_video_capabilities_for_model`` 同一个条目。
+
+    官方收录的模型取清单所引的条目，用户添加的取条目绑定或按名字现查的结果（docs/adr/0104、0105）。调用通道
+    不按条目认定能力时（声明式定义与模型无关）原样返回。
+    """
+    rebind = getattr(backend, "with_catalog_entry", None)
+    if not callable(rebind):
+        return backend
+    return rebind(catalog.provider_model_entry(provider_id, model_id, "video"))
 
 
 def _ensure_listed(provider_id: str, model_id: str, media_type: str) -> None:

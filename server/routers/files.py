@@ -55,7 +55,7 @@ from lib.episode.source_trash import trash_source_file
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.image_thumbnails import ensure_image_thumbnail, is_thumbnail_source, snap_thumbnail_width
-from lib.infra.image_utils import normalize_uploaded_image, validate_image_bytes
+from lib.infra.image_utils import IMAGE_FILE_EXTENSIONS, normalize_uploaded_image, validate_image_bytes
 from lib.infra.json_io import atomic_write_bytes
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
@@ -102,7 +102,7 @@ router = APIRouter()
 #: 上传源文时的登记方式：整本源文的文件，或一集自带原文的集。
 SourceUploadRole = Literal["whole_source", "episode"]
 
-_IMAGE_EXTS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".webp")
+_IMAGE_EXTS: tuple[str, ...] = IMAGE_FILE_EXTENSIONS
 
 # 公开端点：前端经 <img src> / <video src> / <audio src> 加载，浏览器原生请求带不了
 # Authorization header。按 ADR 0071「静态媒体维持匿名可读」，公开端点只放行媒体：

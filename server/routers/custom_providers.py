@@ -396,7 +396,7 @@ class EndpointCatalogResponse(BaseModel):
 
 
 def _system_capabilities_for(
-    endpoint: str, model_id: str, endpoint_spec: EndpointSpec | None = None
+    endpoint: str, model_id: str, endpoint_spec: EndpointSpec | None = None, entry_binding: str | None = None
 ) -> dict[str, object] | None:
     """读该 model 的系统判定能力；非 video endpoint 返回 None。
 
@@ -409,7 +409,11 @@ def _system_capabilities_for(
         media_type = endpoint_spec.media_type if endpoint_spec is not None else static_media_type(endpoint)
         if media_type != "video":
             return None
-        caps = asdict(system_video_capabilities(endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec))
+        caps = asdict(
+            system_video_capabilities(
+                endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec, entry_binding=entry_binding
+            )
+        )
         return {k: v for k, v in caps.items() if k not in _AUDIO_TRACK_FIELDS}
     except ValueError:
         logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
@@ -421,6 +425,7 @@ def _effective_overrides_for_response(
     model_id: str,
     overrides: object | None,
     endpoint_spec: EndpointSpec | None = None,
+    entry_binding: str | None = None,
 ) -> dict[str, object] | None:
     """回显前按写入侧同一判定过滤，剔除执行层不会采用的键值，并收窄至开放白名单。
 
@@ -464,6 +469,7 @@ def _effective_overrides_for_response(
             endpoint=endpoint,
             model_id=model_id,
             endpoint_spec=endpoint_spec,
+            entry_binding=entry_binding,
         )
     implemented = endpoint_spec.image_capabilities
     for key, value in model_fact_overrides(overrides, media_type, model_id=model_id).items():
@@ -509,9 +515,9 @@ def _model_to_response(
     return ModelResponse(
         path_overrides=effective_path_overrides(m.path_overrides, requests) or None,
         requests=[EndpointRequestDescriptor(**asdict(r)) for r in requests],
-        system_capabilities=_system_capabilities_for(m.endpoint, m.model_id, endpoint_spec),
+        system_capabilities=_system_capabilities_for(m.endpoint, m.model_id, endpoint_spec, m.entry_binding),
         capability_overrides=_effective_overrides_for_response(
-            m.endpoint, m.model_id, m.capability_overrides, endpoint_spec
+            m.endpoint, m.model_id, m.capability_overrides, endpoint_spec, m.entry_binding
         ),
         id=m.id,
         model_id=m.model_id,
@@ -675,6 +681,7 @@ def _check_capability_overrides(
     model_id: str,
     _t: Callable[..., str],
     spec: EndpointSpec | None = None,
+    entry_binding: str | None = None,
 ) -> None:
     """写入侧校验：合成函数对脏值只降级不抛，合法性把关全在这里。
 
@@ -781,7 +788,9 @@ def _check_capability_overrides(
     # 而不是留给执行期静默降级——降级后用户会拿到「最多支持 0 段」这种无从遵循的提示。
     # 稀疏覆盖只写其中一维也能凑出该组合，故按系统判定补齐未覆盖的那一维再判。
     if any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
-        mode, count = resolve_audio_pair(overrides, endpoint=endpoint, model_id=model_id, endpoint_spec=resolved_spec)
+        mode, count = resolve_audio_pair(
+            overrides, endpoint=endpoint, model_id=model_id, endpoint_spec=resolved_spec, entry_binding=entry_binding
+        )
         if not audio_capability_pair_is_coherent(mode=mode, count=count):
             raise HTTPException(
                 status_code=422,
@@ -808,6 +817,7 @@ def _check_model_capability_overrides(
             m.model_id,
             _t,
             None if specs is None else specs[m.endpoint],
+            m.entry_binding,
         )
 
 
@@ -1228,7 +1238,7 @@ async def custom_model_settings(session: AsyncSession, row: CustomProviderModel)
             spec=spec,
             raw_overrides=row.capability_overrides,
             applied_overrides=_effective_overrides_for_response(
-                row.endpoint, row.model_id, row.capability_overrides, spec
+                row.endpoint, row.model_id, row.capability_overrides, spec, row.entry_binding
             ),
             entry_binding=row.entry_binding,
         ),

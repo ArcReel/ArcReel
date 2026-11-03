@@ -5,7 +5,8 @@
 fingerprint 或可执行请求快照；worker 开始处理时必须重新投影当前状态。
 
 能力只经视频请求事实读取（``docs/adr/0086``）：投影按单元落入的桶取一份事实，读侧以当前配置
-为身份求值，执行侧直接交出 lane 以实际 backend 身份求得的那一份。
+为身份求值，执行侧直接交出 lane 以实际 backend 身份求得的那一份。参考图的供应商素材关联同理：读侧以当前
+配置装配的调用通道核对，执行侧以实际调用通道核对（见 :data:`ReferenceAssetLinkCheck`）。
 """
 
 from __future__ import annotations
@@ -244,6 +245,14 @@ VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
 #: 按任务类型桶取视频请求事实。读侧用 :func:`configured_reference_request_facts`，执行侧交出
 #: lane 已求得的那一份；测试直接返回构造好的结果对象或失败对象。
 ReferenceRequestFactsLookup = Callable[[VideoGenerationType], Awaitable[VideoRequestFactsResult]]
+
+
+#: 参考图的供应商素材关联核对：按这次调用的素材库范围检查裁剪后将要发出的参考图（顺序即提示词里的图片编号），
+#: 适用的关联尚未可用或入库失败时返回阻断问题，问题码与参数和执行期失败相同；没有问题时为 None。读侧实现见
+#: :mod:`lib.script.reference_video.provider_asset_links`，执行侧交出实际调用通道的那一份。
+ReferenceAssetLinkCheck = Callable[
+    [VideoRequestFacts, Sequence[ResolvedReferenceAsset]], Awaitable["ProjectionProblem | None"]
+]
 
 
 def configured_reference_request_facts(project: dict, resolver: ConfigResolver) -> ReferenceRequestFactsLookup:
@@ -546,6 +555,8 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
     UNREGISTERED_REFERENCE_CODE: ("repair_reference_assets", (("text",),)),
     "reference_capability_changed": ("repair_reference_assets", (("text",),)),
     "reference_images_clamped": ("review_reference_selection", (("text",),)),
+    "provider_asset_link_processing": ("review_reference_selection", (("text",),)),
+    "provider_asset_link_failed": ("review_reference_selection", (("text",),)),
     "video_audio_switch_not_supported": (
         "enable_model_audio",
         (("generation_settings", "generate_audio"),),
@@ -589,9 +600,12 @@ class ReferenceUnitRequestProjector:
         self,
         request_facts: ReferenceRequestFactsLookup,
         assets: ReferenceAssetAvailability,
+        asset_links: ReferenceAssetLinkCheck | None = None,
     ) -> None:
+        """``asset_links`` 为 None 时不核对供应商素材关联，只用于只要定桶结论的调用方（如限流路由）。"""
         self._request_facts = request_facts
         self._assets = assets
+        self._asset_links = asset_links
 
     async def project_current(
         self,
@@ -683,6 +697,10 @@ class ReferenceUnitRequestProjector:
                         model=facts.model_id,
                     )
                 )
+            if self._asset_links is not None and request_assets:
+                link_problem = await self._asset_links(facts, request_assets)
+                if link_problem is not None:
+                    problems.append(link_problem)
 
         planned_duration = _planned_duration(unit)
         duration_input = planned_duration
@@ -763,24 +781,35 @@ async def project_reference_unit_request(
     resolver: ConfigResolver | None = None,
     request_facts_lookup: ReferenceRequestFactsLookup | None = None,
     shared_assets: Callable[[], ReferenceAssetAvailability] | None = None,
+    asset_links: ReferenceAssetLinkCheck | None = None,
+    check_asset_links: bool = True,
 ) -> ReferenceUnitRequestProjection:
     """生产入口：从当前项目文件与配置直接构造一次 advisory 投影。
 
     资产可用性与执行侧同判据（文件存在且产物清单认领），准入、单条入队、提示词预览与限流
     路由因此不会把执行时落 i2v 的单元判成 r2v。批量调用方传入 ``shared_assets``，在工作线程里
     取整批共用的判定，一批单元在同一份清单快照上判定；不传时按本单元现场构造。
+
+    供应商素材关联默认以当前配置装配的调用通道核对；批量调用方传入整批共用的 ``asset_links``。只要定桶结论的
+    调用方（限流路由）传 ``check_asset_links=False`` 跳过核对。
     """
 
-    # artifact_selection 依赖本模块，延迟导入避免循环。
+    # artifact_selection 与 provider_asset_links 依赖本模块，延迟导入避免循环。
     from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 
-    if request_facts_lookup is None:
-        if resolver is None:
-            from lib.config.resolver import ConfigResolver
-            from lib.db import async_session_factory
+    if resolver is None:
+        from lib.config.resolver import ConfigResolver
+        from lib.db import async_session_factory
 
-            resolver = ConfigResolver(async_session_factory)
+        resolver = ConfigResolver(async_session_factory)
+    if request_facts_lookup is None:
         request_facts_lookup = configured_reference_request_facts(project, resolver)
+    if not check_asset_links:
+        asset_links = None
+    elif asset_links is None:
+        from lib.script.reference_video.provider_asset_links import configured_asset_link_check
+
+        asset_links = configured_asset_link_check(project_path=project_path, resolver=resolver)
 
     def current_assets() -> tuple[ReferenceAssetAvailability, tuple[ResolvedReferenceAsset, ...]]:
         # 构造清单感知的可用性判定、展开候选路径都会碰文件系统，放进工作线程。
@@ -788,7 +817,7 @@ async def project_reference_unit_request(
         return availability, resolve_reference_assets(project, project_path, unit)
 
     availability, resolved_assets = await asyncio.to_thread(current_assets)
-    projector = ReferenceUnitRequestProjector(request_facts_lookup, availability)
+    projector = ReferenceUnitRequestProjector(request_facts_lookup, availability, asset_links)
     return await projector.project_current(
         project=project,
         script=script,

@@ -234,6 +234,7 @@ async def reference_projection_for_queued_task(
             project_path=project_path,
             # Claim/rate-limit routing only needs the hydrated visual generation type.
             options=ReferenceRequestOptions(),
+            check_asset_links=False,
         )
     except Exception:
         logger.debug("reference_video 当前请求投影失败，限流路由回退代表桶", exc_info=True)

@@ -290,6 +290,10 @@ class VideoGenerationRequest:
     start_image: Path | None = None
     end_image: Path | None = None  # For first_last mode
     reference_images: list[Path] | None = None  # For multi-reference mode
+    # 与 ``reference_images`` 等长同序：第 i 项非 None 时，第 i 张参考图以这个供应商素材引用
+    # （如 ``asset://<id>``）代替图片内容发出，位置与提示词里的图片编号不变。只有对参考图槽位声明了
+    # 素材引用能力的 backend 会收到非 None 项；其余 backend 不读此字段。
+    reference_image_asset_uris: list[str | None] | None = None
     # 参考音频（音色复刻）。列表顺序即 prompt 中「音频N」的指认契约：编排层按该顺序拼指认
     # 文本，后端按同一顺序下发，故任何一侧都不得重排或跳过。哪个角色对应哪段音频不进请求
     # ——绑定由 prompt 文本表达，供应商 API 均无结构化的「角色-音频」字段。

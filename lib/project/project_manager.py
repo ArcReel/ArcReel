@@ -3746,6 +3746,7 @@ class ProjectManager:
         content: bytes,
         *,
         on_commit: Callable[[Path], None] | None = None,
+        require_asset: bool = False,
     ) -> dict | None:
         """Install sheet bytes after rechecking their asset under the project lock.
 
@@ -3753,6 +3754,9 @@ class ProjectManager:
         That case writes only unclaimed bytes while still holding the same lock
         used by asset creation. If the definition exists by the final check,
         the file, metadata pointer, and sidecar hook commit atomically instead.
+        With ``require_asset`` a missing definition writes nothing: callers whose
+        bytes belong to one existing asset (provider imports) must not leave a
+        file behind once it has been deleted.
         """
 
         project_dir = self.get_project_path(project_name)
@@ -3764,6 +3768,8 @@ class ProjectManager:
             project = self._read_project_raw_unlocked(project_name)
             bucket = project.get(spec.bucket_key)
             if resolve_asset_key(bucket, name) is None:
+                if require_asset:
+                    return None
                 with formal_write_transaction(target):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     atomic_write_bytes(target, content)

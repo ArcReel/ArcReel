@@ -25,6 +25,16 @@ from lib.infra.content_digest import sha256_file
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_bool
+from lib.material.storage import (
+    CONTENT_DIGEST,
+    CONTENT_VERSION_ID,
+    ContentVersion,
+    LocalLocator,
+    LocalMaterialStorage,
+    MaterialRef,
+    new_content_version_id,
+    verify_content,
+)
 from lib.project.asset_types import resolve_asset_key
 from lib.project.project_activity import record_project_activity
 from lib.project.resource_paths import RESOURCE_TYPES as _RESOURCE_TYPES
@@ -43,10 +53,8 @@ _LOCKS_GUARD = threading.Lock()
 _LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
 _PREVIOUS_CURRENT_VERSION = "_previous_current_version"
 MANUAL_UPLOAD_VERSION_SOURCE = "manual_upload"
-# 版本记录里该版本输出（即版本快照）的裸 sha256 hexdigest，算法同 ``lib.infra.content_digest.sha256_file``。
-VERSION_CONTENT_DIGEST = "content_digest"
-# 写入时记录内容指纹的资源类型：视频与音频产物。
-CONTENT_DIGEST_RESOURCE_TYPES = frozenset({"videos", "reference_videos", "audio"})
+# 版本记录里该版本输出（即版本快照）的裸 sha256 hexdigest；内容版本的摘要，见 ``lib.material.storage``。
+VERSION_CONTENT_DIGEST = CONTENT_DIGEST
 logger = logging.getLogger(__name__)
 
 
@@ -57,44 +65,55 @@ class UnmanagedSnapshotPathError(BadRequestError):
         super().__init__("version_snapshot_path_unmanaged", resource_type=resource_type)
 
 
-class VersionSnapshotCorruptedError(ConflictError):
-    """A version snapshot no longer matches the content digest recorded when the version was created."""
+def _content_version_of(resource_type: str, resource_id: str, record: Mapping[str, Any]) -> ContentVersion:
+    """把一条版本记录读成内容版本；``file`` 须已由调用方确认是受管快照路径。"""
 
-    def __init__(self, resource_type: str, resource_id: str, version: object) -> None:
-        super().__init__(
-            "version_snapshot_corrupted", resource_type=resource_type, resource_id=resource_id, version=version
-        )
+    content_version_id = record.get(CONTENT_VERSION_ID)
+    digest = record.get(CONTENT_DIGEST)
+    return ContentVersion(
+        material=MaterialRef(resource_type, resource_id),
+        version=record["version"],
+        id=content_version_id if isinstance(content_version_id, str) else None,
+        digest=digest if isinstance(digest, str) else None,
+        locator=LocalLocator(record["file"]),
+    )
 
 
 def verify_version_snapshot(resource_type: str, resource_id: str, record: Mapping[str, Any], snapshot: Path) -> None:
     """Check a version snapshot against its recorded content digest before the snapshot is used.
 
-    shortcut: a record without a digest is used unverified. Every version write records one and
-    the schema 18 migration backfills selected versions, so only older unselected versions lack it;
-    verify those too if they ever need protection.
+    shortcut: a record without a digest is used unverified. Every version write records one; the
+    schema 18 migration backfilled selected video and audio versions, so the records lacking one are
+    image versions written before content versions and older unselected media versions.
+    ``VersionManager.ensure_content_version`` records it for one of them once it is referenced.
     """
 
-    expected = record.get(VERSION_CONTENT_DIGEST)
-    if expected is not None and sha256_file(snapshot) != expected:
-        raise VersionSnapshotCorruptedError(resource_type, resource_id, record.get("version"))
+    verify_content(_content_version_of(resource_type, resource_id, record), snapshot)
 
 
 def _new_version_record(
-    resource_type: str,
     *,
     version: int,
     rel_path: str,
-    snapshot: Path | None,
+    digest: str | None,
     prompt: str,
     created_at: str,
     metadata: Mapping[str, Any],
     previous_current_version: int,
+    content_version_id: str | None = None,
 ) -> dict[str, Any]:
-    """Build one version record; video and audio records carry their snapshot's content digest."""
+    """Build one version record: a content version with its identity, digest and local locator.
+
+    A fresh identity is minted unless ``content_version_id`` carries one forward (a version restored
+    from the trash keeps its identity); identity and digest keys in ``metadata`` never override them.
+    ``digest`` is ``None`` only for a record without a persisted snapshot.
+    """
 
     record = {"version": version, "file": rel_path, "prompt": prompt, "created_at": created_at, **metadata}
-    if snapshot is not None and resource_type in CONTENT_DIGEST_RESOURCE_TYPES:
-        record[VERSION_CONTENT_DIGEST] = sha256_file(snapshot)
+    record[CONTENT_VERSION_ID] = content_version_id or new_content_version_id()
+    record.pop(CONTENT_DIGEST, None)
+    if digest is not None:
+        record[CONTENT_DIGEST] = digest
     record[_PREVIOUS_CURRENT_VERSION] = previous_current_version
     return record
 
@@ -255,10 +274,15 @@ class VersionManager:
             # 快照桶目录取自路径真相源：多段 id 的类型（角色衍生）落在嵌套子目录下。
             (self.project_path / version_snapshot_dir(resource_type)).mkdir(parents=True, exist_ok=True)
 
-    def _ensure_snapshot_dir(self, snapshot_abs_path: Path) -> None:
-        """确保版本目录树与该快照自身的父目录存在（多段 id 每个 id 前置段一层目录）。"""
+    def _persist_snapshot(self, source: Path, rel_path: str, created_snapshots: list[Path]) -> str:
+        """经本地素材存储把 ``source`` 保存为版本快照 ``rel_path``，返回快照的内容摘要。
+
+        快照路径先登记进 ``created_snapshots``，保存中途失败时调用方的回滚同样删除半截快照。
+        """
+
+        created_snapshots.append(self.project_path / rel_path)
         self._ensure_dirs()
-        snapshot_abs_path.parent.mkdir(parents=True, exist_ok=True)
+        return LocalMaterialStorage(self.project_path).persist(source, LocalLocator(rel_path))
 
     @classmethod
     def is_managed_snapshot_path(cls, resource_type: str, relative_path: object) -> bool:
@@ -424,21 +448,17 @@ class VersionManager:
             version_rel_path = version_snapshot_relative_path(
                 resource_type, resource_id, version=new_version, timestamp=timestamp
             )
-            version_abs_path = self.project_path / version_rel_path
 
-            # 如果有源文件，复制到版本目录
-            snapshot: Path | None = None
+            # 如果有源文件，保存为版本快照
+            digest: str | None = None
             if source_file and Path(source_file).exists():
-                self._ensure_snapshot_dir(version_abs_path)
-                shutil.copy2(source_file, version_abs_path)
-                snapshot = version_abs_path
+                digest = self._persist_snapshot(Path(source_file), version_rel_path, [])
 
             # 创建版本记录
             version_record = _new_version_record(
-                resource_type,
                 version=new_version,
                 rel_path=version_rel_path,
-                snapshot=snapshot,
+                digest=digest,
                 prompt=prompt,
                 created_at=self._generate_iso_timestamp(),
                 metadata=metadata,
@@ -552,6 +572,8 @@ class VersionManager:
         prompt: str,
         metadata: dict,
         created_snapshots: list[Path],
+        *,
+        content_version_id: str | None = None,
     ) -> int:
         """Snapshot ``source`` into history as a new record and select it in ``resource_data``.
 
@@ -567,20 +589,17 @@ class VersionManager:
         rel_path = version_snapshot_relative_path(
             resource_type, resource_id, version=new_version, timestamp=self._generate_timestamp()
         )
-        abs_path = self.project_path / rel_path
-        created_snapshots.append(abs_path)
-        self._ensure_snapshot_dir(abs_path)
-        shutil.copy2(source, abs_path)
+        digest = self._persist_snapshot(source, rel_path, created_snapshots)
         records.append(
             _new_version_record(
-                resource_type,
                 version=new_version,
                 rel_path=rel_path,
-                snapshot=abs_path,
+                digest=digest,
                 prompt=prompt,
                 created_at=self._generate_iso_timestamp(),
                 metadata=metadata,
                 previous_current_version=previous_current_version,
+                content_version_id=content_version_id,
             )
         )
         resource_data["current_version"] = new_version
@@ -741,16 +760,12 @@ class VersionManager:
                 rel_path = version_snapshot_relative_path(
                     commit.resource_type, commit.resource_id, version=version, timestamp=timestamp
                 )
-                abs_path = self.project_path / rel_path
-                self._ensure_snapshot_dir(abs_path)
-                shutil.copy2(source, abs_path)
-                created_snapshots.append(abs_path)
+                digest = self._persist_snapshot(source, rel_path, created_snapshots)
                 records.append(
                     _new_version_record(
-                        commit.resource_type,
                         version=version,
                         rel_path=rel_path,
-                        snapshot=abs_path,
+                        digest=digest,
                         prompt=prompt,
                         created_at=self._generate_iso_timestamp(),
                         metadata=metadata,
@@ -890,16 +905,12 @@ class VersionManager:
                 rel_path = version_snapshot_relative_path(
                     resource_type, resource_id, version=version, timestamp=timestamp
                 )
-                abs_path = self.project_path / rel_path
-                self._ensure_snapshot_dir(abs_path)
-                shutil.copy2(source, abs_path)
-                created_snapshots.append(abs_path)
+                digest = self._persist_snapshot(source, rel_path, created_snapshots)
                 records.append(
                     _new_version_record(
-                        resource_type,
                         version=version,
                         rel_path=rel_path,
-                        snapshot=abs_path,
+                        digest=digest,
                         prompt=version_prompt,
                         created_at=self._generate_iso_timestamp(),
                         metadata=version_metadata,
@@ -1335,7 +1346,8 @@ class VersionManager:
     ) -> str:
         """把 ``source_file`` 作为资源的一条历史版本加回，当前版本不变；返回新版本快照的项目内相对路径。
 
-        ``metadata`` 是被删版本原有的元数据（生成依据等），随版本一起加回，加回的版本才能照常选回。
+        ``metadata`` 是被删版本原有的元数据（生成依据等），随版本一起加回，加回的版本才能照常选回；
+        其中的内容版本身份沿用到加回的版本上，加回的仍是同一个内容版本。
 
         恢复删除记录时用：原路径已有当前文件，被恢复的文件不覆盖它。当前文件还没有版本记录时
         先补录成当前版本，否则加回的版本会成为唯一一条、看起来像是当前版本。
@@ -1351,9 +1363,18 @@ class VersionManager:
             )
             current_version = resource_data.get("current_version", 0)
             created: list[Path] = []
+            restored_metadata = dict(metadata or {})
+            content_version_id = restored_metadata.pop(CONTENT_VERSION_ID, None)
             try:
                 self._append_selected_snapshot(
-                    resource_type, resource_id, resource_data, Path(source_file), prompt, dict(metadata or {}), created
+                    resource_type,
+                    resource_id,
+                    resource_data,
+                    Path(source_file),
+                    prompt,
+                    restored_metadata,
+                    created,
+                    content_version_id=content_version_id if isinstance(content_version_id, str) else None,
                 )
                 resource_data["current_version"] = current_version
                 self._save_versions(data)
@@ -1496,10 +1517,10 @@ class VersionManager:
             if not target_version:
                 raise NotFoundError("version_not_found", version=version)
 
-            target_file = self._resolve_snapshot(resource_type, target_version)
-            if not target_file.exists():
-                raise FileNotFoundError(f"版本文件不存在: {target_file}")
-            verify_version_snapshot(resource_type, resource_id, target_version, target_file)
+            self._resolve_snapshot(resource_type, target_version)
+            target_file = LocalMaterialStorage(self.project_path).open(
+                _content_version_of(resource_type, resource_id, target_version)
+            )
 
             versions_existed = self.versions_file.is_file()
             versions_snapshot = self.versions_file.read_bytes() if versions_existed else None
@@ -1567,6 +1588,70 @@ class VersionManager:
             for record in records if isinstance(records, list) else ():
                 if isinstance(record, dict) and record.get("file") in snapshot_paths:
                     verify_version_snapshot(resource_type, resource_id, record, self.project_path / record["file"])
+
+    def ensure_content_version(self, resource_type: str, resource_id: str, version: int) -> ContentVersion:
+        """返回一条版本记录的内容版本，记录还没有身份或摘要时先补写。
+
+        补写只发生在早于内容版本身份的记录上：身份新生成，摘要取自此刻的快照，之后不再改变。
+        已有身份与摘要的记录不写盘。
+
+        Raises:
+            NotFoundError: 资源或版本不存在。
+            UnmanagedSnapshotPathError: 记录指向受管快照桶之外。
+            FileNotFoundError: 需要补写摘要而快照不在盘上。
+        """
+
+        if resource_type not in self.RESOURCE_TYPES:
+            raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
+
+        with self._lock:
+            data = self._load_versions()
+            resource_data = data.get(resource_type, {}).get(resource_id)
+            if not isinstance(resource_data, dict):
+                raise NotFoundError("version_resource_not_found", resource_type=resource_type, resource_id=resource_id)
+            record = next(
+                (
+                    item
+                    for item in resource_data.get("versions", [])
+                    if isinstance(item, dict) and item.get("version") == version
+                ),
+                None,
+            )
+            if record is None:
+                raise NotFoundError("version_not_found", version=version)
+            snapshot = self._resolve_snapshot(resource_type, record)
+            changed = False
+            if not isinstance(record.get(CONTENT_VERSION_ID), str):
+                record[CONTENT_VERSION_ID] = new_content_version_id()
+                changed = True
+            if not isinstance(record.get(CONTENT_DIGEST), str):
+                record[CONTENT_DIGEST] = sha256_file(snapshot)
+                changed = True
+            if changed:
+                self._save_versions(data)
+            return _content_version_of(resource_type, resource_id, record)
+
+    def find_content_version(self, resource_type: str, content_version_id: str) -> ContentVersion | None:
+        """按内容版本身份查找它此刻的版本记录；资源改名会移动快照并改写记录，身份不变。
+
+        找不到（版本历史已删除）时返回 ``None``。
+
+        Raises:
+            UnmanagedSnapshotPathError: 记录指向受管快照桶之外。
+        """
+
+        if resource_type not in self.RESOURCE_TYPES:
+            raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
+
+        with self._lock:
+            bucket = self._load_versions().get(resource_type)
+        for resource_id, history in bucket.items() if isinstance(bucket, dict) else ():
+            records = history.get("versions") if isinstance(history, dict) else None
+            for record in records if isinstance(records, list) else ():
+                if isinstance(record, dict) and record.get(CONTENT_VERSION_ID) == content_version_id:
+                    self._resolve_snapshot(resource_type, record)
+                    return _content_version_of(resource_type, resource_id, record)
+        return None
 
     def update_version_metadata(self, resource_type: str, resource_id: str, version: int, **metadata) -> bool:
         """为既有版本记录补写元数据键（覆盖同名键）。
