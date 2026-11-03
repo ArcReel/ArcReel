@@ -27,6 +27,7 @@ from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
 from lib.infra.json_io import domain_error_on_value_error
+from lib.material.formal_objects import formal_commit
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
 from lib.script.grid.grid_access import ensure_grid_writable
@@ -534,7 +535,9 @@ async def upload_grid_image(
                         raise RuntimeError("grid upload metadata commit skipped staged activation")
                     return version_box[0]
 
-            version = await run_noninterruptible_sync(_commit)
+            # 新版本按全局存储选择保存；远端没有确认保存时不发布版本，宫格记录与选择保持不变
+            async with formal_commit(project_name):
+                version = await run_noninterruptible_sync(_commit)
 
         with project_change_source("webui"):
             from server.services.tasks.generation_tasks import emit_generation_success_batch

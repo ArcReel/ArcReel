@@ -39,12 +39,12 @@ from lib.config.resolver import ConfigResolver
 from lib.db import get_async_session
 from lib.db.base import utc_now
 from lib.db.models.asset_library import ProviderAssetLink
-from lib.db.models.object_storage import RelayObject
+from lib.db.models.object_storage import FormalObjectRef, RelayObject
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.async_thread import run_sync_transaction
-from lib.material.formal_objects import MATERIAL_STORAGE_TARGET_SETTING
+from lib.material.formal_objects import MATERIAL_STORAGE_TARGET_SETTING, formal_object_key
 from lib.project.asset_types import DERIVATIVES_FIELD
 from lib.project.project_manager import ProjectManager
 from server.agent_toolset.declaration import ToolDeclaration
@@ -953,6 +953,54 @@ async def test_import_into_an_asset_deleted_during_download_writes_nothing(api, 
     assert resp.status_code == 404, resp.text
     assert not sheet.exists()
     assert await _all_links(sessions) == []
+
+
+async def test_import_follows_the_storage_choice_and_keeps_the_original_bytes(
+    api, sessions, project, bucket, public_dns, monkeypatch
+):
+    """存储选择为对象存储时，导入的原图作为正式对象保存，关联属于这个远端版本；保存失败不发布版本、不留关联。"""
+    bind_session_factory(monkeypatch, sessions)
+    account_id = await _configure(sessions)
+    async with sessions() as session:
+        await SystemSettingRepository(session).set(MATERIAL_STORAGE_TARGET_SETTING, "object_storage")
+        await session.commit()
+    _upload_sheet(api, solid_png_bytes((200, 10, 10), size=(400, 400)))
+    buffer = BytesIO()
+    Image.new("RGB", (900, 900), (10, 10, 200)).save(buffer, format="PNG", compress_level=0)
+    original = buffer.getvalue()
+    assert len(original) > 2 * 1024 * 1024
+
+    control = ControlPlane(asset_status=[_active_image(), _active_image()])
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=control)
+        router.get(ASSET_URL).mock(return_value=httpx.Response(200, content=original))
+        resp = _import(api, account_id)
+        assert resp.status_code == 201, resp.text
+        before = _versions(api)
+        record = before["versions"][-1]
+        stored = record["storage"]
+        assert (stored["bucket"], stored["key"]) == (
+            "relay-bucket",
+            formal_object_key(record["content_digest"], ".png"),
+        )
+        assert bucket["objects"][("relay-bucket", stored["key"])] == original
+        sheet = project.get_project_path("demo") / "characters" / "Alice.png"
+        assert sheet.read_bytes() == original
+        [link] = await _all_links(sessions)
+        assert link.content_version_id == record["content_version_id"] == resp.json()["content_version"]["id"]
+        async with sessions() as session:
+            refs = (await session.execute(select(FormalObjectRef.content_version_id, FormalObjectRef.state))).all()
+        assert (record["content_version_id"], "active") in refs
+
+        bucket["fail_put"] = True
+        router.get(ASSET_URL).mock(
+            return_value=httpx.Response(200, content=solid_png_bytes((9, 9, 9), size=(400, 400)))
+        )
+        failed = _import(api, account_id, asset_id="asset-20261103-c")
+    assert failed.status_code == 502, failed.text
+    assert _versions(api) == before
+    assert sheet.read_bytes() == original
+    assert [kept.id for kept in await _all_links(sessions)] == [link.id]
 
 
 # ── 角色衍生图 ───────────────────────────────────────────────────────
