@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from collections.abc import Mapping
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 import openai
 
+from arcreel_catalog_core import ImageFacts
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES
 from lib.backends.image_backends.base import (
@@ -34,6 +36,9 @@ from lib.backends.transport_layer import TransportLayer
 from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
+
+if TYPE_CHECKING:
+    from arcreel_catalog_core import CatalogEntry
 
 logger = logging.getLogger(__name__)
 
@@ -88,23 +93,21 @@ def _resolve_openai_params(
     return params
 
 
-# gpt-image-2 输出 token 估算：官方「Calculating costs」计算器的公式，各质量档的基数取自同一处。
-# https://developers.openai.com/api/docs/guides/image-generation#calculating-costs
-_GPT_IMAGE_2_QUALITY_BASE = {"low": 16, "medium": 48, "high": 96}
+def _output_token_bases(entry: CatalogEntry | None) -> Mapping[str, int]:
+    """条目收录的输出 token 估算基数（质量档 → 基数）；对应不上条目、不是图片条目或没收录时为空。"""
+    if entry is None or not isinstance(entry.facts, ImageFacts):
+        return {}
+    return entry.facts.output_token_bases
 
 
-def _is_gpt_image_2(model: str) -> bool:
-    """``gpt-image-2`` 与它的日期快照（如 ``gpt-image-2-2026-04-21``），不含 2.5 等后续型号。"""
-    return model == "gpt-image-2" or model.startswith("gpt-image-2-")
+def estimate_output_tokens(size: str, quality: str, bases: Mapping[str, int]) -> int | None:
+    """按尺寸、质量档与条目上的质量档基数估一张图的输出 token；基数里没有这个质量档或尺寸不是宽x高时返回 ``None``。
 
-
-def estimate_gpt_image_2_output_tokens(size: str, quality: str) -> int | None:
-    """按尺寸与质量估 gpt-image-2 一张图的输出 token；质量不是 low / medium / high 或尺寸不是宽x高时返回 ``None``。
-
-    照搬官方计算器：短边方向的块数 = 质量基数 ÷ 宽高比（四舍五入，恰好 .5 取偶），块数 = 基数 × 短边块数，
-    token = ⌈块数 × (2,000,000 + 宽 × 高) ÷ 4,000,000⌉。
+    照搬官方「Calculating costs」计算器的公式（各质量档的基数由条目收录）：短边方向的块数 = 质量基数 ÷ 宽高比
+    （四舍五入，恰好 .5 取偶），块数 = 基数 × 短边块数，token = ⌈块数 × (2,000,000 + 宽 × 高) ÷ 4,000,000⌉。
+    https://developers.openai.com/api/docs/guides/image-generation#calculating-costs
     """
-    base = _GPT_IMAGE_2_QUALITY_BASE.get(quality)
+    base = bases.get(quality)
     width_text, sep, height_text = size.partition("x")
     if base is None or not sep or not width_text.isdigit() or not height_text.isdigit():
         return None
@@ -193,16 +196,17 @@ class OpenAIImageBackend:
 
     @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:
-        """预估用量：输出 token 按官方计算器公式估（目前只有 gpt-image-2）。
+        """预估用量：输出 token 按官方计算器公式与条目上的质量档基数估，条目没收录请求所用质量档时不报。
 
-        提示词文字 token 记 0：费用页与整批预估拿不到提示词，这部分会偏低。文字输出与缓存在 Images API 上
-        不发生，记 0。参考图的图片输入 token 无法从请求事实估出：没有参考图时记 0，有参考图时不报。
+        请求所用质量档由档位映射决定（请求结构，见 :func:`_resolve_openai_params`），基数取模型对应的条目
+        （``facts.entry``），不看模型名。提示词文字 token 记 0：费用页与整批预估拿不到提示词，这部分会偏低。
+        文字输出与缓存在 Images API 上不发生，记 0。参考图的图片输入 token 无法从请求事实估出：没有参考图时记 0，有参考图时不报。
         """
         params = _resolve_openai_params(facts.image_size, facts.aspect_ratio)
         quality = params.get("quality")
         output = (
-            estimate_gpt_image_2_output_tokens(params["size"], quality)
-            if quality is not None and _is_gpt_image_2(facts.model)
+            estimate_output_tokens(params["size"], quality, _output_token_bases(facts.entry))
+            if quality is not None
             else None
         )
         usage = _token_usage(

@@ -2635,8 +2635,16 @@ class TestUnpricedCosts:
 class TestImageBatchEstimate:
     """整批图片预估与结算同一个目录查询与计算器：用量由调用通道按请求事实推出。"""
 
-    async def test_openai_output_tokens_estimated_from_size_and_quality(self, db_factory):
+    async def test_openai_output_tokens_estimated_from_size_and_quality(self, db_factory, monkeypatch):
+        from lib.catalog import query
         from server.services.admission.cost_estimation import estimate_image_batch_cost
+        from tests.catalog_support import install_catalog, with_entry_facts
+
+        # 输出 token 按条目上的质量档基数估算；用例自己给出基数，不依赖出厂快照的收录情况
+        bases = {"low": 16, "medium": 48, "high": 96}
+        install_catalog(
+            monkeypatch, with_entry_facts(query.factory_snapshot(), "openai", "gpt-image-2", output_token_bases=bases)
+        )
 
         project = {
             "title": "T",

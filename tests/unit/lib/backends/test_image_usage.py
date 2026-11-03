@@ -10,6 +10,7 @@ from lib.backends.image_usage import estimate_builtin_image_usage
 from lib.billing.catalog_pricing import price_builtin_call
 from lib.billing.metering import Priced
 from lib.catalog import query as catalog
+from tests.catalog_support import install_catalog, with_entry_facts
 
 _IMAGE_PROVIDERS = sorted(provider for provider, media_type in PROVIDER_SPEC_REGISTRY if media_type == "image")
 
@@ -66,3 +67,17 @@ def test_unknown_reference_count_cannot_be_estimated_when_references_are_priced(
 def test_provider_without_image_channel_raises() -> None:
     with pytest.raises(ValueError, match="no builtin ProviderSpec"):
         estimate_builtin_image_usage("anthropic", ImageRequestFacts(model="x", aspect_ratio="9:16"))
+
+
+def test_output_tokens_are_estimated_from_the_bases_on_the_model_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """内置 OpenAI 的输出 token 估算读供应商模型所引条目上的质量档基数；条目没收录时不估算。"""
+    facts = ImageRequestFacts(model="gpt-image-2", aspect_ratio="1:1", image_size="1K", reference_count=0)
+    snapshot = catalog.factory_snapshot()
+
+    install_catalog(monkeypatch, with_entry_facts(snapshot, "openai", "gpt-image-2", output_token_bases={}))
+    assert "image_output_tokens" not in estimate_builtin_image_usage("openai", facts).quantities
+
+    bases = {"low": 16, "medium": 48, "high": 96}
+    install_catalog(monkeypatch, with_entry_facts(snapshot, "openai", "gpt-image-2", output_token_bases=bases))
+    # 1K → medium、1:1 → 1024x1024：官方计算器 1756 个输出 token
+    assert estimate_builtin_image_usage("openai", facts).quantities["image_output_tokens"] == 1756

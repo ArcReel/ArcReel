@@ -94,3 +94,26 @@ def test_custom_video_quote_carries_overridden_capabilities():
 
     assert plain.video_usage("kling-v3", request).dimensions["audio"] is False
     assert overridden.video_usage("kling-v3", request).dimensions["audio"] is True
+
+
+def test_custom_image_quote_estimates_output_tokens_from_the_bound_entry(monkeypatch: pytest.MonkeyPatch):
+    """不透明的模型 ID 绑定条目后，按条目上的质量档基数估输出 token，与内置同条目的模型一致。"""
+    from lib.backends.image_backends.base import ImageRequestFacts
+    from lib.catalog import query
+    from lib.custom_provider.endpoints import get_endpoint_spec
+    from lib.custom_provider.metering import CustomPriceSource
+    from lib.db.repositories.custom_provider_repo import CustomModelPricing
+    from tests.catalog_support import install_catalog, with_entry_facts
+
+    bases = {"low": 16, "medium": 48, "high": 96}
+    install_catalog(
+        monkeypatch, with_entry_facts(query.factory_snapshot(), "openai", "gpt-image-2", output_token_bases=bases)
+    )
+    facts = ImageRequestFacts(model="relay-image-xyz", aspect_ratio="1:1", image_size="1K", reference_count=0)
+    spec = get_endpoint_spec("openai-images")
+
+    bound = CustomPriceSource(CustomModelPricing(endpoint="openai-images", entry_binding="openai/gpt-image-2"), spec)
+    unbound = CustomPriceSource(CustomModelPricing(endpoint="openai-images"), spec)
+
+    assert bound.image_usage(facts).quantities["image_output_tokens"] == 1756
+    assert "image_output_tokens" not in unbound.image_usage(facts).quantities
