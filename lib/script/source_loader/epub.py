@@ -23,6 +23,10 @@ _DOCUMENT_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
 _DOCUMENT_EXTENSIONS = (".xhtml", ".html", ".htm")
 _NCX_MEDIA_TYPE = "application/x-dtbncx+xml"
 _OPS_NS = "http://www.idpf.org/2007/ops"
+# 读取条目时上传坏文件的常规结局：压缩数据损坏或 CRC 不符（zlib.error、BadZipFile）、
+# 条目截断（EOFError）、加密条目（RuntimeError）、不支持的压缩方式（NotImplementedError）、
+# 本地文件头偏移错乱（ValueError、OSError）。
+_ZIP_READ_ERRORS = (zipfile.BadZipFile, zlib.error, EOFError, RuntimeError, NotImplementedError, ValueError, OSError)
 
 
 class _EpubFormatError(Exception):
@@ -66,14 +70,18 @@ class _Archive:
     def read(self, name: str) -> bytes:
         if name not in self._names:
             raise _EpubFormatError(f"缺少文件 {name}")
-        return self._zf.read(name)
+        try:
+            return self._zf.read(name)
+        except _ZIP_READ_ERRORS as exc:
+            raise _EpubFormatError(f"{name} 读取失败: {exc}") from exc
 
     def xml(self, name: str) -> ET.Element:
         # EPUB 来自用户上传，按不可信输入处理：标准库解析器不加载外部 DTD 与外部实体，
         # 实体膨胀（billion laughs）由 expat ≥ 2.4.1 的放大保护拦截，均表现为 ParseError。
+        # 声明了未知编码（encoding="bogus"）时抛 LookupError。
         try:
             return ET.fromstring(self.read(name))
-        except ET.ParseError as exc:
+        except (ET.ParseError, LookupError) as exc:
             raise _EpubFormatError(f"{name} 不是合法的 XML: {exc}") from exc
 
 
@@ -168,18 +176,8 @@ class EpubExtractor:
         try:
             with zipfile.ZipFile(path) as zf:
                 chapters = _read_book(_Archive(zf))
-        # 压缩数据损坏（zlib.error）、条目截断（EOFError）、加密条目（RuntimeError）、
-        # 不支持的压缩方式（NotImplementedError）都是上传坏文件时的常规结局。
-        except (
-            zipfile.BadZipFile,
-            zlib.error,
-            EOFError,
-            RuntimeError,
-            NotImplementedError,
-            OSError,
-            ValueError,
-            _EpubFormatError,
-        ) as exc:
+        # 条目读取错误已在 _Archive 内转成 _EpubFormatError；这里另外兜住打开 zip 本身的失败。
+        except (zipfile.BadZipFile, OSError, _EpubFormatError) as exc:
             raise CorruptFileError(filename=path.name, reason=f"EPUB 解析失败: {exc}") from exc
 
         if not chapters:
@@ -188,7 +186,8 @@ class EpubExtractor:
         parts: list[str] = []
         for idx, (title, content) in enumerate(chapters, start=1):
             soup = BeautifulSoup(content, "lxml")
-            body_text = soup.get_text("\n").strip()
+            # 只取 <body>：<head> 里的 <title> 等元数据不是正文。
+            body_text = (soup.body or soup).get_text("\n").strip()
             parts.append(f"\n\n# {title or f'第 {idx} 章'}\n\n{body_text}")
 
         return ExtractedText(

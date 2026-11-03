@@ -143,17 +143,18 @@ def test_epub_chapter_with_wrong_media_type_is_still_body(epub_factory, tmp_path
 
 def test_epub_corrupted_compressed_data_raises_corrupt(epub_factory, tmp_path):
     src = epub_factory([("第一章", "正文。" * 200)])
-    data = bytearray(src.read_bytes())
-    with zipfile.ZipFile(src) as zf:
-        info = zf.getinfo("OEBPS/chap_1.xhtml")
-    # 本地文件头固定 30 字节，其后是文件名与扩展字段，再往后才是压缩数据
-    payload_start = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
-    for offset in range(payload_start + 4, payload_start + 24):
-        data[offset] ^= 0xFF
-    broken = tmp_path / "bad_deflate.epub"
-    broken.write_bytes(bytes(data))
+    broken = _corrupt_member(src, tmp_path / "bad_deflate.epub", "OEBPS/chap_1.xhtml")
     with pytest.raises(CorruptFileError):
         EpubExtractor().extract(broken)
+
+
+def test_epub_corrupted_toc_entry_degrades_to_index_titles(epub_factory, tmp_path):
+    """目录文件在 zip 层损坏（压缩数据坏、CRC 不符）时只退化标题，正文照常抽取。"""
+    src = epub_factory([("第一章 起点", "正文一。")], toc="ncx")
+    broken = _corrupt_member(src, tmp_path / "bad_ncx.epub", "OEBPS/toc.ncx")
+    result = EpubExtractor().extract(broken)
+    assert "# 第 1 章" in result.text
+    assert "正文一" in result.text
 
 
 def test_epub_broken_ncx_falls_back_to_nav_titles(epub_factory, tmp_path):
@@ -167,6 +168,37 @@ def test_epub_broken_ncx_falls_back_to_nav_titles(epub_factory, tmp_path):
 def test_epub_broken_toc_degrades_to_index_titles(epub_factory, tmp_path):
     src = epub_factory([("第一章 起点", "正文一。")], toc="ncx")
     src = _rewrite_members(src, tmp_path / "broken_toc.epub", replace={"</navMap></ncx>": "</navMap>"})
+    result = EpubExtractor().extract(src)
+    assert "# 第 1 章" in result.text
+    assert "正文一" in result.text
+
+
+def test_epub_chapter_text_excludes_document_head(epub_factory):
+    """章节 <head><title> 不是正文，不得与 <h1> 重复出现。"""
+    src = epub_factory([("起点", "正文一。")])
+    result = EpubExtractor().extract(src)
+    # 一次来自注入的 "# 起点" 标记，一次来自正文 <h1>
+    assert result.text.count("起点") == 2
+
+
+def test_epub_package_with_unknown_xml_encoding_raises_corrupt(epub_factory, tmp_path):
+    src = epub_factory([("第一章", "正文。")])
+    src = _rewrite_members(
+        src,
+        tmp_path / "bogus_opf.epub",
+        replace={'<?xml version="1.0" encoding="utf-8"?><package': '<?xml version="1.0" encoding="bogus"?><package'},
+    )
+    with pytest.raises(CorruptFileError):
+        EpubExtractor().extract(src)
+
+
+def test_epub_toc_with_unknown_xml_encoding_degrades_to_index_titles(epub_factory, tmp_path):
+    src = epub_factory([("第一章 起点", "正文一。")], toc="ncx")
+    src = _rewrite_members(
+        src,
+        tmp_path / "bogus_ncx.epub",
+        replace={'<?xml version="1.0" encoding="utf-8"?><ncx': '<?xml version="1.0" encoding="bogus"?><ncx'},
+    )
     result = EpubExtractor().extract(src)
     assert "# 第 1 章" in result.text
     assert "正文一" in result.text
@@ -211,4 +243,17 @@ def _rewrite_members(
                     text = text.replace(old, new)
                 data = text.encode("utf-8")
             zout.writestr((rename or {}).get(info.filename, info.filename), data)
+    return out
+
+
+def _corrupt_member(src: Path, out: Path, name: str) -> Path:
+    """复制 EPUB 并改坏指定条目的压缩数据。"""
+    data = bytearray(src.read_bytes())
+    with zipfile.ZipFile(src) as zf:
+        info = zf.getinfo(name)
+    # 本地文件头固定 30 字节，其后是文件名与扩展字段，再往后才是压缩数据
+    payload_start = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
+    for offset in range(payload_start + 4, min(payload_start + 24, payload_start + info.compress_size)):
+        data[offset] ^= 0xFF
+    out.write_bytes(bytes(data))
     return out
