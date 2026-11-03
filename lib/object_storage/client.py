@@ -78,7 +78,11 @@ def _classify(exc: Exception) -> ObjectStorageError:
 
 
 class ObjectStorageClient:
-    """一条对象存储连接上的对象操作；方法都是异步的，SDK 调用在线程中执行。"""
+    """一条对象存储连接上的对象操作。
+
+    异步方法把 SDK 调用放进线程；``*_sync`` 方法供已经在工作线程里的同步事务直接调用（正式提交在版本锁内
+    上传），不得在事件循环线程上调用。
+    """
 
     def __init__(self, config: ObjectStorageConfig) -> None:
         if config.kind != "tos":
@@ -93,16 +97,16 @@ class ObjectStorageClient:
             self._sdk = create_sdk_client(self.config)
         return self._sdk
 
-    async def _run(self, fn_name: str, /, **kwargs: Any) -> Any:
-        def call() -> Any:
-            return getattr(self._client(), fn_name)(bucket=self.config.bucket, **kwargs)
-
+    def _call(self, fn_name: str, /, **kwargs: Any) -> Any:
         try:
-            return await asyncio.to_thread(call)
+            return getattr(self._client(), fn_name)(bucket=self.config.bucket, **kwargs)
         except ObjectStorageError:
             raise
         except Exception as exc:
             raise _classify(exc) from exc
+
+    async def _run(self, fn_name: str, /, **kwargs: Any) -> Any:
+        return await asyncio.to_thread(self._call, fn_name, **kwargs)
 
     async def check(self) -> None:
         """确认凭证有效、桶存在且可访问。"""
@@ -121,12 +125,14 @@ class ObjectStorageClient:
         return await asyncio.to_thread(read, output)
 
     async def head(self, key: str) -> ObjectInfo:
-        output = await self._run("head_object", key=key)
-        return ObjectInfo(
-            size=int(getattr(output, "content_length", 0) or 0),
-            etag=str(getattr(output, "etag", "") or ""),
-            content_type=getattr(output, "content_type", None),
-        )
+        return _object_info(await self._run("head_object", key=key))
+
+    def put_bytes_sync(self, key: str, data: bytes, *, content_type: str | None = None) -> str:
+        output = self._call("put_object", key=key, content=data, content_type=content_type)
+        return str(getattr(output, "etag", "") or "")
+
+    def head_sync(self, key: str) -> ObjectInfo:
+        return _object_info(self._call("head_object", key=key))
 
     async def delete(self, key: str) -> None:
         await self._run("delete_object", key=key)
@@ -139,6 +145,18 @@ class ObjectStorageClient:
             "pre_signed_url", http_method=HttpMethodType.Http_Method_Get, key=key, expires=expires_seconds
         )
         return str(output.signed_url)
+
+
+def _object_info(output: Any) -> ObjectInfo:
+    return ObjectInfo(
+        size=int(getattr(output, "content_length", 0) or 0),
+        etag=str(getattr(output, "etag", "") or ""),
+        content_type=getattr(output, "content_type", None),
+    )
+
+
+#: 图片后缀到 Content-Type。不用 mimetypes：它首次调用时读系统文件，会阻塞事件循环。
+IMAGE_CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
 
 def create_sdk_client(config: ObjectStorageConfig) -> Any:

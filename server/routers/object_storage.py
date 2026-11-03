@@ -2,14 +2,18 @@
 
 实例至多一条连接，首期只支持 TOS。连接只是配置：保存后不改变任何图片的保存位置。密钥只经本接口写入，
 读取返回掩码；测试连接的失败原因只带服务端错误码与原文摘要，不带签名或请求地址。
+
+连接上还有正式素材对象时，不能更换桶、Endpoint、区域或删除连接（旧对象会失去可读取的位置），只能更新访问密钥。
+另提供远端素材本地工作文件的清理入口，清理不删除对象存储里的任何对象。
 """
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Response
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, NonNegativeInt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
@@ -17,10 +21,13 @@ from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.models.object_storage import ObjectStorageConnection
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
-from lib.infra.api_errors import BadGatewayError, NotFoundError, UnprocessableError
+from lib.infra.api_errors import BadGatewayError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.logging_utils import redact_diagnostic_text
+from lib.material.formal_objects import live_object_count
+from lib.material.work_files import cleanup_work_cache
 from lib.object_storage.client import ObjectStorageError, is_s3_compatible_endpoint
 from lib.object_storage.connection import load_object_storage_client
+from lib.project.project_manager import get_project_manager
 
 router = APIRouter(prefix="/object-storage", tags=["Object Storage"])
 
@@ -62,6 +69,28 @@ class ObjectStorageTestResponse(BaseModel):
     success: bool
 
 
+class WorkCacheCleanupRequest(BaseModel):
+    """只清理闲置超过 ``min_idle_seconds`` 的工作文件；缺省为 0，正在使用的文件始终保留。"""
+
+    min_idle_seconds: NonNegativeInt = 0
+
+
+class WorkCacheCleanupResponse(BaseModel):
+    removed: int
+    freed_bytes: int
+    kept_in_use: int
+
+
+async def _ensure_connection_unused(session: AsyncSession, conn: ObjectStorageConnection) -> None:
+    count = await live_object_count(session, conn.id)
+    if count:
+        raise ConflictError("object_storage_connection_in_use", count=count)
+
+
+def _relocates(conn: ObjectStorageConnection, body: SaveObjectStorageConnectionRequest) -> bool:
+    return (conn.kind, conn.region, conn.endpoint, conn.bucket) != (body.kind, body.region, body.endpoint, body.bucket)
+
+
 def _to_response(conn: ObjectStorageConnection) -> ObjectStorageConnectionResponse:
     return ObjectStorageConnectionResponse(
         kind="tos",
@@ -89,8 +118,11 @@ async def save_connection(
     if is_s3_compatible_endpoint(body.endpoint):
         raise UnprocessableError("object_storage_s3_endpoint_unsupported")
     repo = ObjectStorageConnectionRepository(session)
-    if await repo.get() is None and (not body.access_key_id or not body.secret_access_key):
+    existing = await repo.get()
+    if existing is None and (not body.access_key_id or not body.secret_access_key):
         raise UnprocessableError("object_storage_keys_required")
+    if existing is not None and _relocates(existing, body):
+        await _ensure_connection_unused(session, existing)
     conn = await repo.save(
         kind=body.kind,
         region=body.region,
@@ -105,7 +137,11 @@ async def save_connection(
 
 @router.delete("/connection", status_code=204)
 async def delete_connection(session: AsyncSession = Depends(get_async_session)) -> Response:
-    if not await ObjectStorageConnectionRepository(session).delete():
+    repo = ObjectStorageConnectionRepository(session)
+    existing = await repo.get()
+    if existing is not None:
+        await _ensure_connection_unused(session, existing)
+    if not await repo.delete():
         raise NotFoundError("object_storage_not_configured")
     await session.commit()
     return Response(status_code=204)
@@ -133,3 +169,15 @@ async def check_connection(session: AsyncSession = Depends(get_async_session)) -
         diagnostic = {"code": exc.code, "status": exc.status_code, "message": redact_diagnostic_text(exc.message)}
         raise BadGatewayError(_TEST_FAILURE_KEYS[exc.kind]).with_diagnostic(diagnostic) from exc
     return ObjectStorageTestResponse(success=True)
+
+
+@router.post("/work-cache/cleanup", response_model=WorkCacheCleanupResponse)
+async def cleanup_cache(body: WorkCacheCleanupRequest | None = None) -> WorkCacheCleanupResponse:
+    """删除远端素材闲置的本地工作文件；需要时预览与读取会从对象存储重新取回。"""
+    request = body or WorkCacheCleanupRequest()
+    result = await cleanup_work_cache(
+        get_project_manager().projects_dir, min_idle=timedelta(seconds=request.min_idle_seconds)
+    )
+    return WorkCacheCleanupResponse(
+        removed=result.removed, freed_bytes=result.freed_bytes, kept_in_use=result.kept_in_use
+    )

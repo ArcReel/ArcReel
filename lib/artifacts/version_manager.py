@@ -28,10 +28,14 @@ from lib.infra.schema_guards import is_bool
 from lib.material.storage import (
     CONTENT_DIGEST,
     CONTENT_VERSION_ID,
+    STORAGE,
     ContentVersion,
     LocalLocator,
     LocalMaterialStorage,
     MaterialRef,
+    ObjectLocator,
+    PersistedContent,
+    active_new_content_storage,
     new_content_version_id,
     verify_content,
 )
@@ -76,6 +80,7 @@ def _content_version_of(resource_type: str, resource_id: str, record: Mapping[st
         id=content_version_id if isinstance(content_version_id, str) else None,
         digest=digest if isinstance(digest, str) else None,
         locator=LocalLocator(record["file"]),
+        stored=ObjectLocator.from_record(record.get(STORAGE)),
     )
 
 
@@ -101,19 +106,24 @@ def _new_version_record(
     metadata: Mapping[str, Any],
     previous_current_version: int,
     content_version_id: str | None = None,
+    stored: ObjectLocator | None = None,
 ) -> dict[str, Any]:
-    """Build one version record: a content version with its identity, digest and local locator.
+    """Build one version record: a content version with its identity, digest and persistent locator.
 
     A fresh identity is minted unless ``content_version_id`` carries one forward (a version restored
-    from the trash keeps its identity); identity and digest keys in ``metadata`` never override them.
-    ``digest`` is ``None`` only for a record without a persisted snapshot.
+    from the trash keeps its identity); identity, digest and storage keys in ``metadata`` never override
+    them. ``digest`` is ``None`` only for a record without a persisted snapshot. ``stored`` records a
+    remote persistent locator; without it ``rel_path`` is the local one.
     """
 
     record = {"version": version, "file": rel_path, "prompt": prompt, "created_at": created_at, **metadata}
     record[CONTENT_VERSION_ID] = content_version_id or new_content_version_id()
     record.pop(CONTENT_DIGEST, None)
+    record.pop(STORAGE, None)
     if digest is not None:
         record[CONTENT_DIGEST] = digest
+    if stored is not None:
+        record[STORAGE] = stored.to_record()
     record[_PREVIOUS_CURRENT_VERSION] = previous_current_version
     return record
 
@@ -274,15 +284,22 @@ class VersionManager:
             # 快照桶目录取自路径真相源：多段 id 的类型（角色衍生）落在嵌套子目录下。
             (self.project_path / version_snapshot_dir(resource_type)).mkdir(parents=True, exist_ok=True)
 
-    def _persist_snapshot(self, source: Path, rel_path: str, created_snapshots: list[Path]) -> str:
-        """经本地素材存储把 ``source`` 保存为版本快照 ``rel_path``，返回快照的内容摘要。
+    def _persist_snapshot(
+        self, resource_type: str, source: Path, rel_path: str, created_snapshots: list[Path]
+    ) -> PersistedContent:
+        """把 ``source`` 保存为新内容版本，返回保存后内容的摘要与持久定位。
 
+        默认经本地素材存储保存为版本快照 ``rel_path``；正式提交入口指定了新内容版本的保存方式时
+        （见 ``lib.material.storage.use_new_content_storage``）交给它，远端确认保存后才返回。
         快照路径先登记进 ``created_snapshots``，保存中途失败时调用方的回滚同样删除半截快照。
         """
 
         created_snapshots.append(self.project_path / rel_path)
         self._ensure_dirs()
-        return LocalMaterialStorage(self.project_path).persist(source, LocalLocator(rel_path))
+        storage = active_new_content_storage()
+        if storage is not None:
+            return storage.persist(self.project_path, resource_type, source, LocalLocator(rel_path))
+        return PersistedContent(LocalMaterialStorage(self.project_path).persist(source, LocalLocator(rel_path)))
 
     @classmethod
     def is_managed_snapshot_path(cls, resource_type: str, relative_path: object) -> bool:
@@ -396,6 +413,13 @@ class VersionManager:
         return info["current_version"]
 
     @contextmanager
+    def locked_history(self) -> Generator[dict[str, Any]]:
+        """持版本锁读取整份版本历史（只读）：读者在锁内核对记录后再动工作文件，不与正式提交交错。"""
+
+        with self._lock:
+            yield self._load_versions()
+
+    @contextmanager
     def locked_version_snapshot(self, resource_type: str, resource_id: str) -> Generator[dict[str, Any]]:
         """Keep one resource selection stable while a dependent read-model commit runs."""
 
@@ -450,15 +474,16 @@ class VersionManager:
             )
 
             # 如果有源文件，保存为版本快照
-            digest: str | None = None
+            persisted: PersistedContent | None = None
             if source_file and Path(source_file).exists():
-                digest = self._persist_snapshot(Path(source_file), version_rel_path, [])
+                persisted = self._persist_snapshot(resource_type, Path(source_file), version_rel_path, [])
 
             # 创建版本记录
             version_record = _new_version_record(
                 version=new_version,
                 rel_path=version_rel_path,
-                digest=digest,
+                digest=persisted.digest if persisted else None,
+                stored=persisted.stored if persisted else None,
                 prompt=prompt,
                 created_at=self._generate_iso_timestamp(),
                 metadata=metadata,
@@ -589,12 +614,13 @@ class VersionManager:
         rel_path = version_snapshot_relative_path(
             resource_type, resource_id, version=new_version, timestamp=self._generate_timestamp()
         )
-        digest = self._persist_snapshot(source, rel_path, created_snapshots)
+        persisted = self._persist_snapshot(resource_type, source, rel_path, created_snapshots)
         records.append(
             _new_version_record(
                 version=new_version,
                 rel_path=rel_path,
-                digest=digest,
+                digest=persisted.digest,
+                stored=persisted.stored,
                 prompt=prompt,
                 created_at=self._generate_iso_timestamp(),
                 metadata=metadata,
@@ -760,12 +786,13 @@ class VersionManager:
                 rel_path = version_snapshot_relative_path(
                     commit.resource_type, commit.resource_id, version=version, timestamp=timestamp
                 )
-                digest = self._persist_snapshot(source, rel_path, created_snapshots)
+                persisted = self._persist_snapshot(commit.resource_type, source, rel_path, created_snapshots)
                 records.append(
                     _new_version_record(
                         version=version,
                         rel_path=rel_path,
-                        digest=digest,
+                        digest=persisted.digest,
+                        stored=persisted.stored,
                         prompt=prompt,
                         created_at=self._generate_iso_timestamp(),
                         metadata=metadata,
@@ -905,12 +932,13 @@ class VersionManager:
                 rel_path = version_snapshot_relative_path(
                     resource_type, resource_id, version=version, timestamp=timestamp
                 )
-                digest = self._persist_snapshot(source, rel_path, created_snapshots)
+                persisted = self._persist_snapshot(resource_type, source, rel_path, created_snapshots)
                 records.append(
                     _new_version_record(
                         version=version,
                         rel_path=rel_path,
-                        digest=digest,
+                        digest=persisted.digest,
+                        stored=persisted.stored,
                         prompt=version_prompt,
                         created_at=self._generate_iso_timestamp(),
                         metadata=version_metadata,
@@ -1671,6 +1699,10 @@ class VersionManager:
         """
         if resource_type not in self.RESOURCE_TYPES:
             raise ValueError(f"不支持的资源类型: {resource_type}")
+        # 内容版本的三项事实只在保存时写下，元数据补写不改动它们
+        protected = {CONTENT_VERSION_ID, CONTENT_DIGEST, STORAGE} & metadata.keys()
+        if protected:
+            raise ValueError(f"version metadata cannot overwrite {sorted(protected)}")
 
         with self._lock:
             data = self._load_versions()

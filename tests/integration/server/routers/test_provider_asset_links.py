@@ -34,6 +34,7 @@ from lib.asset_library import importing, ingest, links
 from lib.asset_library.bindings import resolve_bound_scope
 from lib.asset_library.links import account_scope, scope_of, selected_link
 from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.repository import SystemSettingRepository
 from lib.config.resolver import ConfigResolver
 from lib.db import get_async_session
 from lib.db.base import utc_now
@@ -43,7 +44,7 @@ from lib.db.repositories.asset_library_repo import AssetLibraryRepository
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.async_thread import run_sync_transaction
-from lib.object_storage import client as storage_client
+from lib.material.formal_objects import MATERIAL_STORAGE_TARGET_SETTING
 from lib.project.asset_types import DERIVATIVES_FIELD
 from lib.project.project_manager import ProjectManager
 from server.agent_toolset.declaration import ToolDeclaration
@@ -58,7 +59,7 @@ from server.services.project.provider_asset_import import import_provider_asset
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import CallerContext, ProjectScope, Services
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import use_project_manager, use_upload_claim_registration
+from tests.fakes import bind_session_factory, use_object_storage_sdk, use_project_manager, use_upload_claim_registration
 from tests.http_capture import capture_http, request_json
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
 
@@ -79,6 +80,11 @@ class MemoryTos:
             raise _server_error(503, "ServiceUnavailable")
         self.state["objects"][(bucket, key)] = content
         return SimpleNamespace(etag="etag")
+
+    def head_object(self, *, bucket: str, key: str):
+        if (bucket, key) not in self.state["objects"]:
+            raise _server_error(404, "NoSuchKey")
+        return SimpleNamespace(content_length=len(self.state["objects"][(bucket, key)]), etag="etag")
 
     def pre_signed_url(self, *, bucket: str, key: str, expires: int, **_kwargs):
         self.state["presigned"].append((key, expires))
@@ -105,7 +111,7 @@ def bucket(monkeypatch) -> dict[str, Any]:
         "fail_put": False,
         "fail_delete": False,
     }
-    monkeypatch.setattr(storage_client, "create_sdk_client", lambda config: MemoryTos(state))
+    use_object_storage_sdk(monkeypatch, lambda config: MemoryTos(state))
     return state
 
 
@@ -325,6 +331,32 @@ async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessi
     # 签名地址与控制面密钥不进日志
     assert "X-Tos-Signature" not in caplog.text
     assert SK not in caplog.text
+
+
+async def test_formal_object_is_presigned_directly_and_never_swept_as_relay(api, sessions, bucket, monkeypatch):
+    """远端保存的正式图片入库时直接为固定内容版本签发地址：不写中转副本，中转清理也不会删除它。"""
+    bind_session_factory(monkeypatch, sessions)
+    account_id = await _configure(sessions)
+    async with sessions() as session:
+        await SystemSettingRepository(session).set(MATERIAL_STORAGE_TARGET_SETTING, "object_storage")
+        await session.commit()
+    _upload_sheet(api, solid_png_bytes((30, 60, 90), size=(400, 400)))
+    [(_bucket, formal_key)] = list(bucket["objects"])
+    assert formal_key.startswith("arcreel-materials/")
+
+    job = _start_upload(api, account_id)
+    control = ControlPlane(asset_status=[{"Status": "Active", "Name": "x", "AssetType": "Image"}])
+    t0 = utc_now()
+    await _run(sessions, control, t0)
+    assert [key for key, _expires in bucket["presigned"]] == [formal_key]
+    assert control.actions("CreateAsset")[0]["URL"].startswith(f"https://relay-bucket.tos.example/{formal_key}")
+    assert await _relays(sessions) == []
+
+    await _run(sessions, control, t0 + timedelta(minutes=10))
+    await _run(sessions, control, t0 + timedelta(hours=30))
+    assert (await _link(sessions, job["id"])).state == "active"
+    assert bucket["delete_calls"] == []
+    assert list(bucket["objects"]) == [("relay-bucket", formal_key)]
 
 
 async def test_unlink_releases_only_the_relation_and_late_result_does_not_restore_it(api, sessions, bucket):

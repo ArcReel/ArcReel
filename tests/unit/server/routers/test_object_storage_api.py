@@ -16,11 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from tos.exceptions import TosServerError
 
 from lib.db import get_async_session
-from lib.object_storage import client as storage_client
 from lib.object_storage.client import ObjectStorageClient, ObjectStorageConfig
 from server.error_handlers import register_error_handlers
 from server.routers import object_storage
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
+from tests.fakes import use_object_storage_sdk
 
 AK = "TEST-TOS-AK-0001"
 SK = "TEST-TOS-SECRET-0001"
@@ -64,7 +64,7 @@ def _server_error(status: int, code: str) -> TosServerError:
 def fake_tos(monkeypatch):
     FakeTos.instances = []
     state: dict[str, Exception | None] = {"fail": None}
-    monkeypatch.setattr(storage_client, "create_sdk_client", lambda config: FakeTos(config, state["fail"]))
+    use_object_storage_sdk(monkeypatch, lambda config: FakeTos(config, state["fail"]))
     return state
 
 

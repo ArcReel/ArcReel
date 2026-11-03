@@ -1,4 +1,4 @@
-"""对象存储连接与中转副本 ORM model。"""
+"""对象存储连接、中转副本与正式素材对象 ORM model。"""
 
 from __future__ import annotations
 
@@ -60,3 +60,59 @@ class RelayObject(TimestampMixin, Base):
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(128), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class FormalObject(TimestampMixin, Base):
+    """保存在用户对象存储里的正式素材对象：远端内容版本的持久定位指向它。
+
+    对象 key 按内容摘要命名（``arcreel-materials/`` 前缀，与中转副本分开），同一连接里同字节的内容版本共用一个
+    对象，归属由 :class:`FormalObjectRef` 记录。记录在上传之前创建，上传中途失败或进程退出也能找回定位。
+
+    ``state``：``uploading`` 已登记、远端尚未确认；``stored`` 远端已确认保存；``orphaned`` 本次提交新建、
+    确认没有任何引用，等待删除（失败时记下原因与下次重试时间）；``deleted`` 已删除。
+    ``created_attempt`` 是上传它的那次正式提交，失败补偿只删除本次提交新建的对象。
+    """
+
+    __tablename__ = "object_storage_formal_object"
+    __table_args__ = (
+        Index("uq_object_storage_formal_object_key", "connection_id", "bucket", "object_key", unique=True),
+        Index("ix_object_storage_formal_object_state_next", "state", "next_attempt_at"),
+        {"sqlite_autoincrement": True},
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    connection_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    endpoint: Mapped[str] = mapped_column(Text, nullable=False)
+    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    content_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="uploading")
+    created_attempt: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    delete_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class FormalObjectRef(TimestampMixin, Base):
+    """一条对正式素材对象的引用：某项目的一个内容版本使用它，或一次进行中的正式提交占用它。
+
+    ``state``：``pending`` 正式提交进行中（``attempt_id`` 是该提交），提交结算时按版本历史转为 ``active``
+    或删除；``active`` 版本历史中的内容版本 ``content_version_id`` 使用该对象。对象只要还有任何引用就不删除。
+    """
+
+    __tablename__ = "object_storage_formal_object_ref"
+    __table_args__ = (
+        Index("ix_object_storage_formal_object_ref_object", "object_id"),
+        Index("ix_object_storage_formal_object_ref_version", "project_name", "content_version_id"),
+        Index("ix_object_storage_formal_object_ref_attempt", "attempt_id"),
+        {"sqlite_autoincrement": True},
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    object_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    project_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    attempt_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
