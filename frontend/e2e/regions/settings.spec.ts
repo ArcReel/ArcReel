@@ -114,6 +114,7 @@ const REMOTE_STORAGE: ApiOverrides = {
       },
       new_image_target: "object_storage",
       retained_relay_objects: 12,
+      unreleased_image_objects: 0,
     },
   },
 };

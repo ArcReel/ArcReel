@@ -563,6 +563,8 @@ Choose **Upload to provider asset library** from the more-actions menu on a proj
 
 Relay copies in the bucket all live under the `arcreel-relay/` prefix and are cleaned up automatically by ArcReel. Once an upload has a result, its copy is kept for at least 1 hour after it was written and then deleted; if there is never a result, the copy is kept until 1 hour after the download URL expires. Failed deletions are retried automatically, and cleanup never touches other objects in the bucket. After you change the bucket or Endpoint of the object storage connection, relay copies left in the old bucket are no longer deleted automatically; remove them in the TOS console.
 
+When an image is already [saved to object storage](#remote-image-storage), no relay copy is written; the download URL is signed for that image in the bucket directly. If you delete the image in ArcReel and purge it while the upload is still in progress, the image in the bucket is kept for the same period so the provider can still fetch it, and is deleted only after that period if nothing else uses it.
+
 ### Select an Existing Image from an Asset Library {#select-from-asset-library}
 
 Choose **Select from provider asset library** from the more-actions menu on a project asset card or on a derivative in the character details to view the name, type, and availability of the assets in each account, and select an image that is already in the library to use as this asset image or derivative image. Selecting does not require object storage.
@@ -638,7 +640,7 @@ The bucket holds two kinds of objects, which are managed separately:
 | Prefix | Content | Cleanup |
 | --- | --- | --- |
 | `arcreel-relay/` | Relay copies for asset library uploads | Deleted in the background once the upload has a result or the download URL has expired; see [Upload Images to an Asset Library](#upload-to-asset-library) |
-| `arcreel-materials/` | Images saved to object storage, named by content, so identical images are stored once | Kept as long as version history, the trash, the global asset library, or another project still uses them; deleted by ArcReel once nothing uses them (for example, after permanently deleting from the trash) |
+| `arcreel-materials/` | Images saved to object storage, named by content, so identical images are stored once | Kept as long as version history, the trash, a deleted project, the global asset library, another project, or an upload in progress still uses them; deleted by ArcReel once nothing uses them (for example, after permanently deleting from the trash) |
 
 Do not delete or overwrite objects under `arcreel-materials/` in the TOS console; otherwise the corresponding images can no longer be previewed, generated from, or exported. Relay cleanup never touches these objects.
 
@@ -652,18 +654,21 @@ Each remote image has a local cache copy that preview, generation, and image pro
 
 **Backup and migration**
 
-- The content of remote images lives only in the bucket, so a backup of the ArcReel data directory does not include it. Keep the bucket as well once you enable remote storage.
+- The content of remote images lives only in the bucket, so a backup of the ArcReel data directory does not include it. Keep the bucket as well once you enable remote storage. ArcReel deletes image objects that are no longer used; to be able to restore an older backup, also back up the objects under `arcreel-materials/` in the bucket, or enable versioning on the bucket. See [Backup and Restore](../ops/deployment.md#backup-and-restore).
 - To move to another ArcReel instance, export a project ZIP. Before exporting, ArcReel fetches remote images whose cache has been cleaned up, so the ZIP contains the actual image content and no bucket name or access keys. The other instance saves these images again according to its own **Save new images to** setting.
 
 **Changing or deleting the connection**
 
-- While the bucket still holds image objects saved by ArcReel, the bucket, Endpoint, and region cannot be changed and the connection cannot be deleted; only the Access Key can be updated. This way existing images are always read from their original bucket and are never pointed at another bucket.
+- While the bucket still holds image objects that ArcReel is using or saving, the bucket, Endpoint, and region cannot be changed and the connection cannot be deleted; only the Access Key can be updated. This way existing images are always read from their original bucket and are never pointed at another bucket. Image objects left behind by failed saves and no longer used anywhere do not prevent changing or deleting the connection.
 - While **Save new images to** is **Object storage**, the connection cannot be deleted; switch it back to **Local** first.
-- While the bucket still holds relay copies that have not been cleaned up, the dialogs for editing and deleting the connection show how many. After you change the bucket or Endpoint, or delete the connection, those copies are no longer deleted automatically; remove them in the TOS console.
+- If the connection is changed while an image is being saved, that save fails and the previous image is kept; retry to save it to the new bucket.
+- While a project is being deleted or replaced by an import, images saved to that project fail; the project's existing images are not affected.
+- While the bucket still holds relay copies that have not been cleaned up, or image objects waiting to be deleted (left behind by failed saves, or no longer used), the dialogs for editing and deleting the connection show how many of each. After you change the bucket or Endpoint, or delete the connection, those objects are no longer deleted automatically; remove them in the TOS console.
 
 **Troubleshooting**
 
-- **"The image could not be saved to object storage"**: the new version does not appear, and earlier versions, artifacts, and files are unchanged. Use **Test connection** to check the connection, check the Access Key's upload permission and the network, and try again. You can also switch back to **Local** and keep working.
+- **"The image could not be saved to object storage"**: the new version does not appear, and earlier versions, artifacts, and files are unchanged. Use **Test connection** to check the connection, check the Access Key's upload permission and the network, and try again. You can also switch back to **Local** and keep working. If this message appears while importing a project ZIP, the import did not write any project; check the connection and import again.
+- **The region, Endpoint, or bucket is wrong and images keep failing to save**: first switch **Save new images to** back to **Local**, then edit the connection to correct it, or delete the connection and configure it again. Images that failed to save are not used anywhere and do not block the change. After the correction, the image objects waiting to be deleted that the dialog reports are no longer deleted automatically: if the Endpoint was unreachable, they were never written to the bucket and need no action; any that were written to the original bucket must be cleaned up in the TOS console. Do not bulk-delete objects by the `arcreel-materials/` prefix: if the bucket is the same before and after the correction, it contains images that are in use.
 - **"The image could not be retrieved from object storage" during preview, generation, or export**: the image's object in the bucket is missing, has been overwritten, or is temporarily unreachable. Check the network and read permission. If the object was deleted or overwritten, restore from the trash or another version, or generate or upload the image again.
 - **The image is saved in the original bucket, but the current connection was deleted or points to another bucket**: the connection's bucket or Endpoint no longer matches the settings used when the image was saved. Change the connection back to the original bucket and Endpoint to read it again.
 - **New images are set to be saved to object storage, but no connection is configured**: configure the connection, or switch **Save new images to** back to **Local**.

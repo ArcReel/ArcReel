@@ -42,6 +42,7 @@ from lib.material.global_library import (
     ensure_global_image,
     forget_global_images,
     global_image_commit,
+    library_entry_lock,
     library_holder,
     release_library_entry,
 )
@@ -272,7 +273,7 @@ async def create_asset(
 
     upload = await _read_upload(image, _t) if image is not None and image.filename else None
 
-    # 先保存图片再 create；任何失败路径都撤下引用、删掉已落盘的文件，保证 DB/磁盘一致。
+    # 先保存图片再 create；条目提交前失败时撤下引用与文件，提交后的响应失败不撤销图片。
     # 条目 id 先定下：图片的对象引用登记在这条条目名下。
     asset_id = str(uuid.uuid4())
     holder = library_holder(asset_id)
@@ -293,7 +294,7 @@ async def create_asset(
                         source_project=None,
                         **(saved.columns() if saved else NO_IMAGE_COLUMNS),
                     )
-                    await s.commit()
+                    await writer.commit(s)
                     await s.refresh(a)
                 except IntegrityError as exc:
                     await s.rollback()
@@ -340,7 +341,8 @@ async def update_asset(
 
 @router.delete("/{asset_id}", status_code=204)
 async def delete_asset(asset_id: str, _t: Translator):
-    async with async_session_factory() as s:
+    # 与换图串行：删除读到的图片就是条目最后的图片，并发换上的新图不会留在库存储里无人引用
+    async with library_entry_lock(asset_id), async_session_factory() as s:
         repo = AssetRepository(s)
         a = await repo.get_by_id(asset_id)
         if a:
@@ -367,40 +369,42 @@ async def replace_image(
     _t: Translator,
     image: UploadFile = File(...),
 ):
-    # 1) 先取资产并校验存在
-    async with async_session_factory() as s:
-        repo = AssetRepository(s)
-        a = await repo.get_by_id(asset_id)
-        if not a:
-            raise HTTPException(status_code=404, detail=_t("asset_not_found", name=asset_id))
-        old_image = GlobalImage.of(a)
-        asset_type = a.type
+    # 同一条目的换图串行：在锁内读取被换下的旧图，提交后撤下的正是它
+    async with library_entry_lock(asset_id):
+        # 1) 先取资产并校验存在
+        async with async_session_factory() as s:
+            repo = AssetRepository(s)
+            a = await repo.get_by_id(asset_id)
+            if not a:
+                raise HTTPException(status_code=404, detail=_t("asset_not_found", name=asset_id))
+            old_image = GlobalImage.of(a)
+            asset_type = a.type
 
-    # 2) 先校验并保存新图（会触发 415/413 校验）—— 旧文件仍完好
-    data, ext = await _read_upload(image, _t)
+        # 2) 先校验并保存新图（会触发 415/413 校验）—— 旧文件仍完好
+        data, ext = await _read_upload(image, _t)
 
-    # 3) 更新 DB；若写入失败则撤下新图的引用、清理已落盘的新文件（旧图保留）
-    holder = library_holder(asset_id)
-    async with global_image_commit(get_project_manager().data_root, holder) as writer:
-        try:
-            new_image = await run_sync_transaction(writer.save_bytes, data, asset_type, ext)
-            await writer.hold()
-            async with async_session_factory() as s:
-                repo = AssetRepository(s)
-                # 换图即换内容：旧图那份关联副本不属于新图
-                await delete_holder_links(s, project_name=holder, content_version_ids=_content_ids([old_image]))
-                a = await repo.update(asset_id, **new_image.columns())
-                await s.commit()
-                await s.refresh(a)
-                payload = await _serialize_one(repo, a)
-        except BaseException:
-            await _discard(writer)
-            raise
+        # 3) 更新 DB；若写入失败则撤下新图的引用、清理已落盘的新文件（旧图保留）
+        holder = library_holder(asset_id)
+        async with global_image_commit(get_project_manager().data_root, holder) as writer:
+            try:
+                new_image = await run_sync_transaction(writer.save_bytes, data, asset_type, ext)
+                await writer.hold()
+                async with async_session_factory() as s:
+                    repo = AssetRepository(s)
+                    # 换图即换内容：旧图那份关联副本不属于新图
+                    await delete_holder_links(s, project_name=holder, content_version_ids=_content_ids([old_image]))
+                    a = await repo.update(asset_id, **new_image.columns())
+                    await writer.commit(s)
+                    await s.refresh(a)
+                    payload = await _serialize_one(repo, a)
+            except BaseException:
+                await _discard(writer)
+                raise
 
-    # 4) DB 更新成功后才撤下旧图的引用、删除旧文件
-    await _forget_after_commit(holder, [old_image])
-    if old_image is not None and old_image.path != new_image.path:
-        await _delete_global_asset_files([old_image.path])
+        # 4) DB 更新成功后才撤下旧图的引用、删除旧文件
+        await _forget_after_commit(holder, [old_image])
+        if old_image is not None and old_image.path != new_image.path:
+            await _delete_global_asset_files([old_image.path])
 
     return {"asset": payload}
 
@@ -587,8 +591,24 @@ async def _store_from_project(
     resource: dict,
     located: tuple[_Source, list[tuple[str, str, _Source]], Path | None],
 ) -> dict:
-    sheet_source, derivative_sources, source_audio_path = located
     asset_name = _validate_asset_name(req.override_name or req.resource_id, _t)
+    async with async_session_factory() as s:
+        found = await AssetRepository(s).get_by_type_name(req.resource_type, asset_name)
+    if found is None:
+        return await _write_from_project(req, _t, resource, located, asset_name)
+    # 覆盖已有条目与换图串行：锁内重新读取条目，提交后撤下的是这次真正换下的图片
+    async with library_entry_lock(found.id):
+        return await _write_from_project(req, _t, resource, located, asset_name)
+
+
+async def _write_from_project(
+    req: FromProjectRequest,
+    _t: Translator,
+    resource: dict,
+    located: tuple[_Source, list[tuple[str, str, _Source]], Path | None],
+    asset_name: str,
+) -> dict:
+    sheet_source, derivative_sources, source_audio_path = located
     description = resource.get("description") or ""
     voice_style = resource.get("voice_style", "") if req.resource_type == "character" else ""
 
@@ -610,7 +630,7 @@ async def _store_from_project(
         )
 
     # 5) 把源图、衍生图存进库（按全局设置写本地或对象存储），参考音频拷到 global_assets/{type}/{uuid}.{ext}。
-    # 所有写入共用一个失败边界：任一步失败都撤下引用、清理已落盘的文件，不留孤儿。
+    # 所有写入共用提交前的失败边界：失败时撤下引用与文件，提交后的响应失败不撤销图片。
     has_images = sheet_source.path is not None or any(src.path is not None for _n, _d, src in derivative_sources)
     data_root = get_project_manager().data_root
     # 覆盖沿用已有条目的 id，新建先定下 id：图片的对象引用登记在这条条目名下
@@ -648,6 +668,7 @@ async def _store_from_project(
             try:
                 payload, stale_images = await _write_library_entry(
                     req,
+                    writer,
                     asset_id,
                     existing,
                     stale_derivatives,
@@ -679,6 +700,7 @@ async def _store_from_project(
 
 async def _write_library_entry(
     req: FromProjectRequest,
+    writer: GlobalImageWriter,
     asset_id: str,
     existing: Asset | None,
     stale_derivatives: Sequence[AssetDerivative],
@@ -736,7 +758,7 @@ async def _write_library_entry(
                 CHARACTER_DERIVATIVE_RESOURCE_TYPE,
                 derivative_artifact_id(a.id, derivative_name),
             )
-        await s.commit()
+        await writer.commit(s)
         await s.refresh(a)
         return await _serialize_one(repo, a), stale_images
 
@@ -773,6 +795,21 @@ class ApplyToProjectRequest(BaseModel):
     conflict_policy: str = "skip"  # 'skip' | 'overwrite' | 'rename'
 
 
+def _rejected_by_existing_name(project: dict, asset: Asset, conflict_policy: str) -> bool:
+    """条目按目标项目原有的资产名就会被跳过或判为失败（名字非法、skip 遇到同名、overwrite 遇到不可覆盖的同名）。
+
+    只看原有的名字：同批里前面的条目占用的名字由规划逐条判断，这里不提前排除，多取回一次也不影响结果。
+    """
+    try:
+        name = validate_asset_name(asset.name)
+    except ValueError:
+        return True
+    existing = find_project_asset_name(project, name)
+    if existing is None:
+        return False
+    return conflict_policy == "skip" or (conflict_policy == "overwrite" and not existing.is_entry(asset.type, name))
+
+
 @router.post("/apply-to-project")
 async def apply_to_project(
     req: ApplyToProjectRequest,
@@ -805,9 +842,14 @@ async def apply_to_project(
     failed.extend({"id": asset_id, "reason": "not_found"} for asset_id in asset_ids if asset_id not in assets_by_id)
 
     # 库里远端图片的工作文件可能已被清理：规划前先取回，应用完之前一直登记使用，清理不会删掉它们。
+    # 按目标项目已有的名字就能确定不会应用的条目不取回：跳过它们不需要访问对象存储。
     data_root = project_manager.data_root
     library_images = [
-        image for a in assets for image in _row_images(a, derivatives_by_asset.get(a.id, ())) if image is not None
+        image
+        for a in assets
+        if not _rejected_by_existing_name(project, a, req.conflict_policy)
+        for image in _row_images(a, derivatives_by_asset.get(a.id, ()))
+        if image is not None
     ]
     with contextlib.ExitStack() as holds:
         for image in library_images:

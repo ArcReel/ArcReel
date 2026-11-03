@@ -60,16 +60,16 @@ from tests.legacy_project_shapes import write_legacy_named_reference_bases_proje
 
 
 class _RetireRecorder:
-    """记下覆盖导入收尾的项目名，可在目录替换之后模拟提交失败。数据库那一半由导入路由的测试覆盖。"""
+    """记下覆盖导入收尾的项目目录名，可在目录替换之后模拟提交失败。数据库那一半由导入路由的测试覆盖。"""
 
     def __init__(self, *, fail_after_replace: bool = False) -> None:
         self.retired: list[str] = []
         self._fail_after_replace = fail_after_replace
 
     @contextmanager
-    def __call__(self, project_name: str) -> Generator[str]:
-        self.retired.append(project_name)
-        yield f"{project_name}#deleted-20261025T000000Z"
+    def __call__(self, project_dir: Path) -> Generator[str]:
+        self.retired.append(project_dir.name)
+        yield f"{project_dir.name}#deleted-20261025T000000Z"
         if self._fail_after_replace:
             raise RuntimeError("commit failed")
 

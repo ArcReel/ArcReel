@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from lib.artifacts.version_manager import VersionManager
 from lib.asset_library.bindings import account_scope, confirm_binding, get_bindable_credential
 from lib.asset_library.generation_inputs import choose_reference_image_assets, reference_image_sources
 from lib.backends.provider_assets import REFERENCE_IMAGE_ROLE, InferenceCredentialRef
@@ -444,8 +445,15 @@ async def test_failed_remote_import_installs_nothing_and_removes_new_objects(
 
         memory = bucket
         monkeypatch.setattr(bucket, "put_object", _second_put_fails)
-        failed = _import(other.api, archive)
+        failed = other.api.post(
+            "/api/v1/projects/import",
+            files={"file": ("demo.zip", archive, "application/zip")},
+            data={"confirm_report": "true"},
+            headers={"Accept-Language": "zh"},
+        )
         assert failed.status_code == 502, failed.text
+        # 新导入没有「原来的版本」：说明这次导入没有写入任何项目
+        assert failed.json()["detail"] == "图片没能保存到对象存储，这次导入没有写入任何项目。检查对象存储连接后重试"
         assert not other.projects.projects_dir.joinpath("demo").exists()
         assert bucket.objects == {}  # 第一张已保存的图片没有被任何版本引用，补偿删除
         async with file_db_factory() as session:
@@ -453,3 +461,50 @@ async def test_failed_remote_import_installs_nothing_and_removes_new_objects(
             states = [row.state for row in (await session.execute(select(FormalObject))).scalars()]
         assert states
         assert set(states) == {"deleted"}
+
+
+@pytest.mark.parametrize("target", ["local", "object_storage"])
+async def test_current_archive_of_a_generated_image_follows_the_target_storage(
+    monkeypatch, tmp_path, source_sessions, file_db_factory, target
+):
+    """仅当前版本的包裁掉了生成资产图的版本记录：导入到对象存储时补登内容版本并保存到目标桶；导入到本地时照旧不补登。"""
+    bucket = _memory_tos(monkeypatch)
+    with _source_instance(monkeypatch, tmp_path, source_sessions) as source:
+        _upload(source.api, IMAGE_A)
+        source_dir = source.projects.get_project_path("demo")
+        (source_dir / "characters" / "Alice.png").write_bytes(IMAGE_B)
+        VersionManager(source_dir).add_version(
+            "characters", "Alice", "generated portrait", source_file=source_dir / "characters" / "Alice.png"
+        )
+        response = _export(source.api, "current")
+        assert response.status_code == 200, response.text
+        archive = response.content
+    with zipfile.ZipFile(io.BytesIO(archive)) as package:
+        assert "Alice" not in json.loads(package.read("demo/versions/versions.json")).get("characters", {})
+
+    with _serving(monkeypatch, tmp_path / "target", file_db_factory) as other:
+        if target == "object_storage":
+            await _use_storage(file_db_factory, "object_storage", _connection(TARGET_BUCKET, TARGET_SK))
+        imported = _import(other.api, archive)
+        assert imported.status_code == 200, imported.text
+        versions = json.loads(
+            (other.projects.get_project_path("demo") / "versions" / "versions.json").read_text(encoding="utf-8")
+        )
+        if target == "local":
+            assert "Alice" not in versions.get("characters", {})
+            assert bucket.objects == {}
+            return
+
+        [record] = versions["characters"]["Alice"]["versions"]
+        assert record["content_digest"] == hashlib.sha256(IMAGE_B).hexdigest()
+        assert (record["storage"]["bucket"], record["storage"]["key"]) == (TARGET_BUCKET, _key(IMAGE_B))
+        assert list(bucket.objects) == [(TARGET_BUCKET, _key(IMAGE_B))]
+        async with file_db_factory() as session:
+            refs = list((await session.execute(select(FormalObjectRef))).scalars())
+        assert [(ref.project_name, ref.state, ref.content_version_id) for ref in refs] == [
+            ("demo", "active", record["content_version_id"])
+        ]
+        assert _cleanup(other.api) == 2
+        preview = other.api.get("/api/v1/files/demo/characters/Alice.png")
+        assert preview.status_code == 200
+        assert preview.content == IMAGE_B

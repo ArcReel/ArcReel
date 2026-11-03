@@ -85,7 +85,12 @@ def storage_api(db_engine: AsyncEngine) -> Generator[TestClient]:
         yield c
 
 
-_LOCAL_ONLY = {"connection": None, "new_image_target": "local", "retained_relay_objects": 0}
+_LOCAL_ONLY = {
+    "connection": None,
+    "new_image_target": "local",
+    "retained_relay_objects": 0,
+    "unreleased_image_objects": 0,
+}
 
 
 def test_local_only_instance_has_no_connection(storage_api: TestClient):

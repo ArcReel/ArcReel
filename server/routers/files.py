@@ -11,7 +11,7 @@ import os
 import shutil
 import stat
 import tempfile
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -308,8 +308,20 @@ _FORMAL_SHEET_UPLOAD_TYPES = frozenset(ASSET_SPECS)
 ALLOWED_EXTENSIONS = {upload_type: list(spec.allowed_exts) for upload_type, spec in UPLOAD_SPECS.items()}
 
 
+async def _media_work_files() -> AsyncIterator[ExitStack]:
+    # FileResponse 在路由返回后才打开文件，使用登记须保留到整个响应结束。
+    with ExitStack() as holds:
+        yield holds
+
+
 @public_router.get("/files/{project_name}/{path:path}")
-async def serve_project_file(project_name: str, path: str, request: Request, _t: Translator):
+async def serve_project_file(
+    project_name: str,
+    path: str,
+    request: Request,
+    _t: Translator,
+    holds: Annotated[ExitStack, Depends(_media_work_files, scope="request")],
+):
     """服务项目内的媒体文件（图片/视频/音频），范围见 ``is_public_media_path``
 
     图片可带 ``?w=`` 取 WebP 缩略图（档位与回退规则见 ``lib.infra.image_thumbnails``）；
@@ -359,13 +371,14 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
 
         thumbnail_width = snap_thumbnail_width(request.query_params.get("w"))
         project_manager, project_dir, resolved_path, relative_parts = await asyncio.to_thread(_resolve)
+        holds.enter_context(hold_work_file(resolved_path))
+        holds.enter_context(hold_work_file(project_dir.joinpath(*relative_parts)))
         if is_public_media_path(relative_parts):
             # 远端内容版本的工作文件被清理后，从对象存储取回再服务；取回失败返回明确的错误
             await ensure_work_file(project_dir, "/".join(relative_parts))
-        with hold_work_file(resolved_path):
-            file_path, stat_result, media_type = await asyncio.to_thread(
-                _sync, project_manager, project_dir, resolved_path, relative_parts
-            )
+        file_path, stat_result, media_type = await asyncio.to_thread(
+            _sync, project_manager, project_dir, resolved_path, relative_parts
+        )
 
         # 内容寻址缓存：带 ?v= 参数或 versions/ 路径时设 immutable，其余每次再验证
         immutable = bool(request.query_params.get("v")) or path.startswith("versions/")
@@ -382,7 +395,13 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
 
 
 @public_router.get("/global-assets/{asset_type}/{filename}")
-async def serve_global_asset(asset_type: str, filename: str, request: Request, _t: Translator):
+async def serve_global_asset(
+    asset_type: str,
+    filename: str,
+    request: Request,
+    _t: Translator,
+    holds: Annotated[ExitStack, Depends(_media_work_files, scope="request")],
+):
     """服务 global_assets 下的全局资产媒体文件（仅全局库类型：character/scene/prop）"""
     if asset_type not in GLOBAL_LIBRARY_ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_type"))
@@ -406,10 +425,11 @@ async def serve_global_asset(asset_type: str, filename: str, request: Request, _
         return path, stat_result, guess_media_type(path)
 
     data_root, resolved_path = await asyncio.to_thread(_resolve)
+    holds.enter_context(hold_work_file(resolved_path))
+    holds.enter_context(hold_work_file(data_root / GLOBAL_ASSETS_DIRNAME / asset_type / filename))
     # 库里远端图片的工作文件被清理后，从对象存储取回再服务
     await ensure_global_image(data_root, f"{GLOBAL_ASSETS_DIRNAME}/{asset_type}/{filename}")
-    with hold_work_file(resolved_path):
-        path, stat_result, media_type = await asyncio.to_thread(_sync, resolved_path)
+    path, stat_result, media_type = await asyncio.to_thread(_sync, resolved_path)
 
     # 文件名是 uuid，前端以 ?fp=<updated_at> 作版本键（?v= 同义）；带版本键即 immutable
     query = request.query_params
