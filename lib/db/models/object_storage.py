@@ -9,17 +9,25 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin
 
+#: 当前连接的 ``slot`` 值；唯一索引让实例同一时刻只有一条当前连接。
+CURRENT_CONNECTION_SLOT = 1
+
 
 class ObjectStorageConnection(TimestampMixin, Base):
     """用户自有对象存储的连接配置，独立于媒体生成供应商的凭证。
 
-    首期只有 TOS 一种 ``kind``，实例至多保存一条连接。``access_key_id`` / ``secret_access_key``
+    首期只有 TOS 一种 ``kind``，实例至多一条当前连接：``slot`` 为 1 且唯一，并发首次保存也只能建出一条。
+    ``slot`` 为空的是退役连接，只在迁移合并历史重复记录时为保留仍被引用的定位而留下，不作为当前连接读出。
+    ``access_key_id`` / ``secret_access_key``
     明文落库，读出 API 时经 ``mask_secret`` 掩码，与供应商凭证同一规则。删除的连接 ID 不回收：
     之后保存在对象存储里的内容按连接 ID 记录所属连接，复用 ID 会让旧定位指向另一个桶。
     """
 
     __tablename__ = "object_storage_connection"
-    __table_args__ = ({"sqlite_autoincrement": True},)
+    __table_args__ = (
+        Index("uq_object_storage_connection_slot", "slot", unique=True),
+        {"sqlite_autoincrement": True},
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -28,6 +36,7 @@ class ObjectStorageConnection(TimestampMixin, Base):
     bucket: Mapped[str] = mapped_column(String(255), nullable=False)
     access_key_id: Mapped[str] = mapped_column(Text, nullable=False)
     secret_access_key: Mapped[str] = mapped_column(Text, nullable=False)
+    slot: Mapped[int | None] = mapped_column(Integer, nullable=True, default=CURRENT_CONNECTION_SLOT)
 
 
 class RelayObject(TimestampMixin, Base):

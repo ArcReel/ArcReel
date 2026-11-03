@@ -1,6 +1,6 @@
 """对象存储连接配置 API。
 
-实例至多一条连接，首期只支持 TOS。连接只是配置：保存后不改变任何图片的保存位置。密钥只经本接口写入，
+实例至多一条连接（数据库唯一约束保证，并发首次保存时后到的请求按更新那一条处理），首期只支持 TOS。连接只是配置：保存后不改变任何图片的保存位置。密钥只经本接口写入，
 读取返回掩码；测试连接的失败原因只带服务端错误码与原文摘要，不带签名或请求地址。
 
 连接上还有正式素材对象时，不能更换桶、Endpoint、区域或删除连接（旧对象会失去可读取的位置），只能更新访问密钥。
@@ -14,6 +14,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Response
 from pydantic import AfterValidator, BaseModel, Field, NonNegativeInt
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
@@ -118,6 +119,16 @@ async def save_connection(
         raise UnprocessableError("object_storage_fields_required")
     if is_s3_compatible_endpoint(body.endpoint):
         raise UnprocessableError("object_storage_s3_endpoint_unsupported")
+    try:
+        conn = await _save_connection(session, body)
+    except IntegrityError:
+        # 另一请求同时首次保存，已建出唯一的当前连接：回滚后按更新那一条重做一次，校验照常进行。
+        await session.rollback()
+        conn = await _save_connection(session, body)
+    return _to_response(conn)
+
+
+async def _save_connection(session: AsyncSession, body: SaveObjectStorageConnectionRequest) -> ObjectStorageConnection:
     repo = ObjectStorageConnectionRepository(session)
     existing = await repo.get()
     if existing is None and (not body.access_key_id or not body.secret_access_key):
@@ -133,7 +144,7 @@ async def save_connection(
         secret_access_key=body.secret_access_key or None,
     )
     await session.commit()
-    return _to_response(conn)
+    return conn
 
 
 @router.delete("/connection", status_code=204)
