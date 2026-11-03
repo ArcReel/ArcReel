@@ -186,7 +186,10 @@ class CustomPriceSource:
         )
 
     def image_usage(self, facts: ImageRequestFacts) -> Usage:
-        """一次图片请求的预估用量。"""
+        """一次图片请求的预估用量。调用通道按模型对应的条目（条目绑定优先）估算，与执行时工厂交给调用通道的条目同一个。"""
+        from lib.custom_provider.model_facts import model_entry
+
+        facts = replace(facts, entry=model_entry(facts.model, "image", self.pricing.entry_binding))
         return custom_image_estimate(self.endpoint_spec.metering_backend if self.endpoint_spec else None, facts)
 
     def price(
