@@ -1,11 +1,11 @@
-# ⏳ 时限模块：2026-06-21 后整体移除（含本文件的 legacy 别名表）。
+# 长期保留的 schema_version=1 迁移，与 v0→v1 一样不随时间移除。
 #
-# 不同于永久性的 v0→v1，这是一次性「干净断裂」迁移：把存量 project.json 里的 legacy
-# provider 名（gemini/aistudio/vertex/seedance）一次性归一化为规范 id，并把 legacy 单字段
-# image_backend 拆为 image_provider_t2i/i2i，此后解析链假设输入即规范 id、不再做读时归一化。
+# 把存量 project.json 里的 legacy provider 名（gemini/aistudio/vertex/seedance）归一化为规范 id，
+# 并把 legacy 单字段 image_backend 拆为 image_provider_t2i/i2i。此后解析链假设输入即规范 id、
+# 不再做读时归一化。
 #
-# 移除本模块时需一并确认：① 无其他代码引用 _LEGACY_PROVIDER_ALIASES；② 取舍——届时仍停留在
-# schema_version=1 的项目（如旧备份/旧导出包还原）将不再自动迁移（已接受）。
+# 保留原因：迁移链不能断。缺少这一步时 runner 会抛 `no migrator from v1`，v0 项目升级也必须
+# 经过 v1→v2；v0/v1 项目以及旧导出包、旧备份的还原都依赖它。
 """v1→v2 迁移：归一化 legacy provider 名 + 拆分 legacy image_backend 字段。"""
 
 from __future__ import annotations
