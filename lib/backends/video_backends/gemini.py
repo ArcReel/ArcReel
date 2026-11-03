@@ -186,14 +186,13 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         列为并列模式。Veo 3.1 系列的首帧/尾帧/参考图三维一致，按名字族认定；其余名字取 name_family 的
         统一回落。instance property 委托至此，保持 backend 为单一真相源。
 
-        音轨形态按 model_id 分派：Veo 成片恒带音轨，只有 Vertex 的请求带 ``generate_audio`` 开关
+        音轨形态按对应条目的名字分派：Veo 成片恒带音轨，只有 Vertex 的请求带 ``generate_audio`` 开关
         （见 ``_create_task``），AI Studio 的不带、开关无处可下发。registry 名 ``gemini`` 同时服务
-        gemini-vertex 与 gemini-aistudio，静态查询只拿得到 model_id，故判据落在 model_id 上——两家
-        目录的 model 命名不重叠，未登记的 Veo model 保守按「有音轨、无开关」声明。
+        gemini-vertex 与 gemini-aistudio，静态查询按两家互不重叠的条目名字判定；无对应条目时回落 API 名，
+        未登记的 Veo model 保守按「有音轨、无开关」声明。
         """
-        # 音轨开关按 API 模型名或所对应条目的名字认定：绑定 Vertex 条目的不透明模型同样可控。实际是否下发开关仍由
-        # backend_type 决定（见 generate 与 _create_task），AI Studio 不会因此发出静音请求。
-        names = {model, *capability_names(model, entry)}
+        # 显式绑定优先于 API 名；实际是否下发开关仍由 backend_type 决定，AI Studio 不会因此发出静音请求。
+        names = set(capability_names(model, entry))
         audio_track = VideoAudioMode.CONTROLLABLE if names & _AUDIO_SWITCH_MODELS else VideoAudioMode.ALWAYS_ON
 
         def match(name: str) -> VideoCapabilities | None:

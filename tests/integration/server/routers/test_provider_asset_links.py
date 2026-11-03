@@ -7,8 +7,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import threading
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -28,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from tos.exceptions import TosServerError
 
 from lib.artifacts import version_manager
-from lib.asset_library import importing, ingest
+from lib.asset_library import importing, ingest, links
 from lib.asset_library.bindings import resolve_bound_scope
 from lib.asset_library.links import account_scope, scope_of, selected_link
 from lib.config.registry import PROVIDER_REGISTRY
@@ -40,6 +42,7 @@ from lib.db.models.object_storage import RelayObject
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
+from lib.infra.async_thread import run_sync_transaction
 from lib.object_storage import client as storage_client
 from lib.project.asset_types import DERIVATIVES_FIELD
 from lib.project.project_manager import ProjectManager
@@ -50,6 +53,8 @@ from server.agent_toolset.toolset import AGENT_TOOLSET
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import asset_library, derivative_uploads, files, provider_asset_links, versions
+from server.services.currency import upload_finalize
+from server.services.project.provider_asset_import import import_provider_asset
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import CallerContext, ProjectScope, Services
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -58,7 +63,8 @@ from tests.http_capture import capture_http, request_json
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
 
 VOLC_HOST = "https://ark.cn-beijing.volcengineapi.com/"
-SK = "controlplane-secret-access-key-0003"
+SK = "TEST-CONTROLPLANE-SECRET-0003"
+TOS_SK = "TEST-TOS-SECRET-0003"
 LINKS = "/api/v1/projects/demo/provider-asset-links"
 
 
@@ -184,7 +190,7 @@ async def _configure(sessions: async_sessionmaker[AsyncSession], *, object_stora
                 endpoint="tos-cn-beijing.volces.com",
                 bucket="relay-bucket",
                 access_key_id="TEST-TOS-AK-0003",
-                secret_access_key="tos-secret-0003",
+                secret_access_key=TOS_SK,
             )
         account = await AssetLibraryRepository(session).create_account(
             site="volcengine",
@@ -348,6 +354,25 @@ async def test_unlink_releases_only_the_relation_and_late_result_does_not_restor
     # 解除后可以重新上传，得到新的入库任务
     again = _start_upload(api, account_id)
     assert again["id"] != job["id"]
+
+
+async def test_pending_upload_reads_the_content_version_after_its_resource_is_renamed(api, sessions, bucket, project):
+    """入库在途时资源改名：快照随版本历史移到新路径，任务按内容版本身份读到原内容，不判为内容不可用。"""
+    account_id = await _configure(sessions)
+    image = solid_png_bytes((40, 80, 120), size=(400, 400))
+    _upload_sheet(api, image)
+    job = _start_upload(api, account_id)
+    frozen = (await _link(sessions, job["id"])).locator_path
+
+    vm = version_manager.VersionManager(project.get_project_path("demo"))
+    assert vm.rename_resource("characters", "Alice", "Alicia") == 1
+    assert not (project.get_project_path("demo") / frozen).exists()
+
+    control = ControlPlane(asset_status=[{"Status": "Active"}])
+    await _run(sessions, control, utc_now())
+    link = await _link(sessions, job["id"])
+    assert (link.state, link.error_code) == ("processing", None)
+    assert list(bucket["objects"].values()) == [image]
 
 
 async def test_unlinked_before_submit_never_reaches_the_provider(api, sessions, bucket):
@@ -528,11 +553,46 @@ async def test_provider_rejection_keeps_reason_and_relay_is_cleaned_with_retry(a
     assert (relay.state, relay.last_error, relay.delete_attempts) == ("retained", "provider:InternalError", 1)
     await _run(sessions, control, t0 + timedelta(hours=2, minutes=1))
     assert len(bucket["delete_calls"]) == 1  # 退避期内不重试
+    # 删除重试次数累积很多后，退避仍停在上限，不因溢出中断整轮处理
+    async with sessions() as session:
+        stored = await session.get(RelayObject, relay.id)
+        assert stored is not None
+        stored.delete_attempts = 100
+        stored.next_attempt_at = t0 + timedelta(hours=2)
+        await session.commit()
+    await _run(sessions, control, t0 + timedelta(hours=2, minutes=2))
+    [relay] = await _relays(sessions)
+    assert relay.delete_attempts == 101
+    assert relay.next_attempt_at is not None
+    assert ingest._aware(relay.next_attempt_at) == t0 + timedelta(hours=8, minutes=2)
     bucket["fail_delete"] = False
-    await _run(sessions, control, t0 + timedelta(hours=3))
+    await _run(sessions, control, t0 + timedelta(hours=9))
     [relay] = await _relays(sessions)
     assert relay.state == "deleted"
     assert bucket["objects"] == {}
+
+
+async def test_long_running_status_backoff_stays_capped_instead_of_overflowing(api, sessions, bucket):
+    """状态查询次数累积很多后，退避仍停在上限，不因溢出中断整轮处理。"""
+    account_id = await _configure(sessions)
+    _upload_sheet(api, solid_png_bytes((9, 9, 9), size=(400, 400)))
+    job = _start_upload(api, account_id)
+    control = ControlPlane(asset_status=[{"Status": "Processing"}])
+    t0 = utc_now()
+    await _run(sessions, control, t0)
+    async with sessions() as session:
+        link = await session.get(ProviderAssetLink, job["id"])
+        assert link is not None
+        link.check_attempts = 60
+        link.next_check_at = t0
+        await session.commit()
+
+    at = t0 + timedelta(minutes=30)
+    await _run(sessions, ControlPlane(asset_status=[{"Status": "Processing"}]), at)
+    link = await _link(sessions, job["id"])
+    assert link.state == "processing"
+    assert link.next_check_at is not None
+    assert ingest._aware(link.next_check_at) == at + ingest.CHECK_MAX_INTERVAL
 
 
 async def test_definite_create_failure_and_relay_upload_failure(api, sessions, bucket):
@@ -554,6 +614,33 @@ async def test_definite_create_failure_and_relay_upload_failure(api, sessions, b
     await _run(sessions, control, utc_now())
     link = await _link(sessions, retry["id"])
     assert (link.state, link.error_code, link.provider_asset_id) == ("failed", "InvalidParameter", None)
+
+
+async def test_overlong_provider_error_code_still_settles_the_submission(api, sessions, bucket):
+    """供应商返回超过列宽的错误码：截断后落账，任务不停在 submitting。"""
+    account_id = await _configure(sessions)
+    _upload_sheet(api, solid_png_bytes((2, 2, 2), size=(400, 400)))
+    job = _start_upload(api, account_id)
+    control = ControlPlane(create_error={"Code": "X" * 200, "Message": "bad"})
+    await _run(sessions, control, utc_now())
+    link = await _link(sessions, job["id"])
+    assert (link.state, link.error_code) == ("failed", "X" * 128)
+
+
+async def test_concurrent_upload_of_the_same_version_is_a_conflict(api, sessions, bucket, monkeypatch):
+    """先查后写之间另一请求已选定同一范围：唯一索引拦下的写入报 409，不是服务器错误。"""
+    account_id = await _configure(sessions)
+    _upload_sheet(api, solid_png_bytes((3, 3, 3), size=(400, 400)))
+    first = _start_upload(api, account_id)
+
+    async def _missed(*_args, **_kwargs):
+        return None
+
+    with monkeypatch.context() as patch:
+        patch.setattr(links, "selected_link", _missed)
+        resp = api.post(LINKS, json={"resource_type": "characters", "resource_id": "Alice", "account_id": account_id})
+    assert resp.status_code == 409, resp.text
+    assert [link["id"] for link in _panel(api)["links"]] == [first["id"]]
 
 
 async def test_relay_is_not_deleted_after_the_connection_moves_to_another_bucket(api, sessions, bucket):
@@ -767,6 +854,29 @@ async def test_import_that_cannot_get_real_content_is_refused(
     assert await _all_links(sessions) == []
 
 
+async def test_import_refuses_a_hostname_that_resolves_to_a_private_address(api, sessions, monkeypatch):
+    """素材地址的主机名解析到私网地址：不发下载请求，拒绝导入，原选中版本不变，不留下关联。"""
+
+    async def _resolve(host: str, port: int) -> list[str]:
+        return ["10.0.0.1"]
+
+    monkeypatch.setattr(importing, "resolve_host", _resolve)
+    account_id = await _configure(sessions, object_storage=False)
+    _upload_sheet(api, solid_png_bytes((1, 2, 3), size=(400, 400)))
+    before = _versions(api)
+
+    control = ControlPlane(asset_status=[_active_image()])
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=control)
+        route = router.get(ASSET_URL).mock(return_value=httpx.Response(200))
+        resp = _import(api, account_id)
+
+    assert resp.status_code == 502, resp.text
+    assert not route.called
+    assert _versions(api) == before
+    assert await _all_links(sessions) == []
+
+
 @pytest.mark.parametrize("fail", [_fail_claim, _fail_after_link], ids=["claim-fails", "fails-after-link-recorded"])
 async def test_import_commit_failure_keeps_selected_version_and_no_link(
     api, sessions, project, public_dns, monkeypatch, fail
@@ -789,6 +899,27 @@ async def test_import_commit_failure_keeps_selected_version_and_no_link(
 
     assert (project.get_project_path("demo") / "characters" / "Alice.png").read_bytes() == image_a
     assert _versions(api) == before
+    assert await _all_links(sessions) == []
+
+
+async def test_import_into_an_asset_deleted_during_download_writes_nothing(api, sessions, project, public_dns):
+    """取图期间资产被删除：导入报不存在，不在原路径留下图片，资产从回收站恢复时仍落回原名。"""
+    account_id = await _configure(sessions, object_storage=False)
+    sheet = project.get_project_path("demo") / "characters" / "Alice.png"
+    assert not sheet.exists()
+
+    async def _download(_request: httpx.Request) -> httpx.Response:
+        await run_sync_transaction(project.delete_asset, "demo", "characters", "Alice")
+        return httpx.Response(200, content=solid_png_bytes((9, 9, 9), size=(400, 400)))
+
+    control = ControlPlane(asset_status=[_active_image()])
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=control)
+        router.get(ASSET_URL).mock(side_effect=_download)
+        resp = _import(api, account_id)
+
+    assert resp.status_code == 404, resp.text
+    assert not sheet.exists()
     assert await _all_links(sessions) == []
 
 
@@ -890,6 +1021,59 @@ async def test_derivative_import_saves_original_pixels_as_uploaded_version_with_
     assert _derivative_panel(api)["links"] == []
     assert (await _link(sessions, link["id"])).selected is False
     assert (project.get_project_path("demo") / DERIVATIVE_SHEET).read_bytes() == saved
+
+
+@pytest.mark.parametrize("is_derivative", [False, True], ids=["asset-sheet", "derivative"])
+async def test_import_cancellation_after_link_preserves_committed_image_and_link(
+    api, sessions, project, derivative, public_dns, monkeypatch, is_derivative
+):
+    """正式提交后的取消不能把已经生效的关联当作孤儿删除。"""
+    account_id = await _configure(sessions, object_storage=False)
+    original = solid_png_bytes((10, 10, 200), size=(400, 400))
+    entered = asyncio.Event()
+    release = threading.Event()
+    loop = asyncio.get_running_loop()
+    module = upload_finalize if is_derivative else version_manager
+    name = "emit_generation_success_batch" if is_derivative else "record_project_activity"
+    finish = getattr(module, name)
+
+    def pause_after_commit(*args, **kwargs):
+        result = finish(*args, **kwargs)
+        loop.call_soon_threadsafe(entered.set)
+        assert release.wait(timeout=10), "test did not release the commit thread"
+        return result
+
+    monkeypatch.setattr(module, name, pause_after_commit)
+    target = DERIVATIVE if is_derivative else {"resource_type": "characters", "resource_id": "Alice"}
+    control = ControlPlane(asset_status=[_active_image()])
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=control)
+        router.get(ASSET_URL).mock(return_value=httpx.Response(200, content=original))
+        async with sessions() as session:
+            task = asyncio.create_task(
+                import_provider_asset(
+                    session,
+                    project_name="demo",
+                    **target,
+                    account_id=account_id,
+                    asset_id="asset-20261103-b",
+                    manager=project,
+                )
+            )
+            try:
+                await asyncio.wait_for(entered.wait(), timeout=10)
+                task.cancel()
+            finally:
+                release.set()
+            [result] = await asyncio.gather(task, return_exceptions=True)
+
+    sheet = DERIVATIVE_SHEET if is_derivative else Path("characters/Alice.png")
+    assert (project.get_project_path("demo") / sheet).read_bytes() == original
+    panel = _derivative_panel(api) if is_derivative else _panel(api)
+    [link] = await _all_links(sessions)
+    assert link.content_version_id == panel["content_version"]["id"]
+    assert [shown["id"] for shown in panel["links"]] == [link.id]
+    assert not isinstance(result, BaseException)
 
 
 async def test_derivative_import_failing_after_link_keeps_selected_version_and_no_link(
@@ -1026,7 +1210,7 @@ async def test_agent_uploads_only_on_explicit_request_and_shares_the_web_links(a
     for result in (started, again, embedded, remote, released):
         text = _tool_text(result)
         assert SK not in text
-        assert "tos-secret" not in text
+        assert TOS_SK not in text
         assert "X-Tos-Signature" not in text
 
 
@@ -1099,3 +1283,18 @@ async def test_agent_selects_a_library_image_for_a_character_derivative(
     assert _derivative_versions(api)["versions"][-1]["source"] == "manual_upload"
     assert [link["id"] for link in _derivative_panel(api)["links"]] == [chosen["link"]["id"]]
     assert "TEST-SIGNATURE" not in _tool_text(selected)
+
+
+#: 前端按码给出本地化原因的码表，前端测试核对同一份文件。
+_LOCAL_FAILURES_CONTRACT = (
+    Path(__file__).resolve().parents[4]
+    / "frontend"
+    / "src"
+    / "test"
+    / "contracts"
+    / "provider-asset-local-failures.json"
+)
+
+
+def test_local_failure_codes_match_the_frontend_contract():
+    assert sorted(ingest.LOCAL_FAILURE_CODES) == json.loads(_LOCAL_FAILURES_CONTRACT.read_text(encoding="utf-8"))

@@ -20,7 +20,7 @@
 事实，不改变选定，所以入库期间改选了另一张图片，结果仍归属提交时的内容版本，已解除的关系也不会因
 迟到的结果恢复。
 
-生成（#3563）、导入已有素材（#3564）与 Agent 工具（#3565）都经本模块查询与改变关联，不在路由里各自实现。
+生成、导入已有素材与 Agent 工具都经本模块查询与改变关联，不在路由里各自实现。
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Literal
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.artifacts.version_manager import VersionManager
@@ -217,9 +218,21 @@ async def request_upload(
         next_check_at=now or utc_now(),
         check_attempts=0,
     )
-    session.add(link)
-    await session.flush()
+    await _insert_selected(session, link)
     return link
+
+
+async def _insert_selected(session: AsyncSession, link: ProviderAssetLink) -> None:
+    """写入一条选定记录。先查后写之间并发的同范围请求由唯一索引拦下，按已有关联报冲突。
+
+    写入放在 SAVEPOINT 里：冲突只回滚这一条，调用方事务里之前的写入仍可继续使用。
+    """
+    try:
+        async with session.begin_nested():
+            session.add(link)
+            await session.flush()
+    except IntegrityError as exc:
+        raise ConflictError("provider_asset_link_exists") from exc
 
 
 async def record_imported_link(
@@ -280,8 +293,7 @@ async def record_imported_link(
         next_check_at=None,
         check_attempts=0,
     )
-    session.add(link)
-    await session.flush()
+    await _insert_selected(session, link)
     return link
 
 

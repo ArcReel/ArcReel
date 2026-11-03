@@ -23,7 +23,7 @@ from server.routers import object_storage
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 
 AK = "TEST-TOS-AK-0001"
-SK = "tos-secret-access-key-0001"
+SK = "TEST-TOS-SECRET-0001"
 _BODY = {
     "region": "cn-beijing",
     "endpoint": "tos-cn-beijing.volces.com",

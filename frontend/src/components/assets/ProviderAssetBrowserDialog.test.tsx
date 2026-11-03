@@ -202,4 +202,63 @@ describe("ProviderAssetBrowserDialog", () => {
     expect(pushToast).not.toHaveBeenCalledWith(expect.anything(), "success");
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  it.each([
+    ["成功", (d: ReturnType<typeof createDeferred<ProviderAssetImportResult>>) => d.resolve(IMPORTED), "供应商素材已导入项目「demo」，成为第 2 版", "success"],
+    [
+      "失败",
+      (d: ReturnType<typeof createDeferred<ProviderAssetImportResult>>) =>
+        d.reject(new ApiRequestError("这个素材还不可用，没有导入。", null, 422)),
+      "供应商素材未导入项目「demo」，原选中的图片不变：这个素材还不可用，没有导入。",
+      "error",
+    ],
+    [
+      "网关超时",
+      (d: ReturnType<typeof createDeferred<ProviderAssetImportResult>>) =>
+        d.reject(new ApiRequestError("请求失败", null, 504)),
+      "无法确认供应商素材是否已导入项目「demo」：导入期间没有收到服务端的确定结果。回到该项目查看版本历史，确认没有新版本后再重新选择。",
+      "warning",
+    ],
+    [
+      "连接中断",
+      (d: ReturnType<typeof createDeferred<ProviderAssetImportResult>>) => d.reject(new TypeError("Failed to fetch")),
+      "无法确认供应商素材是否已导入项目「demo」：导入期间没有收到服务端的确定结果。回到该项目查看版本历史，确认没有新版本后再重新选择。",
+      "warning",
+    ],
+  ] as const)("导入在途时离开页面，%s的结果改用提示告知", async (_label, settle, text, kind) => {
+    vi.spyOn(API, "listProviderAssets").mockResolvedValue(page(1, 2));
+    const imported = createDeferred<ProviderAssetImportResult>();
+    vi.spyOn(API, "importProviderAsset").mockReturnValue(imported.promise);
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    const onImported = vi.fn();
+    const onImportingChange = vi.fn();
+    const user = userEvent.setup();
+    const { unmount } = renderDialog({ onImported, onImportingChange });
+    await user.click(await screen.findByRole("button", { name: "选择 主角正面 1" }));
+
+    unmount();
+    await act(async () => {
+      settle(imported);
+      await imported.promise.catch(() => undefined);
+    });
+
+    expect(pushToast).toHaveBeenCalledWith(text, kind);
+    expect(onImported).not.toHaveBeenCalled();
+    expect(onImportingChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("导入成功后刷新期间离开页面，仍提示导入结果", async () => {
+    vi.spyOn(API, "listProviderAssets").mockResolvedValue(page(1, 2));
+    vi.spyOn(API, "importProviderAsset").mockResolvedValue(IMPORTED);
+    const refreshed = createDeferred<"cancelled">();
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    const user = userEvent.setup();
+    const { unmount } = renderDialog({ onImported: () => refreshed.promise });
+    await user.click(await screen.findByRole("button", { name: "选择 主角正面 1" }));
+
+    unmount();
+    await act(async () => refreshed.resolve("cancelled"));
+
+    expect(pushToast).toHaveBeenCalledWith("供应商素材已导入项目「demo」，成为第 2 版", "success");
+  });
 });

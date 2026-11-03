@@ -29,6 +29,7 @@ from lib.asset_library.links import UPLOADABLE_RESOURCE_TYPES, asset_uri, is_usa
 from lib.backends.provider_assets import REFERENCE_IMAGE_ROLE, inference_credential, provider_asset_roles
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.infra.content_digest import sha256_file
+from lib.infra.image_utils import IMAGE_FILE_EXTENSIONS
 from lib.infra.path_safety import safe_join
 from lib.material.storage import CONTENT_DIGEST, CONTENT_VERSION_ID
 from lib.project.resource_paths import resource_of_path
@@ -105,13 +106,27 @@ async def call_scope(session: AsyncSession, backend: object) -> AssetLibraryScop
     )
 
 
+def _uploadable_resource_of(locator: str) -> tuple[str, str] | None:
+    """参考图路径对应的可上传资源。上传与导入按原格式保存资产图（后缀见 ``IMAGE_FILE_EXTENSIONS``），
+    而版本资源的规范路径一律是 ``.png``，因此按同名的规范路径认定资源；是否就是该资源的当前内容，
+    由调用方用摘要核对。"""
+    resource = resource_of_path(locator)
+    if resource is None:
+        stem, dot, suffix = locator.rpartition(".")
+        if dot and f".{suffix.lower()}" in IMAGE_FILE_EXTENSIONS:
+            resource = resource_of_path(f"{stem}.png")
+    if resource is None or resource[0] not in UPLOADABLE_RESOURCE_TYPES:
+        return None
+    return resource
+
+
 def _content_version_ids(project_path: Path, sources: Sequence[ReferenceImageSource]) -> list[str | None]:
     """每张参考图发出的字节对应的内容版本身份：须是资源当前选中的版本，摘要与发出的字节一致。"""
     manager = VersionManager(project_path)
     ids: list[str | None] = []
     for source in sources:
-        resource = resource_of_path(source.locator)
-        if resource is None or resource[0] not in UPLOADABLE_RESOURCE_TYPES:
+        resource = _uploadable_resource_of(source.locator)
+        if resource is None:
             ids.append(None)
             continue
         info = manager.get_versions(*resource)

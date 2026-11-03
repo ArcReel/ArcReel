@@ -203,21 +203,21 @@ class TestRegistry:
         （happyhorse-r2v=9 / wan2.7-r2v=5），resolver 据此解析而无需构造 backend / api_key。"""
         caps_fn = ENDPOINT_REGISTRY["dashscope-async-video"].video_caps_for_model
         assert caps_fn is not None
-        assert caps_fn("happyhorse-1.0-r2v").max_reference_images == 9
-        assert caps_fn("wan2.7-r2v").max_reference_images == 5
+        assert caps_fn("happyhorse-1.0-r2v", None).max_reference_images == 9
+        assert caps_fn("wan2.7-r2v", None).max_reference_images == 5
 
     def test_minimax_declarative_endpoints_expose_definition_capabilities(self):
         s2v = ENDPOINT_REGISTRY["minimax-s2v-01"].video_caps_for_model
         hailuo = ENDPOINT_REGISTRY["minimax-hailuo-v1"].video_caps_for_model
         fast = ENDPOINT_REGISTRY["minimax-hailuo-v1-fast"].video_caps_for_model
         assert s2v is not None
-        assert s2v("S2V-01").max_reference_images == 1
+        assert s2v("S2V-01", None).max_reference_images == 1
         assert hailuo is not None
-        assert hailuo("MiniMax-Hailuo-2.3").first_frame is True
+        assert hailuo("MiniMax-Hailuo-2.3", None).first_frame is True
         # Fast 与 2.3 只差这一位：首帧必需 ⇒ text_to_video 推导为 False。
-        assert hailuo("MiniMax-Hailuo-2.3").text_to_video is True
+        assert hailuo("MiniMax-Hailuo-2.3", None).text_to_video is True
         assert fast is not None
-        assert fast("MiniMax-Hailuo-2.3-Fast").text_to_video is False
+        assert fast("MiniMax-Hailuo-2.3-Fast", None).text_to_video is False
 
     def test_kling_caps_fn_reads_per_model_limit_without_client(self):
         """kling-video 的 caps_fn 是纯函数：v3-omni / video-o1 多图主体 R2V max_ref=4，turbo 等其余档
@@ -225,24 +225,24 @@ class TestRegistry:
         构造 backend / api_key。"""
         caps_fn = ENDPOINT_REGISTRY["kling-video"].video_caps_for_model
         assert caps_fn is not None
-        omni = caps_fn("kling-v3-omni")
+        omni = caps_fn("kling-v3-omni", None)
         assert omni.max_reference_images > 0
         assert omni.max_reference_images == 4
-        o1 = caps_fn("kling-video-o1")
+        o1 = caps_fn("kling-video-o1", None)
         assert o1.max_reference_images > 0
         assert o1.max_reference_images == 4
-        turbo = caps_fn("kling-v2-5-turbo")
+        turbo = caps_fn("kling-v2-5-turbo", None)
         assert turbo.first_frame is True
         assert turbo.max_reference_images == 0
         assert turbo.max_reference_images == 0
         # 中转 model_id 带厂商前缀（仓库既有约定 / 与 :）+ 非规范大小写：归一化后仍能精确命中已登记档
         for prefixed_id in ("vendor/Kling-V3-Omni", "provider:kling-v3-omni"):
-            prefixed = caps_fn(prefixed_id)
+            prefixed = caps_fn(prefixed_id, None)
             assert prefixed.max_reference_images > 0
             assert prefixed.max_reference_images == 4
         # 未登记 model（未来版本 kling-v4 / 归一化后仍不匹配的中转自定义 id）→ 保守默认，不按子串猜能力
         for unknown_id in ("kling-v4", "vendor/some-unknown-model"):
-            unknown = caps_fn(unknown_id)
+            unknown = caps_fn(unknown_id, None)
             assert unknown.max_reference_images == 0
             assert unknown.max_reference_images == 0
 

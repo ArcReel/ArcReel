@@ -2324,3 +2324,15 @@ class TestEntryBoundVideoRequests:
             builtin_video_audio_track("gemini-vertex", "veo-3.1-generate-001", generation_type="i2v") == "controllable"
         )
         assert builtin_video_audio_track("gemini-vertex", "veo-unbound-relay", generation_type="i2v") == "always_on"
+
+    @pytest.mark.parametrize("model", [_OPAQUE, "veo-3.1-generate-001"])
+    def test_gemini_audio_uses_explicit_binding_before_api_name(self, model):
+        """显式绑定 preview 条目时，API 名恰好与 Vertex 型号相同也不能重新打开音轨开关。"""
+        from lib.catalog import query as catalog
+        from lib.config.resolver import builtin_video_audio_track
+
+        catalog.install_user_added_models(
+            [catalog.UserAddedModel("gemini-aistudio", model, "video", entry_binding="google/veo-3.1-generate-preview")]
+        )
+
+        assert builtin_video_audio_track("gemini-aistudio", model, generation_type="i2v") == "always_on"

@@ -26,6 +26,17 @@ _SUBSAMPLING_KEEP = -1
 _EXIF_ORIENTATION = 0x0112
 
 
+#: 可以上传、导入并按原格式保存的图片格式。键是 PIL 识别出的格式名，值是该格式的文件后缀，
+#: 首项是按内容确定后缀时保存使用的后缀。
+IMAGE_FORMAT_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "PNG": (".png",),
+    "JPEG": (".jpg", ".jpeg"),
+    "WEBP": (".webp",),
+}
+#: 上述格式的全部文件后缀；上传校验、文件服务与路径识别都以此为准。
+IMAGE_FILE_EXTENSIONS: tuple[str, ...] = tuple(suffix for group in IMAGE_FORMAT_SUFFIXES.values() for suffix in group)
+
+
 class ImagePixelLimitError(ValueError):
     """图片解码后的像素总数超过 ``MAX_UPLOAD_PIXELS``。
 

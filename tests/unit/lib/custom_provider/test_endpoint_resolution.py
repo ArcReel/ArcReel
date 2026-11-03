@@ -87,7 +87,7 @@ class TestSpecFromRow:
 
         assert spec.reference_audio_capable is True
         assert spec.video_caps_for_model is not None
-        assert spec.video_caps_for_model("m").reference_audio_mode is ReferenceAudioMode.DIRECT
+        assert spec.video_caps_for_model("m", None).reference_audio_mode is ReferenceAudioMode.DIRECT
 
 
 class TestDeclarativeImageProjection:
@@ -163,7 +163,7 @@ class TestKindDispatch:
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
 
         spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
-        caps = spec.video_caps_for_model("wan-t2v") if spec.video_caps_for_model else None
+        caps = spec.video_caps_for_model("wan-t2v", None) if spec.video_caps_for_model else None
 
         assert caps is not None
         assert caps.text_to_video is True
@@ -177,7 +177,7 @@ class TestKindDispatch:
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
 
         spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
-        caps = spec.video_caps_for_model("m") if spec.video_caps_for_model else None
+        caps = spec.video_caps_for_model("m", None) if spec.video_caps_for_model else None
 
         assert caps is not None
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
@@ -192,7 +192,7 @@ class TestKindDispatch:
         row = SimpleNamespace(id=7, definition=definition)
 
         spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
-        caps = spec.video_caps_for_model("m") if spec.video_caps_for_model else None
+        caps = spec.video_caps_for_model("m", None) if spec.video_caps_for_model else None
 
         assert caps is not None
         assert caps.audio_track is VideoAudioMode.ALWAYS_ON
@@ -326,9 +326,9 @@ class TestKindDispatch:
         caps_fn = spec.video_caps_for_model
 
         assert caps_fn is not None
-        assert caps_fn("wan-t2v") == caps_fn("完全不相干的名字")
-        assert caps_fn("wan-t2v").first_frame is True
-        assert caps_fn("wan-t2v").text_to_video is False
+        assert caps_fn("wan-t2v", None) == caps_fn("完全不相干的名字", None)
+        assert caps_fn("wan-t2v", None).first_frame is True
+        assert caps_fn("wan-t2v", None).text_to_video is False
 
     def test_the_end_frame_binding_reaches_the_end_image_transport_bit(self):
         """``end_image_capable`` 与声明式端点同处理：从 caps 反推，不另写一份判据。"""

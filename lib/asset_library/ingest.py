@@ -16,11 +16,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, get_args
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.artifacts.version_manager import VersionManager
 from lib.asset_library.bindings import account_identity
 from lib.asset_library.control_plane import (
     AssetLibraryRequestError,
@@ -148,7 +149,8 @@ def _account_matches(account: AssetLibraryAccount | None, link: _LinkSnapshot) -
 
 
 def _next_check(now: datetime, attempts: int) -> datetime:
-    return now + min(CHECK_INITIAL_DELAY * (2 ** max(attempts, 0)), CHECK_MAX_INTERVAL)
+    # 指数先封顶再乘：查询次数累积多了，timedelta 乘法会溢出，min 来不及截断
+    return now + min(CHECK_INITIAL_DELAY * (2 ** min(max(attempts, 0), 16)), CHECK_MAX_INTERVAL)
 
 
 def _clip(text: str | None) -> str | None:
@@ -170,14 +172,38 @@ async def _update(
         return bool(getattr(result, "rowcount", 0))
 
 
+#: ArcReel 自己判定的提交前失败。界面按码给出本地化原因，不当作供应商原文；前端的码表与它
+#: 经 ``frontend/src/test/contracts/provider-asset-local-failures.json`` 双向核对。
+LocalFailureCode = Literal[
+    "unlinked_before_submit",
+    "account_missing",
+    "account_scope_changed",
+    "object_storage_missing",
+    "content_unavailable",
+    "content_changed",
+    "relay_upload_failed",
+]
+LOCAL_FAILURE_CODES: frozenset[str] = frozenset(get_args(LocalFailureCode))
+
+
 async def _fail(
+    session_factory: async_sessionmaker[AsyncSession],
+    link_id: int,
+    now: datetime,
+    code: LocalFailureCode,
+    message: str | None = None,
+) -> None:
+    await _fail_before_submit(session_factory, link_id, now, code, message)
+
+
+async def _fail_before_submit(
     session_factory: async_sessionmaker[AsyncSession],
     link_id: int,
     now: datetime,
     code: str,
     message: str | None = None,
 ) -> None:
-    # 只用于提交之前的失败：此时供应商侧没有创建素材。
+    # 只用于提交之前的失败：此时供应商侧没有创建素材。``code`` 可以是供应商返回的错误码。
     await _update(
         session_factory,
         link_id,
@@ -192,12 +218,15 @@ async def _fail(
 
 def _read_content(project_path_of: Callable[[str], Path], link: _LinkSnapshot) -> bytes:
     project_path = project_path_of(link.project_name)
+    # 按内容版本身份取此刻的定位：入库在途时资源改名会移动快照，提交时记下的路径随之失效。
+    # 摘要始终用提交时冻结的值，读到的内容与关联认定的内容不符即拒绝。
+    current = VersionManager(project_path).find_content_version(link.resource_type, link.content_version_id)
     content_version = ContentVersion(
-        material=MaterialRef(link.resource_type, link.resource_id),
-        version=link.version,
+        material=current.material if current else MaterialRef(link.resource_type, link.resource_id),
+        version=current.version if current else link.version,
         id=link.content_version_id,
         digest=link.content_digest,
-        locator=LocalLocator(link.locator_path),
+        locator=current.locator if current else LocalLocator(link.locator_path),
     )
     return LocalMaterialStorage(project_path).open(content_version).read_bytes()
 
@@ -251,7 +280,7 @@ async def _submit(
         group_id = await ensure_asset_group(credentials, ASSET_GROUP_NAME, description=_ASSET_GROUP_DESCRIPTION)
     except AssetLibraryRequestError as exc:
         # 素材组只是容器，没有提交素材，失败即可判定入库未发生。
-        await _fail(session_factory, link.id, now, exc.code or f"request_{exc.kind}", exc.message)
+        await _fail_before_submit(session_factory, link.id, now, exc.code or f"request_{exc.kind}", exc.message)
         return
     raise_if_cancel_absorbed()
 
@@ -274,7 +303,10 @@ async def _submit(
     try:
         asset_id = await create_asset(credentials, group_id=group_id, url=url, name=link.submit_name)
     except AssetLibraryRequestError as exc:
-        values: dict[str, Any] = {"error_code": exc.code or f"request_{exc.kind}", "error_message": _clip(exc.message)}
+        values: dict[str, Any] = {
+            "error_code": (exc.code or f"request_{exc.kind}")[:128],
+            "error_message": _clip(exc.message),
+        }
         if exc.outcome_unknown:
             values |= {"state": "uncertain", "next_check_at": now + CHECK_INITIAL_DELAY, "check_attempts": 0}
         else:

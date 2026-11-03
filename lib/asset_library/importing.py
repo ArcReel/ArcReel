@@ -34,13 +34,13 @@ from lib.backends.artifact_download_guard import (
 )
 from lib.db.models.asset_library import AssetLibraryAccount
 from lib.infra.api_errors import BadGatewayError, UnprocessableError
-from lib.infra.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError
+from lib.infra.image_utils import IMAGE_FORMAT_SUFFIXES, MAX_UPLOAD_PIXELS, ImagePixelLimitError
 
 #: 导入图片的字节上限，与手动上传图片相同；供应商素材库的图片上限低于此值。
 IMPORT_IMAGE_MAX_BYTES = 30 * 1024 * 1024
 
-#: 可以导入的图片格式与保存时使用的扩展名，与手动上传成品允许的格式一致。
-_FORMAT_SUFFIXES = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp"}
+#: 可以导入的图片格式与保存时使用的扩展名，与手动上传允许的格式同出一处。
+_FORMAT_SUFFIXES = {name: suffixes[0] for name, suffixes in IMAGE_FORMAT_SUFFIXES.items()}
 
 _DOWNLOAD_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
 _MAX_REDIRECTS = 5

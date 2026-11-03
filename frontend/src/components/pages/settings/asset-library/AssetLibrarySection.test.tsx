@@ -1,8 +1,11 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 
 import { API } from "@/api";
+import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { createDeferred } from "@/test/deferred";
 import type { AssetLibraryAccountList, AssetLibraryBindableCredential } from "@/types";
 
@@ -27,6 +30,27 @@ const ACCOUNTS: AssetLibraryAccountList = {
     },
   ],
 };
+
+const CONNECTION = {
+  kind: "tos" as const,
+  region: "cn-beijing",
+  endpoint: "tos-cn-beijing.volces.com",
+  bucket: "old-relay",
+  access_key_id_masked: "TEST…0001",
+  secret_access_key_masked: "tos-…0001",
+  updated_at: "2026-11-03T00:00:00Z",
+};
+
+function renderGuarded() {
+  const location = memoryLocation({ path: "/", record: true });
+  render(
+    <Router hook={location.hook}>
+      <LeaveGuardProvider>
+        <AssetLibrarySection />
+      </LeaveGuardProvider>
+    </Router>,
+  );
+}
 
 const STALE_BINDING: AssetLibraryBindableCredential = {
   credential_type: "builtin",
@@ -112,5 +136,53 @@ describe("AssetLibrarySection", () => {
     expect(screen.getByRole("combobox", { name: "「Ark 备用 Key」绑定的素材库账号" })).toBeDisabled();
     await act(async () => confirmed.resolve({ account_id: 7, status: "confirmed" }));
     expect(screen.getAllByRole("button", { name: "重新确认" })[1]).toBeEnabled();
+  });
+  it("连接测试在途时替换了连接，旧连接的测试结果不显示在新配置旁", async () => {
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({ connection: CONNECTION });
+    const probe = createDeferred<void>();
+    vi.spyOn(API, "checkObjectStorageConnection").mockReturnValue(probe.promise as never);
+    vi.spyOn(API, "saveObjectStorageConnection").mockResolvedValue({ ...CONNECTION, bucket: "new-relay" });
+    const user = userEvent.setup();
+    render(<AssetLibrarySection />);
+
+    await user.click(await screen.findByRole("button", { name: "测试连接" }));
+    await user.click(screen.getByRole("button", { name: "编辑对象存储" }));
+    const dialog = await screen.findByRole("dialog", { name: "编辑对象存储" });
+    const bucket = within(dialog).getByLabelText("桶名");
+    await user.clear(bucket);
+    await user.type(bucket, "new-relay");
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    expect(await screen.findByText("new-relay")).toBeInTheDocument();
+
+    await act(async () => probe.resolve());
+    expect(screen.queryByText("连接正常，可以访问这个桶")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "测试连接" })).toBeEnabled();
+  });
+
+  it("账号对话框有未填完的修改时，关闭先经离开拦截询问", async () => {
+    const user = userEvent.setup();
+    renderGuarded();
+    await user.click(await screen.findByRole("button", { name: "添加账号" }));
+    const dialog = await screen.findByRole("dialog", { name: "添加账号" });
+    await user.type(within(dialog).getByLabelText("名称"), "备用账号");
+
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    const guard = await screen.findByRole("alertdialog");
+    await user.click(within(guard).getByRole("button", { name: "继续编辑" }));
+    expect(within(screen.getByRole("dialog", { name: "添加账号" })).getByLabelText("名称")).toHaveValue("备用账号");
+
+    await user.click(within(screen.getByRole("dialog", { name: "添加账号" })).getByRole("button", { name: "取消" }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "放弃修改" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "添加账号" })).not.toBeInTheDocument());
+  });
+
+  it("对象存储对话框未修改时直接关闭，不询问", async () => {
+    const user = userEvent.setup();
+    renderGuarded();
+    await user.click(await screen.findByRole("button", { name: "配置对象存储" }));
+    const dialog = await screen.findByRole("dialog", { name: "配置对象存储" });
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 });
