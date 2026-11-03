@@ -10,6 +10,11 @@ from typing import assert_never
 from .model import AudioFacts, CatalogEntry, ImageFacts, Meter, ModelFacts, PriceTable, TextFacts, VideoFacts
 
 
+def _put_recorded(raw: dict[str, object], optional: dict[str, object]) -> None:
+    """写入已收录的可选模型事实；``None`` 表示未收录，不写出。显式 ``0`` 与 ``false`` 照常写出。"""
+    raw.update({key: value for key, value in optional.items() if value is not None})
+
+
 def _facts(facts: ModelFacts) -> dict[str, object]:
     match facts:
         case TextFacts():
@@ -23,10 +28,13 @@ def _facts(facts: ModelFacts) -> dict[str, object]:
                 "image_to_image": facts.image_to_image,
                 "resolutions": list(facts.resolutions),
             }
-            if facts.max_reference_images is not None:
-                raw["max_reference_images"] = facts.max_reference_images
-            if facts.output_token_bases:
-                raw["output_token_bases"] = dict(facts.output_token_bases)
+            _put_recorded(
+                raw,
+                {
+                    "max_reference_images": facts.max_reference_images,
+                    "output_token_bases": dict(facts.output_token_bases) or None,
+                },
+            )
             return raw
         case VideoFacts():
             constraints = facts.duration_constraints
@@ -38,17 +46,18 @@ def _facts(facts: ModelFacts) -> dict[str, object]:
                     "with_reference_images": list(constraints.with_reference_images),
                 },
             }
-            for key, value in {
-                "max_reference_images": facts.max_reference_images,
-                "text_to_video": facts.text_to_video,
-                "first_frame": facts.first_frame,
-                "last_frame": facts.last_frame,
-                "reference_audio": facts.reference_audio,
-                "max_reference_audio_count": facts.max_reference_audio_count,
-                "max_reference_audio_total_seconds": facts.max_reference_audio_total_seconds,
-            }.items():
-                if value is not None:
-                    raw[key] = value
+            _put_recorded(
+                raw,
+                {
+                    "max_reference_images": facts.max_reference_images,
+                    "text_to_video": facts.text_to_video,
+                    "first_frame": facts.first_frame,
+                    "last_frame": facts.last_frame,
+                    "reference_audio": facts.reference_audio,
+                    "max_reference_audio_count": facts.max_reference_audio_count,
+                    "max_reference_audio_total_seconds": facts.max_reference_audio_total_seconds,
+                },
+            )
             return raw
         case AudioFacts():
             return {}

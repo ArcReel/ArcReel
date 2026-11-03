@@ -183,14 +183,26 @@ class CatalogReader:
         self.reject(_at(path, key), "invalid_nonnegative_int", "应为非负整数")
         return None
 
+    def nonnegative_seconds(self, raw: Mapping[str, object], key: str, path: str) -> float | None:
+        """非负有限秒数上限。上限与价格不同：负数或非有限值让上限无从比较，实例侧同样拒收。"""
+        value = raw.get(key)
+        if value is None:
+            return None
+        seconds = _as_float(value)
+        if seconds is not None and math.isfinite(seconds) and seconds >= 0:
+            return seconds
+        self.reject(_at(path, key), "invalid_nonnegative_number", "应为非负的有限数")
+        return None
+
     def number(self, value: object, path: str) -> float:
         """非负有限数。不是数字时拒收；负数或非有限值只在构建侧报告。"""
-        if isinstance(value, bool) or not isinstance(value, int | float):
+        result = _as_float(value)
+        if result is None:
             self.reject(path, "invalid_number", "应为数字")
             return 0.0
-        if not math.isfinite(value) or value < 0:
+        if not math.isfinite(result) or result < 0:
             self.flag(path, "negative_number", "应为非负的有限数")
-        return float(value)
+        return result
 
     def items(self, value: object, path: str) -> list[object]:
         if value is None:
@@ -320,6 +332,14 @@ class CatalogReader:
                 constraints = self.duration_constraints(
                     data.get("duration_constraints"), durations, resolutions, _at(path, "duration_constraints")
                 )
+                reference_audio = self.optional_flag(data, "reference_audio", path)
+                audio_count = self.nonnegative_int(data, "max_reference_audio_count", path)
+                if reference_audio is True and audio_count == 0:
+                    self.flag(
+                        _at(path, "max_reference_audio_count"),
+                        "reference_audio_without_count",
+                        "接受参考音频时参考音频数量上限不能为 0",
+                    )
                 return VideoFacts(
                     durations=durations,
                     resolutions=resolutions,
@@ -328,14 +348,10 @@ class CatalogReader:
                     text_to_video=self.optional_flag(data, "text_to_video", path),
                     first_frame=self.optional_flag(data, "first_frame", path),
                     last_frame=self.optional_flag(data, "last_frame", path),
-                    reference_audio=self.optional_flag(data, "reference_audio", path),
-                    max_reference_audio_count=self.nonnegative_int(data, "max_reference_audio_count", path),
-                    max_reference_audio_total_seconds=(
-                        None
-                        if data.get("max_reference_audio_total_seconds") is None
-                        else self.number(
-                            data["max_reference_audio_total_seconds"], _at(path, "max_reference_audio_total_seconds")
-                        )
+                    reference_audio=reference_audio,
+                    max_reference_audio_count=audio_count,
+                    max_reference_audio_total_seconds=self.nonnegative_seconds(
+                        data, "max_reference_audio_total_seconds", path
                     ),
                 )
             case "audio":
@@ -344,13 +360,12 @@ class CatalogReader:
     def output_token_bases(self, raw: object, path: str) -> Mapping[str, int]:
         data = {} if raw is None else self.obj(raw, path)
         result: dict[str, int] = {}
-        for quality in data:
-            if not quality:
+        for quality, base in data.items():
+            if not is_valid_dimension_value("quality", quality):
                 self.reject(path, "invalid_text", "质量档应为非空字符串")
-            base = self.positive_int(data, quality, path)
-            if base is not None:
+            elif type(base) is int and base > 0:
                 result[quality] = base
-            elif data[quality] is None:
+            else:
                 self.reject(_at(path, quality), "invalid_positive_int", "应为正整数")
         return result
 
@@ -590,6 +605,16 @@ class CatalogReader:
 
 def _at(path: str, key: str) -> str:
     return f"{path}.{key}" if path else key
+
+
+def _as_float(value: object) -> float | None:
+    """JSON 数字转为浮点数，不是数字时返回 None。超出浮点范围的整数按同号无穷处理，交由非有限值规则判断。"""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        return float(value)
+    except OverflowError:
+        return math.inf if value > 0 else -math.inf
 
 
 def _overlaps(a: Mapping[str, object], b: Mapping[str, object]) -> bool:
