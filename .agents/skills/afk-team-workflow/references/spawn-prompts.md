@@ -20,6 +20,25 @@
 补充：<必要背景信息；无则省略>
 ```
 
+## QA verifier
+
+```text
+你负责 afk-team-workflow 批次 <stage <K> 或部署冒烟> 的验收，未参与本 stage 任何实现。读 <skill 目录绝对路径>/references/qa-verifier.md 并按契约工作。
+输入：mode=<全量|复验|冒烟>；target-commit=<sha>；worktree=<path；冒烟省略>；spec=#<Spec；零散批次省略>；issues=<N,...>；handoffs=<repo-root>/.afk/<batch-id>/；stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md（冒烟省略）；evidence=<repo-root>/.afk/<batch-id>/qa/<stage-<K>|smoke>/。
+复验另给其一：items=<待验项编号>（fixer 修复后）或 range=<from>..<to>（审查循环后）。冒烟另给：budget=<金额>；deferred=<各 stage results.md 路径>。
+补充：<必要背景信息；无则省略>
+```
+
+复验沿用本 stage 的 qa-verifier；部署冒烟委派新的 qa-verifier。
+
+## Fixer
+
+```text
+你负责修复 afk-team-workflow 批次 stage <K> 的 QA 失败项。读 <skill 目录绝对路径>/references/fixer.md 并按契约工作。
+输入：stage-branch=<branch>；worktree=<path>；qa-results=<results.md 绝对路径>；issues=<N,...>；handoffs=<repo-root>/.afk/<batch-id>/；stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md。
+补充：<必要背景信息；无则省略>
+```
+
 ## Review looper
 
 ```text
