@@ -354,7 +354,15 @@ function ModelSheetForm({
   const media = isCustom ? (endpointMedia ?? detail.model.media_type) : detail.model.media_type;
 
   const multiplier = parseMultiplier(draft.multiplierText);
-  const showCapabilities = userOwned && detail.capabilities.editable.length > 0;
+  // 官方收录的模型也展示生效能力，只读；用户负责的模型可以修改 editable 里的维度
+  const showCapabilities = detail.capabilities.editable.length > 0 || Object.keys(detail.capabilities.base).length > 0;
+  const capabilitiesHint = endpointChanged
+    ? t("pm_sheet_capabilities_endpoint_changed")
+    : official
+      ? t("pm_sheet_capabilities_official_hint")
+      : detail.capabilities.editable.length > 0
+        ? t("pm_sheet_capabilities_hint")
+        : undefined;
 
   const idPrefix = useId();
   const name = detail.model.display_name ?? detail.model.model_id;
@@ -525,7 +533,7 @@ function ModelSheetForm({
           {showCapabilities && (
             <Subsection
               title={t("pm_sheet_capabilities")}
-              hint={endpointChanged ? t("pm_sheet_capabilities_endpoint_changed") : t("pm_sheet_capabilities_hint")}
+              hint={capabilitiesHint}
             >
               {!endpointChanged && (
                 <ProviderCapabilityOverrides

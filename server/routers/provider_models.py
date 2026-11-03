@@ -206,7 +206,7 @@ class AddProviderModelResponse(BaseModel):
 
 
 class CapabilityViewResponse(BaseModel):
-    """「这个供应商支持的参数」：每个维度的原值（没有能力覆盖时运行时采用的值，``null`` 表示不加约束）、生效的能力
+    """「这个供应商支持的参数」：每个维度的原值（没有能力覆盖时运行时采用的值，``null`` 表示未收录）、生效的能力
     覆盖与生效值。``editable`` 是可以修改的维度，按界面顺序；官方收录的模型为空。"""
 
     media_type: str
