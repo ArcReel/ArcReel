@@ -312,9 +312,7 @@ MESSAGES = {
     "val_ce_jsonpath_union": (
         "Объединённые селекторы недопустимы в путях извлечения (символ {position}): {path_expression}"
     ),
-    "val_ce_jsonpath_slice_step": (
-        "Шаги среза недопустимы в путях извлечения (символ {position}): {path_expression}"
-    ),
+    "val_ce_jsonpath_slice_step": ("Шаги среза недопустимы в путях извлечения (символ {position}): {path_expression}"),
     "val_ce_jsonpath_function_extension": (
         "Расширения функций недопустимы в путях извлечения (символ {position}): {path_expression}"
     ),
@@ -422,18 +420,18 @@ MESSAGES = {
     "val_market_invalid_type": "Неверный тип; ожидается {expected}",
     "val_market_invalid_value": "Значение нарушает ограничение {keyword}: {constraint}",
     "val_market_slug_invalid": (
-        'Недопустимый slug «{value}»: используйте строчные буквы, цифры и дефисы, '
+        "Недопустимый slug «{value}»: используйте строчные буквы, цифры и дефисы, "
         "начинайте с буквы или цифры, не длиннее 64 символов"
     ),
-    "val_market_slug_duplicate": 'Slug «{slug}» встречается в этом источнике маркета больше одного раза',
-    "val_market_slug_directory_mismatch": 'Slug «{slug}» не совпадает с каталогом определения «{directory}»',
+    "val_market_slug_duplicate": "Slug «{slug}» встречается в этом источнике маркета больше одного раза",
+    "val_market_slug_directory_mismatch": "Slug «{slug}» не совпадает с каталогом определения «{directory}»",
     "val_market_path_not_relative": (
-        '«{value}» должен быть относительным путём внутри источника маркета: '
+        "«{value}» должен быть относительным путём внутри источника маркета: "
         "без ведущего / и схемы, без .., и он не должен выходить за пределы источника"
     ),
     "val_market_file_missing": "Указанный файл не существует: {value}",
     "val_market_symlink_not_allowed": (
-        '«{value}» — символическая ссылка: клиенты, загружающие через GitHub raw, получат текст пути цели, '
+        "«{value}» — символическая ссылка: клиенты, загружающие через GitHub raw, получат текст пути цели, "
         "поэтому используйте обычный файл или каталог"
     ),
     "val_market_icon_format_invalid": "Значок должен быть читаемым PNG, WebP или SVG, а расширение — совпадать с содержимым",
@@ -443,12 +441,13 @@ MESSAGES = {
     "val_market_definition_unreadable": "Не удалось прочитать определение: {detail}",
     "val_market_definition_invalid": "Определение не прошло проверку ({code}): {detail}",
     "val_market_projection_mismatch": (
-        'Поле индекса {field} равно «{index_value}», что отличается от «{definition_value}» в meta определения'
+        "Поле индекса {field} равно «{index_value}», что отличается от «{definition_value}» в meta определения"
     ),
-    "val_market_min_app_version_invalid": 'min_app_version «{value}» не соответствует semver (x.y.z)',
+    "val_market_min_app_version_invalid": "min_app_version «{value}» не соответствует semver (x.y.z)",
     "val_market_detail_meta_not_object": "В определении нет объекта meta",
     "val_market_cli_check_passed": "Проверка источника маркета пройдена: {directory}",
     "val_market_cli_check_failed": "Проверка источника маркета не пройдена; найдено проблем: {count}",
     "val_market_cli_generate_written": "Записан {path} (записей: {count})",
     "val_market_cli_generate_failed": "Не удалось сгенерировать индекс; найдено проблем: {count}",
+    "arch_provider_asset_links_not_restored": "Проект импортирован, но {count} ссылок на библиотеку материалов сохранить не удалось; при генерации эти изображения отправляются как изображения. При необходимости загрузите их заново или выберите из библиотеки материалов",
 }
