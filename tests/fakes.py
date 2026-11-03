@@ -1126,6 +1126,7 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     monkeypatch.setattr("server.routers.files.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.generate.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.grids.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.object_storage.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.products.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.projects.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.provider_asset_links.get_project_manager", for_pm)
@@ -1180,6 +1181,14 @@ def bind_session_factory(monkeypatch, factory) -> None:
     这个名字的模块要另外替换。
     """
     monkeypatch.setattr("lib.db.async_session_factory", factory)
+
+
+def use_object_storage_sdk(monkeypatch, factory: Callable[..., Any]) -> None:
+    """对象存储的网络边界：``create_sdk_client`` 改调 *factory*（收 ``ObjectStorageConfig``，返回 TOS SDK 客户端替身）。
+
+    TOS SDK 基于 requests，不经 httpx，respx 拦不到；所有对象存取都经这一处构造客户端。
+    """
+    monkeypatch.setattr("lib.object_storage.client.create_sdk_client", factory)
 
 
 def use_sdk_client(monkeypatch, factory: Callable[..., Any]) -> None:

@@ -135,12 +135,17 @@ async def get_link(session: AsyncSession, *, project_name: str, link_id: int) ->
 
 
 def _current_content_version(project_path: Path, resource_type: str, resource_id: str) -> ContentVersion:
-    """资源当前选中的内容版本，按记录的摘要校验快照；早期记录在这里补写身份与摘要。"""
+    """资源当前选中的内容版本，按记录的摘要校验快照；早期记录在这里补写身份与摘要。
+
+    远端内容版本的持久内容在对象存储里，本地工作文件可能已清理，这里不读本地文件，由入库时取用。
+    """
     manager = VersionManager(project_path)
     current = manager.get_current_version(resource_type, resource_id)
     if current <= 0:
         raise UnprocessableError("provider_asset_upload_no_image")
     content_version = manager.ensure_content_version(resource_type, resource_id, current)
+    if content_version.stored is not None:
+        return content_version
     try:
         LocalMaterialStorage(project_path).open(content_version)
     except FileNotFoundError as exc:

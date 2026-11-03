@@ -60,6 +60,7 @@ from lib.infra.logging_config import (
 )
 from lib.infra.loop_stall_probe import start_loop_stall_probe, stop_loop_stall_probe
 from lib.infra.path_safety import try_safe_join
+from lib.material.maintenance import start_material_maintenance
 from lib.project.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.script.source_loader.migration import migrate_project_source_encoding, migrate_project_source_encoding_once
 from server.auth import ensure_auth_password, ensure_token_secret, get_current_user, warn_if_auth_disabled
@@ -552,10 +553,13 @@ async def lifespan(app: FastAPI):
     trash_expiry = start_trash_expiry(layout)
     # 供应商素材库入库任务：启动时恢复中断的提交，之后推进中转上传、状态查询与中转副本清理；随应用关停取消
     asset_ingest = start_asset_ingest(async_session_factory)
+    # 远端素材：启动时结算中断的正式提交，之后重试删除待删除的正式对象、清理闲置的本地工作文件；随应用关停取消
+    material_maintenance = start_material_maintenance(async_session_factory, layout.projects_dir)
     try:
         async with remote_mcp_host.run():
             yield
     finally:
+        await material_maintenance.stop()
         await stop_asset_ingest(asset_ingest)
         await stop_trash_expiry(trash_expiry)
         await stop_official_sync(catalog_sync)

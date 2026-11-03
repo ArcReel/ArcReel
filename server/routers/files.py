@@ -52,12 +52,14 @@ from lib.episode.source_file_changes import (
 )
 from lib.episode.source_kinds import SourceKind
 from lib.episode.source_trash import trash_source_file
-from lib.infra.api_errors import BadRequestError, NotFoundError
+from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.image_thumbnails import ensure_image_thumbnail, is_thumbnail_source, snap_thumbnail_width
 from lib.infra.image_utils import IMAGE_FILE_EXTENSIONS, normalize_uploaded_image, validate_image_bytes
 from lib.infra.json_io import atomic_write_bytes
 from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.material.formal_objects import formal_commit
+from lib.material.work_files import ensure_work_file, hold_work_file
 from lib.project.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
 from lib.project.project_change_hints import (
     build_change_label,
@@ -313,7 +315,7 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
     """
     try:
 
-        def _sync():
+        def _resolve() -> tuple[ProjectManager, Path, Path, tuple[str, ...]]:
             project_manager = get_project_manager()
             project_dir = project_manager.get_project_path(project_name)
 
@@ -323,10 +325,12 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
                 file_path = safe_join(project_dir, path)
             except PathTraversalError as exc:
                 raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
+            relative_parts = file_path.relative_to(os.path.realpath(project_dir)).parts
+            return project_manager, project_dir, file_path, relative_parts
 
+        def _sync(project_manager: ProjectManager, project_dir: Path, file_path: Path, relative_parts: tuple[str, ...]):
             # 媒体范围按解析后的真实路径判定（symlink 指向非媒体文件同样拒绝）；
             # 非媒体与文件不存在同形返回 404
-            relative_parts = file_path.relative_to(os.path.realpath(project_dir)).parts
             stat_result = _regular_file_stat(file_path) if is_public_media_path(relative_parts) else None
             if stat_result is None:
                 raise HTTPException(status_code=404, detail=_t("file_not_found", path=path))
@@ -352,7 +356,14 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
             return file_path, stat_result, guess_media_type(file_path)
 
         thumbnail_width = snap_thumbnail_width(request.query_params.get("w"))
-        file_path, stat_result, media_type = await asyncio.to_thread(_sync)
+        project_manager, project_dir, resolved_path, relative_parts = await asyncio.to_thread(_resolve)
+        if is_public_media_path(relative_parts):
+            # 远端内容版本的工作文件被清理后，从对象存储取回再服务；取回失败返回明确的错误
+            await ensure_work_file(project_dir, "/".join(relative_parts))
+        with hold_work_file(resolved_path):
+            file_path, stat_result, media_type = await asyncio.to_thread(
+                _sync, project_manager, project_dir, resolved_path, relative_parts
+            )
 
         # 内容寻址缓存：带 ?v= 参数或 versions/ 路径时设 immutable，其余每次再验证
         immutable = bool(request.query_params.get("v")) or path.startswith("versions/")
@@ -590,11 +601,15 @@ async def upload_file(
                 "url": f"/api/v1/files/{project_name}/{relative_path}",
             }
 
+        if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
+            # 资产图成品按新内容版本的全局保存位置写入（缺省本地）
+            async with formal_commit(project_name):
+                return await run_sync_transaction(_sync)
         return await run_sync_transaction(_sync)
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception as exc:
         logger.exception("请求处理失败")

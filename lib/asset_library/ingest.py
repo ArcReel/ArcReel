@@ -33,6 +33,7 @@ from lib.asset_library.control_plane import (
 )
 from lib.db.base import utc_now
 from lib.db.models.asset_library import AssetLibraryAccount, ProviderAssetLink
+from lib.db.models.object_storage import ObjectStorageConnection
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.api_errors import ApiError
 from lib.infra.async_thread import run_noninterruptible_async
@@ -41,11 +42,11 @@ from lib.infra.task_cancel import raise_if_cancel_absorbed
 from lib.material.storage import (
     ContentVersion,
     LocalLocator,
-    LocalMaterialStorage,
     MaterialRef,
     VersionSnapshotCorruptedError,
 )
-from lib.object_storage.client import ObjectStorageClient, ObjectStorageError
+from lib.material.work_files import ensure_content_version_file
+from lib.object_storage.client import IMAGE_CONTENT_TYPES, ObjectStorageClient, ObjectStorageError
 from lib.object_storage.connection import config_from_connection
 from lib.object_storage.relay import (
     RELAY_URL_TTL,
@@ -73,8 +74,6 @@ UNCERTAIN_LOOKUP_WINDOW = RELAY_URL_TTL + timedelta(hours=1)
 LOOP_INTERVAL_SECONDS = 10.0
 
 _MESSAGE_LIMIT = 500
-# 不用 mimetypes：它首次调用时读系统文件，会阻塞事件循环。
-_CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -216,19 +215,36 @@ async def _fail_before_submit(
     )
 
 
-def _read_content(project_path_of: Callable[[str], Path], link: _LinkSnapshot) -> bytes:
-    project_path = project_path_of(link.project_name)
+def _frozen_content_version(project_path: Path, link: _LinkSnapshot) -> ContentVersion:
     # 按内容版本身份取此刻的定位：入库在途时资源改名会移动快照，提交时记下的路径随之失效。
     # 摘要始终用提交时冻结的值，读到的内容与关联认定的内容不符即拒绝。
     current = VersionManager(project_path).find_content_version(link.resource_type, link.content_version_id)
-    content_version = ContentVersion(
+    return ContentVersion(
         material=current.material if current else MaterialRef(link.resource_type, link.resource_id),
         version=current.version if current else link.version,
         id=link.content_version_id,
         digest=link.content_digest,
         locator=current.locator if current else LocalLocator(link.locator_path),
+        stored=current.stored if current and current.digest == link.content_digest else None,
     )
-    return LocalMaterialStorage(project_path).open(content_version).read_bytes()
+
+
+def _formal_object_on(connection: ObjectStorageConnection, content_version: ContentVersion) -> str | None:
+    """内容版本已作为正式对象保存在这条连接的桶里时返回对象 key：直接为它签发地址，不另写中转副本。
+
+    对象 key 按内容摘要命名，签发的地址固定指向这个内容版本；它不是中转副本，中转清理不会删除它。
+    """
+    stored = content_version.stored
+    if stored is None or stored.connection_id != connection.id or stored.bucket != connection.bucket:
+        return None
+    return stored.key
+
+
+async def _content_bytes(
+    project_path: Path, content_version: ContentVersion, session_factory: async_sessionmaker[AsyncSession]
+) -> bytes:
+    path = await ensure_content_version_file(project_path, content_version, session_factory=session_factory)
+    return await asyncio.to_thread(path.read_bytes)
 
 
 async def _submit(
@@ -254,26 +270,33 @@ async def _submit(
         return
 
     # 内容按提交时冻结的内容版本读取并校验摘要：入库期间改选或替换图片不影响这次上传。
+    client = ObjectStorageClient(config_from_connection(connection))
     try:
-        data = await asyncio.to_thread(_read_content, project_path_of, link)
+        project_path = await asyncio.to_thread(project_path_of, link.project_name)
+        content_version = await asyncio.to_thread(_frozen_content_version, project_path, link)
+        formal_key = _formal_object_on(connection, content_version)
+        data = None if formal_key is not None else await _content_bytes(project_path, content_version, session_factory)
     except VersionSnapshotCorruptedError:
         await _fail(session_factory, link.id, now, "content_changed")
         return
-    except (OSError, ValueError, ApiError):  # 快照不在盘上，或项目已不存在、已删除
+    except (OSError, ValueError, ApiError):  # 快照不在盘上，或项目已不存在、已删除，或远端取回失败
         await _fail(session_factory, link.id, now, "content_unavailable")
         return
 
-    suffix = Path(link.locator_path).suffix or ".png"
-    key = relay_object_key(suffix, now=now)
-    relay_id = await record_relay_object(session_factory, connection, key, link_id=link.id)
-    client = ObjectStorageClient(config_from_connection(connection))
     try:
-        await client.put_bytes(key, data, content_type=_CONTENT_TYPES.get(suffix.lower()))
-        url = await client.presign_get(key, expires_seconds=int(RELAY_URL_TTL.total_seconds()))
+        if formal_key is not None:
+            url = await client.presign_get(formal_key, expires_seconds=int(RELAY_URL_TTL.total_seconds()))
+        else:
+            assert data is not None
+            suffix = Path(link.locator_path).suffix or ".png"
+            key = relay_object_key(suffix, now=now)
+            relay_id = await record_relay_object(session_factory, connection, key, link_id=link.id)
+            await client.put_bytes(key, data, content_type=IMAGE_CONTENT_TYPES.get(suffix.lower()))
+            url = await client.presign_get(key, expires_seconds=int(RELAY_URL_TTL.total_seconds()))
+            await mark_relay_signed(session_factory, relay_id, now + RELAY_URL_TTL)
     except ObjectStorageError as exc:
         await _fail(session_factory, link.id, now, "relay_upload_failed", f"{exc.kind}:{exc.code}")
         return
-    await mark_relay_signed(session_factory, relay_id, now + RELAY_URL_TTL)
 
     credentials = credentials_of(account)
     try:
