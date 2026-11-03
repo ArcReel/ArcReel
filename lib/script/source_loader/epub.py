@@ -90,7 +90,8 @@ def _find_package_path(archive: _Archive) -> str:
     for rootfile in _descendants(container, "rootfile"):
         full_path = rootfile.get("full-path")
         if full_path:
-            return _resolve("", full_path)
+            # full-path 是 zip 内字面路径（OCF），不是 URL：不去锚点、不解码百分号。
+            return posixpath.normpath(full_path.strip()).lstrip("/")
     raise _EpubFormatError("container.xml 未指定包文档")
 
 

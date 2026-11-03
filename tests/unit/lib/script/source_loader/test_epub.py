@@ -83,6 +83,15 @@ def test_epub_with_package_document_at_archive_root(epub_factory):
     assert "根目录正文" in result.text
 
 
+@pytest.mark.parametrize("opf_dir", ["Book#1", "Book%20Name"])
+def test_epub_package_path_in_container_is_literal(epub_factory, opf_dir):
+    """container.xml 的 full-path 是 zip 内字面路径，不按 URL 去锚点或解码。"""
+    src = epub_factory([("第一章", "字面路径正文。")], opf_dir=opf_dir)
+    result = EpubExtractor().extract(src)
+    assert "# 第一章" in result.text
+    assert "字面路径正文" in result.text
+
+
 def test_epub_resolves_percent_encoded_hrefs(epub_factory, tmp_path):
     src = epub_factory([("第一章", "空格文件名正文。")])
     src = _rewrite_members(
