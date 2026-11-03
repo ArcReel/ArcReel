@@ -543,9 +543,9 @@ Recommended key rotation procedure:
 
 ## 12. Object Storage and Provider Asset Libraries {#object-storage-and-asset-library}
 
-Volcengine Ark and BytePlus provider asset libraries hold reviewed assets that generation requests reference as `asset://`. The **Asset library & storage** section of the global settings manages three settings related to the asset library. All three are optional; local projects keep working without them.
+Volcengine Ark and BytePlus provider asset libraries hold reviewed assets that generation requests reference as `asset://`. The **Asset library & storage** section of the global settings manages the settings related to object storage and the asset library. All of them are optional; local projects keep working without them.
 
-- **Object storage**: your own TOS bucket, configured with region, Endpoint, bucket name, and Access Key. Saving the connection does not change where images are stored; images stay local. Enter a TOS Endpoint (such as `tos-cn-beijing.volces.com`); S3-compatible Endpoints that start with `tos-s3-` are not supported. After saving, use **Test connection** to confirm that the credentials can reach the bucket.
+- **Object storage**: your own TOS bucket, configured with region, Endpoint, bucket name, and Access Key. Saving the connection alone does not change where images are stored, and new images are still saved locally by default. To save new images to this bucket, also choose **Object storage** under **Save new images to**; see [Save New Images to Object Storage](#remote-image-storage). Enter a TOS Endpoint (such as `tos-cn-beijing.volces.com`); S3-compatible Endpoints that start with `tos-s3-` are not supported. After saving, use **Test connection** to confirm that the credentials can reach the bucket.
 - **Asset library accounts**: the Access Key for the asset library control plane. It is stored separately from the inference API Key and needs asset library permissions. When adding an account, choose a site (Volcano Engine (China) or BytePlus (international)) and enter a project; the default project is `default`. The provider isolates assets by project, so the inference key must belong to the same project. Control-plane requests go only to the official address of the selected site, never to the inference key's Base URL. A provider asset belongs only to the cloud account that created it, so links and ingestion jobs record the cloud account that the account's Access Key ID belonged to at the time. After you replace the account's Access Key ID with a different one, existing links stay with the original cloud account and are no longer used for generation, and unfinished ingestion jobs are not continued with the new Access Key; upload or select the image again under this account. Changing only the Secret Access Key does not affect existing links.
 - **Inference key bindings**: for each Volcengine Ark key or custom provider, choose the asset library account it may use. After you change the inference key's secret or Base URL, or the account's site, project, or Access Key ID, the binding shows **Needs confirmation**, and that account's assets are not used until you confirm again. A binding only records that you confirmed the inference key and the account belong together; the provider still checks permissions on every call.
 
@@ -612,6 +612,62 @@ The ArcReel Agent and external Agents connected through remote MCP can perform t
 - unlink after you agree; neither the ArcReel image nor the provider asset is deleted.
 
 The Agent uploads only when you explicitly ask. After a provider rejects a generation during moderation, the Agent relays the reason and explains that you can upload; you decide, and it does not upload or generate again automatically. After an upload, the Agent receives the ingestion job right away and does not wait for provider review; you can ask the Agent to check the status later. Asset library accounts, object storage, and inference credential bindings are still configured in the **Asset library & storage** section. The Agent cannot see their keys, and it cannot rename or delete assets in the provider asset library.
+
+### Save New Images to Object Storage {#remote-image-storage}
+
+By default, the object storage connection is only used to relay images when adding them to an asset library. To keep new images in the bucket and leave only a cache that can be cleaned up on this machine, choose **Object storage** under **Save new images to** in the **Asset library & storage** section. This is a global setting for the instance. It defaults to **Local**, and there is no per-project or per-image option.
+
+**Minimum setup**
+
+1. Configure the object storage connection and use **Test connection** to confirm that the credentials can reach the bucket.
+2. Under **Save new images to**, choose **Object storage**. The choice takes effect as soon as it is selected. It cannot be chosen while no connection is configured.
+
+The connection's Access Key needs permission to upload, read (including reading object metadata), and delete objects in this bucket. **Test connection** only checks that the bucket can be accessed, not these object permissions. The delete permission is used to clean up relay copies and to remove image objects that are no longer used.
+
+**What the setting affects**
+
+- The setting applies only to image versions saved from now on: generated and inpainted images, grid images and the storyboard images split from them, manually uploaded asset images, storyboard images, derivatives and grid images, images selected from an asset library, imported project ZIPs, and images saved to the global asset library or applied to a project.
+- Existing images and earlier versions are not moved and are still read from where they are. Switching back to an earlier version or restoring from the trash keeps that version's original location and does not count as saving a new image.
+- Switching back to **Local** affects only images saved afterwards; images already in the bucket are still read as usual. A project can contain local and remote images at the same time.
+- The following images have no version history and are always saved locally: storyboard end frames, character and product original images, and the project's style reference image. Video and audio are also always saved locally.
+
+**Relay copies and image objects**
+
+The bucket holds two kinds of objects, which are managed separately:
+
+| Prefix | Content | Cleanup |
+| --- | --- | --- |
+| `arcreel-relay/` | Relay copies for asset library uploads | Deleted in the background once the upload has a result or the download URL has expired; see [Upload Images to an Asset Library](#upload-to-asset-library) |
+| `arcreel-materials/` | Images saved to object storage, named by content, so identical images are stored once | Kept as long as version history, the trash, the global asset library, or another project still uses them; deleted by ArcReel once nothing uses them (for example, after permanently deleting from the trash) |
+
+Do not delete or overwrite objects under `arcreel-materials/` in the TOS console; otherwise the corresponding images can no longer be previewed, generated from, or exported. Relay cleanup never touches these objects.
+
+**Local cache**
+
+Each remote image has a local cache copy that preview, generation, and image processing use directly. The cache is only a copy: after it is cleaned up, the image is fetched from object storage again when needed and its content is verified. Opening the workspace or viewing status does not trigger downloads.
+
+- ArcReel cleans up cache files that have been idle for more than 24 hours once an hour in the background.
+- To free space immediately, call `POST /api/v1/object-storage/work-cache/cleanup`. The request body can include `min_idle_seconds` to clean up only cache files idle for longer than that many seconds; the default is `0`. The response returns the number of files removed (`removed`), the bytes freed (`freed_bytes`), and the number of files kept because they are in use (`kept_in_use`).
+- Cleanup only deletes cache files that are confirmed to be saved in object storage and match the remote content. Local images, files in use, and objects in the bucket are not affected.
+
+**Backup and migration**
+
+- The content of remote images lives only in the bucket, so a backup of the ArcReel data directory does not include it. Keep the bucket as well once you enable remote storage.
+- To move to another ArcReel instance, export a project ZIP. Before exporting, ArcReel fetches remote images whose cache has been cleaned up, so the ZIP contains the actual image content and no bucket name or access keys. The other instance saves these images again according to its own **Save new images to** setting.
+
+**Changing or deleting the connection**
+
+- While the bucket still holds image objects saved by ArcReel, the bucket, Endpoint, and region cannot be changed and the connection cannot be deleted; only the Access Key can be updated. This way existing images are always read from their original bucket and are never pointed at another bucket.
+- While **Save new images to** is **Object storage**, the connection cannot be deleted; switch it back to **Local** first.
+- While the bucket still holds relay copies that have not been cleaned up, the dialogs for editing and deleting the connection show how many. After you change the bucket or Endpoint, or delete the connection, those copies are no longer deleted automatically; remove them in the TOS console.
+
+**Troubleshooting**
+
+- **"The image could not be saved to object storage"**: the new version does not appear, and earlier versions, artifacts, and files are unchanged. Use **Test connection** to check the connection, check the Access Key's upload permission and the network, and try again. You can also switch back to **Local** and keep working.
+- **"The image could not be retrieved from object storage" during preview, generation, or export**: the image's object in the bucket is missing, has been overwritten, or is temporarily unreachable. Check the network and read permission. If the object was deleted or overwritten, restore from the trash or another version, or generate or upload the image again.
+- **The image is saved in the original bucket, but the current connection was deleted or points to another bucket**: the connection's bucket or Endpoint no longer matches the settings used when the image was saved. Change the connection back to the original bucket and Endpoint to read it again.
+- **New images are set to be saved to object storage, but no connection is configured**: configure the connection, or switch **Save new images to** back to **Local**.
+- **Saving images is slow**: images are uploaded to object storage while the version is saved, and the new version appears only after the upload is confirmed. During the upload, other image saves in the same project wait in line; this is more noticeable with large images or slow networks. When importing a project ZIP, images are uploaded one by one within the import request.
 
 ## 13. Cost Tracking {#cost-tracking}
 

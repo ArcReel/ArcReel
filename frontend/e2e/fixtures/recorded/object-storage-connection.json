@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/v1/object-storage/connection",
+  "status": 200,
+  "body": {
+    "connection": null,
+    "new_image_target": "local",
+    "retained_relay_objects": 0
+  }
+}

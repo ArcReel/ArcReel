@@ -44,7 +44,6 @@ def media_trash_pm(tmp_path, monkeypatch) -> ProjectManager:
     )
     manager.add_project_character("demo", "Alice", "hero", "soft")
     use_project_manager(monkeypatch, manager)
-    monkeypatch.setattr(end_frame_service, "get_project_manager", lambda: manager)
     return manager
 
 

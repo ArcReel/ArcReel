@@ -41,6 +41,8 @@ const CONNECTION = {
   updated_at: "2026-11-03T00:00:00Z",
 };
 
+const LOCAL_ONLY = { connection: null, new_image_target: "local" as const, retained_relay_objects: 0 };
+
 function renderGuarded() {
   const location = memoryLocation({ path: "/", record: true });
   render(
@@ -65,7 +67,7 @@ const STALE_BINDING: AssetLibraryBindableCredential = {
 describe("AssetLibrarySection", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.spyOn(API, "getObjectStorageConnection").mockResolvedValue({ connection: null });
+    vi.spyOn(API, "getObjectStorageConnection").mockResolvedValue(LOCAL_ONLY);
     vi.spyOn(API, "listAssetLibraryAccounts").mockResolvedValue(ACCOUNTS);
     vi.spyOn(API, "listAssetLibraryBindings").mockResolvedValue({ credentials: [STALE_BINDING] });
   });
@@ -85,7 +87,7 @@ describe("AssetLibrarySection", () => {
     expect(await screen.findByText("已确认")).toBeInTheDocument();
   });
 
-  it("首次配置对象存储要求填写密钥，保存后只展示掩码", async () => {
+  it("首次配置对象存储要求填写密钥，保存后只展示掩码；配置连接不改变新增图片保存位置", async () => {
     vi.spyOn(API, "saveObjectStorageConnection").mockResolvedValue({
       kind: "tos",
       region: "cn-beijing",
@@ -97,6 +99,11 @@ describe("AssetLibrarySection", () => {
     });
     const user = userEvent.setup();
     render(<AssetLibrarySection />);
+
+    const targets = await screen.findByRole("radiogroup", { name: "新增图片保存位置" });
+    expect(within(targets).getByRole("radio", { name: /^本地/ })).toBeChecked();
+    expect(within(targets).getByRole("radio", { name: /^对象存储/ })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText("配置对象存储连接后才能选择对象存储")).toBeInTheDocument();
 
     await user.click(await screen.findByRole("button", { name: "配置对象存储" }));
     const dialog = await screen.findByRole("dialog", { name: "配置对象存储" });
@@ -120,6 +127,46 @@ describe("AssetLibrarySection", () => {
     expect(screen.getByText("arcreel-relay")).toBeInTheDocument();
     expect(screen.getByText("TEST…0001")).toBeInTheDocument();
     expect(screen.queryByText("tos-secret-0001")).not.toBeInTheDocument();
+    expect(within(targets).getByRole("radio", { name: /^本地/ })).toBeChecked();
+    expect(within(targets).getByRole("radio", { name: /^对象存储/ })).not.toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("选择新增图片保存位置立即保存；保存失败时保持原选择并说明原因", async () => {
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({ ...LOCAL_ONLY, connection: CONNECTION });
+    const saveTarget = vi
+      .spyOn(API, "saveNewImageTarget")
+      .mockResolvedValueOnce({ target: "object_storage" })
+      .mockRejectedValueOnce(new Error("无法保存设置"));
+    const user = userEvent.setup();
+    render(<AssetLibrarySection />);
+
+    const targets = await screen.findByRole("radiogroup", { name: "新增图片保存位置" });
+    await user.click(within(targets).getByRole("radio", { name: /^对象存储/ }));
+    expect(saveTarget).toHaveBeenLastCalledWith("object_storage");
+    await waitFor(() => expect(within(targets).getByRole("radio", { name: /^对象存储/ })).toBeChecked());
+
+    await user.click(within(targets).getByRole("radio", { name: /^本地/ }));
+    expect(saveTarget).toHaveBeenLastCalledWith("local");
+    expect(await screen.findByText("无法保存设置")).toBeInTheDocument();
+    expect(within(targets).getByRole("radio", { name: /^对象存储/ })).toBeChecked();
+  });
+
+  it("桶里还有未清理的中转副本时，编辑与删除连接前提示改动后需要手动清理", async () => {
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({
+      ...LOCAL_ONLY,
+      connection: CONNECTION,
+      retained_relay_objects: 3,
+    });
+    const user = userEvent.setup();
+    render(<AssetLibrarySection />);
+
+    await user.click(await screen.findByRole("button", { name: "编辑对象存储" }));
+    const dialog = await screen.findByRole("dialog", { name: "编辑对象存储" });
+    expect(within(dialog).getByText(/桶里还有 3 个中转副本尚未清理/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+
+    await user.click(screen.getByRole("button", { name: "删除对象存储连接" }));
+    expect(within(await screen.findByRole("alertdialog")).getByText(/桶里还有 3 个中转副本尚未清理/)).toBeInTheDocument();
   });
 
   it("一条绑定提交时其他行不能并发修改，完成后恢复", async () => {
@@ -138,7 +185,7 @@ describe("AssetLibrarySection", () => {
     expect(screen.getAllByRole("button", { name: "重新确认" })[1]).toBeEnabled();
   });
   it("连接测试在途时替换了连接，旧连接的测试结果不显示在新配置旁", async () => {
-    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({ connection: CONNECTION });
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({ ...LOCAL_ONLY, connection: CONNECTION });
     const probe = createDeferred<void>();
     vi.spyOn(API, "checkObjectStorageConnection").mockReturnValue(probe.promise as never);
     vi.spyOn(API, "saveObjectStorageConnection").mockResolvedValue({ ...CONNECTION, bucket: "new-relay" });

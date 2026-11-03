@@ -85,8 +85,11 @@ def storage_api(db_engine: AsyncEngine) -> Generator[TestClient]:
         yield c
 
 
+_LOCAL_ONLY = {"connection": None, "new_image_target": "local", "retained_relay_objects": 0}
+
+
 def test_local_only_instance_has_no_connection(storage_api: TestClient):
-    assert storage_api.get("/api/v1/object-storage/connection").json() == {"connection": None}
+    assert storage_api.get("/api/v1/object-storage/connection").json() == _LOCAL_ONLY
     assert storage_api.post("/api/v1/object-storage/connection/test").status_code == 404
 
 
@@ -132,7 +135,7 @@ def test_connection_test_failure_explains_reason(storage_api: TestClient, fake_t
 def test_delete_returns_instance_to_local_only(storage_api: TestClient):
     storage_api.put("/api/v1/object-storage/connection", json=_BODY)
     assert storage_api.delete("/api/v1/object-storage/connection").status_code == 204
-    assert storage_api.get("/api/v1/object-storage/connection").json() == {"connection": None}
+    assert storage_api.get("/api/v1/object-storage/connection").json() == _LOCAL_ONLY
 
 
 async def test_presigned_download_address_is_a_url_string(fake_tos):

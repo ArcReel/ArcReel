@@ -9,6 +9,16 @@ export interface ObjectStorageConnection {
   updated_at: string;
 }
 
+/** 新增图片内容版本的保存位置（全局设置，缺省本地）。 */
+export type NewImageTarget = "local" | "object_storage";
+
+/** 「对象存储」块读取的全部状态：连接、新增图片保存位置与尚未清理的中转副本数量。 */
+export interface ObjectStorageSettings {
+  connection: ObjectStorageConnection | null;
+  new_image_target: NewImageTarget;
+  retained_relay_objects: number;
+}
+
 /** 保存对象存储连接；已有连接时两个密钥字段留空表示保留已保存的值。 */
 export interface SaveObjectStorageConnectionPayload {
   region: string;

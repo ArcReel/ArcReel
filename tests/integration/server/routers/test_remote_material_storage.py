@@ -37,7 +37,7 @@ from lib.config.repository import SystemSettingRepository
 from lib.db import get_async_session
 from lib.db.base import utc_now
 from lib.db.models.asset_library import ProviderAssetLink
-from lib.db.models.object_storage import FormalObject, FormalObjectRef
+from lib.db.models.object_storage import FormalObject, FormalObjectRef, RelayObject
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.material.formal_objects import (
     MATERIAL_STORAGE_TARGET_SETTING,
@@ -62,6 +62,7 @@ from server.routers import (
     assets,
     characters,
     derivative_uploads,
+    end_frames,
     file_view,
     files,
     grids,
@@ -199,6 +200,7 @@ def api(sessions, project, monkeypatch) -> Generator[TestClient]:
         shot_uploads.router,
         derivative_uploads.router,
         grids.router,
+        end_frames.router,
     ):
         app.include_router(router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     app.include_router(files.public_router, prefix="/api/v1")
@@ -1072,3 +1074,92 @@ async def test_manual_image_upload_follows_the_storage_choice(api, sessions, pro
     preview = api.get(f"/api/v1/files/demo/{entry.artifact_path}")
     assert preview.status_code == 200
     assert preview.content == saved
+
+
+async def test_settings_enable_remote_storage_and_switch_back_only_affect_new_versions(api, sessions, project, bucket):
+    """经设置接口启用与切回：只配置连接不启用远端；没有连接不能启用；启用期间不能删除连接；
+    切回本地后新版本照旧本地，已有远端版本按原定位读取与恢复，实际清理入口清理后仍可用。"""
+    zh = {"Accept-Language": "zh"}
+
+    def _settings() -> dict[str, Any]:
+        resp = api.get("/api/v1/object-storage/connection")
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def _choose(target: str):
+        return api.put("/api/v1/object-storage/new-image-target", json={"target": target}, headers=zh)
+
+    assert _settings()["new_image_target"] == "local"
+    refused = _choose("object_storage")
+    assert refused.status_code == 409
+    assert "先配置对象存储连接" in refused.json()["detail"]
+
+    # 只配置连接（上传中转）：新增图片仍保存在本地
+    assert api.put("/api/v1/object-storage/connection", json=CONNECTION).status_code == 200
+    assert _settings()["new_image_target"] == "local"
+    image_a, image_b, image_c = (solid_png_bytes(rgb, size=(64, 64)) for rgb in ((1, 2, 3), (4, 5, 6), (7, 8, 9)))
+    assert _upload(api, image_a).status_code == 200
+    assert bucket.stored_keys() == []
+
+    assert _choose("object_storage").json() == {"target": "object_storage"}
+    assert _settings()["new_image_target"] == "object_storage"
+    guarded = api.delete("/api/v1/object-storage/connection", headers=zh)
+    assert guarded.status_code == 409  # 还没有正式对象，挡住删除的是保存位置本身
+    assert "新增图片保存位置" in guarded.json()["detail"]
+    assert _upload(api, image_b).status_code == 200
+
+    assert _choose("local").status_code == 200
+    assert _upload(api, image_c).status_code == 200
+    record_a, record_b, record_c = _history(project)["versions"]
+    assert "storage" not in record_a
+    assert "storage" not in record_c
+    assert record_b["storage"]["key"] == formal_object_key(record_b["content_digest"], ".png")
+    assert bucket.stored_keys() == [record_b["storage"]["key"]]
+
+    # 中转副本单独计数，工作文件清理不碰它，也不删除正式对象
+    async with sessions() as session:
+        connection = await ObjectStorageConnectionRepository(session).get()
+        assert connection is not None
+        session.add(
+            RelayObject(
+                connection_id=connection.id, endpoint=connection.endpoint, bucket=BUCKET, object_key="arcreel-relay/x"
+            )
+        )
+        await session.commit()
+    assert _settings()["retained_relay_objects"] == 1
+    assert _cleanup(api)["removed"] == 1  # B 的快照工作文件
+    assert _settings()["retained_relay_objects"] == 1
+    assert bucket.stored_keys() == [record_b["storage"]["key"]]
+
+    # 切回本地之后恢复远端版本 B：沿用原定位，不新增内容版本，也不重新上传
+    puts = bucket.calls.count(("put", record_b["storage"]["key"]))
+    restored = api.post("/api/v1/projects/demo/versions/characters/Alice/restore/2")
+    assert restored.status_code == 200, restored.text
+    assert (project.get_project_path("demo") / "characters" / "Alice.png").read_bytes() == image_b
+    assert [record.get("storage") for record in _history(project)["versions"]] == [None, record_b["storage"], None]
+    assert bucket.calls.count(("put", record_b["storage"]["key"])) == puts
+
+    # 已有正式对象时，删除连接按正式对象挡下；保存位置改回本地也不解除
+    assert api.delete("/api/v1/object-storage/connection").status_code == 409
+
+
+async def test_end_frame_picked_from_an_evicted_remote_image_fetches_it_and_stays_local(api, sessions, project, bucket):
+    """尾帧不建版本，始终本地保存；从缓存已清理的远端图片选取时先从对象存储取回原图。"""
+    await asyncio.to_thread(_storyboard_upload, project)
+    await _remote(sessions)
+    image = solid_png_bytes((30, 60, 90), size=(64, 64))
+    assert _upload(api, image).status_code == 200
+    key = _history(project)["versions"][-1]["storage"]["key"]
+    _cleanup(api)
+    project_dir = project.get_project_path("demo")
+    assert not (project_dir / "characters" / "Alice.png").exists()
+
+    resp = api.post(
+        "/api/v1/projects/demo/shots/E1S01/end-frame/select",
+        json={"script_file": "episode_1.json", "source_path": "characters/Alice.png"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert bucket.calls.count(("get", key)) == 1
+    assert (project_dir / resp.json()["end_frame_image"]).is_file()
+    assert bucket.stored_keys() == [key]  # 尾帧快照不写对象存储

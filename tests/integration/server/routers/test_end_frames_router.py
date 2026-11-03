@@ -30,6 +30,7 @@ from server.routers import end_frames
 from server.services.currency import upload_finalize
 from server.services.project import end_frame as end_frame_service
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import use_project_manager
 
 END_FRAME_REL = "end_frames/scene_E1S01.png"
 
@@ -105,7 +106,7 @@ def _seed_project(tmp_path, hooks: _ScriptIOHooks) -> ProjectManager:
 
 def _build_client(pm: ProjectManager, monkeypatch) -> TestClient:
     """把给定 ProjectManager 接到尾帧路由上，返回可发请求的 TestClient。"""
-    monkeypatch.setattr(end_frame_service, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
 
     app = FastAPI()
     register_error_handlers(app)

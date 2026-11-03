@@ -432,6 +432,8 @@ Explicitly changing the version when upgrading reduces the risk of unintentional
 
 After the whole site is moved to a different absolute path, the application relocates the storage of existing Agent sessions to match the current project directories at startup, so conversations can continue with their context. Sessions of deleted projects follow the new name the project is restored under. With `ARCREEL_SDK_SESSION_STORE=off`, sessions are stored only in the SDK's local directory, so keep that directory when migrating (`claude_data/` for Docker, or `CLAUDE_CONFIG_DIR` or the default `~/.claude` for native deployments). When the same session has records in several source locations, or the destination already has a record, they are not merged automatically; a failed move logs a warning, and the service still starts.
 
+After object storage is enabled under **Save new images to**, the content of remote images lives only in your TOS bucket; backups of the data root and the database contain only their records and a local cache that can be cleaned up. When restoring a backup, the connection must still point to the original bucket, and the objects in the bucket must be kept as well; see [Save New Images to Object Storage](../guide/providers.md#remote-image-storage).
+
 ### 6.1 Back Up a SQLite Deployment {#backup-sqlite}
 
 The data root already contains projects, the default SQLite database, logs, and Vertex credentials, so a file-system backup only needs to archive the data root plus `.env` and `claude_data/`.

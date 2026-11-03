@@ -111,6 +111,10 @@ const RECORDINGS: Recording[] = [
     path: "/api/v1/custom-providers/endpoints/newapi-video/definition",
   },
   { file: "market-submissions", method: "GET", path: "/api/v1/market/submissions" },
+  // 全局设置「素材库与存储」：对象存储连接与新增图片保存位置（录制环境没有连接，保存位置为本地）、素材库账号与推理凭证绑定（为空）；已配置的状态由场景替换。
+  { file: "object-storage-connection", method: "GET", path: "/api/v1/object-storage/connection" },
+  { file: "asset-library-accounts", method: "GET", path: "/api/v1/asset-library/accounts" },
+  { file: "asset-library-bindings", method: "GET", path: "/api/v1/asset-library/bindings" },
   // 全局设置「市场」：市场源（录制环境只有内置的官方源，从未刷新）与条目快照（为空）；刷新、聚合与条目详情访问外网，由场景替换。
   { file: "market-sources", method: "GET", path: "/api/v1/market/sources" },
   { file: "market-entries", method: "GET", path: "/api/v1/market/entries?type=endpoint" },

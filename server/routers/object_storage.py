@@ -3,6 +3,9 @@
 实例至多一条连接（数据库唯一约束保证，并发首次保存时后到的请求按更新那一条处理），首期只支持 TOS。连接只是配置：保存后不改变任何图片的保存位置。密钥只经本接口写入，
 读取返回掩码；测试连接的失败原因只带服务端错误码与原文摘要，不带签名或请求地址。
 
+新增图片的保存位置（``material_storage_target``）是另一项全局设置，缺省本地，只能在已有连接时设为对象存储；
+新增图片保存到对象存储期间不能删除连接。设置只影响之后提交的图片内容版本，已有版本照旧按各自的定位读取。
+
 连接上还有正式素材对象时，不能更换桶、Endpoint、区域或删除连接（旧对象会失去可读取的位置），只能更新访问密钥。
 另提供远端素材本地工作文件的清理入口，清理不删除对象存储里的任何对象。
 """
@@ -24,11 +27,12 @@ from lib.db.models.object_storage import ObjectStorageConnection
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.api_errors import BadGatewayError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.logging_utils import redact_diagnostic_text
-from lib.material.formal_objects import live_object_count
+from lib.material.formal_objects import NewContentTarget, live_object_count, new_content_target, set_new_content_target
 from lib.material.global_library import cleanup_global_work_files
 from lib.material.work_files import cleanup_work_cache
 from lib.object_storage.client import ObjectStorageError, is_s3_compatible_endpoint
 from lib.object_storage.connection import load_object_storage_client
+from lib.object_storage.relay import count_retained_relay_objects
 from lib.project.project_manager import get_project_manager
 
 router = APIRouter(prefix="/object-storage", tags=["Object Storage"])
@@ -54,6 +58,14 @@ class ObjectStorageConnectionResponse(BaseModel):
 
 class ObjectStorageConnectionEnvelope(BaseModel):
     connection: ObjectStorageConnectionResponse | None
+    #: 新增图片内容版本的保存位置；只配置连接不改变它。
+    new_image_target: NewContentTarget
+    #: 还没有清理的中转副本数量：更换桶或 Endpoint 后，旧桶里的这些副本不再自动删除。
+    retained_relay_objects: int
+
+
+class NewImageTargetBody(BaseModel):
+    target: NewContentTarget
 
 
 class SaveObjectStorageConnectionRequest(BaseModel):
@@ -108,7 +120,23 @@ def _to_response(conn: ObjectStorageConnection) -> ObjectStorageConnectionRespon
 @router.get("/connection", response_model=ObjectStorageConnectionEnvelope)
 async def get_connection(session: AsyncSession = Depends(get_async_session)) -> ObjectStorageConnectionEnvelope:
     conn = await ObjectStorageConnectionRepository(session).get()
-    return ObjectStorageConnectionEnvelope(connection=_to_response(conn) if conn else None)
+    return ObjectStorageConnectionEnvelope(
+        connection=_to_response(conn) if conn else None,
+        new_image_target=await new_content_target(session),
+        retained_relay_objects=await count_retained_relay_objects(session),
+    )
+
+
+@router.put("/new-image-target", response_model=NewImageTargetBody)
+async def save_new_image_target(
+    body: NewImageTargetBody, session: AsyncSession = Depends(get_async_session)
+) -> NewImageTargetBody:
+    """选择之后新提交的图片内容版本保存在本地还是对象存储；已有图片与历史版本不搬迁。"""
+    if body.target == "object_storage" and await ObjectStorageConnectionRepository(session).get() is None:
+        raise ConflictError("material_storage_target_needs_connection")
+    await set_new_content_target(session, body.target)
+    await session.commit()
+    return body
 
 
 @router.put("/connection", response_model=ObjectStorageConnectionResponse)
@@ -153,6 +181,9 @@ async def delete_connection(session: AsyncSession = Depends(get_async_session)) 
     existing = await repo.get()
     if existing is not None:
         await _ensure_connection_unused(session, existing)
+        if await new_content_target(session) == "object_storage":
+            # 删除后每次图片提交都会失败：先把新增图片改回本地保存
+            raise ConflictError("object_storage_connection_is_new_image_target")
     if not await repo.delete():
         raise NotFoundError("object_storage_not_configured")
     await session.commit()
