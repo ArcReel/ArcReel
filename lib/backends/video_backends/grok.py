@@ -8,6 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
     IMAGE_MIME_TYPES,
     VideoAudioMode,
@@ -21,7 +22,7 @@ from lib.backends.data_uri import image_to_data_uri
 from lib.backends.grok_shared import create_grok_client
 from lib.backends.providers import PROVIDER_GROK
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import capabilities_by_names
+from lib.backends.video_backends.name_family import EntryBoundCapabilities, capabilities_by_names
 from lib.billing.metering import Usage
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
@@ -50,7 +51,7 @@ def _match_video_capabilities(name: str) -> VideoCapabilities | None:
 _REFERENCE_ROUTE_MAX_RESOLUTION = "720p"
 
 
-class GrokVideoBackend:
+class GrokVideoBackend(EntryBoundCapabilities):
     """xAI Grok 视频生成后端。"""
 
     DEFAULT_MODEL = "grok-imagine-video"
@@ -73,7 +74,7 @@ class GrokVideoBackend:
         return self._model
 
     @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
         """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
 
         instance property 委托至此，保持 backend 为单一真相源。能力取自 xAI 视频文档
@@ -94,11 +95,11 @@ class GrokVideoBackend:
 
         ``grok-imagine-video`` 系列之外的名字取 name_family 的统一回落。
         """
-        return capabilities_by_names(model, _match_video_capabilities)
+        return capabilities_by_names(model, _match_video_capabilities, entry=entry)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model)
+        return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     @staticmethod
     def metered_usage(

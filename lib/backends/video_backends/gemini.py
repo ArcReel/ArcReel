@@ -17,7 +17,7 @@ from typing import Any, BinaryIO
 
 from PIL import Image
 
-from arcreel_catalog_core import normalize_model_name
+from arcreel_catalog_core import CatalogEntry, normalize_model_name
 from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
@@ -46,7 +46,11 @@ from lib.backends.gemini_shared import (
 from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, capabilities_by_names
+from lib.backends.video_backends.name_family import (
+    UNRECOGNIZED_MODEL_CAPABILITIES,
+    EntryBoundCapabilities,
+    capabilities_by_names,
+)
 from lib.billing.metering import Usage
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
@@ -78,7 +82,7 @@ def _is_veo_3_1(name: str) -> bool:
     return normalize_model_name(name).startswith("veo-3-1-")
 
 
-class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
+class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """Gemini (Veo) 视频生成后端。"""
 
     def __init__(
@@ -174,8 +178,8 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         )
 
     @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
-        """按模型名纯计算 caps —— 不构造 SDK client（无需 api_key）。
+    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
+        """按模型名纯计算 caps —— 不构造 SDK client（无需 api_key）。``entry`` 是模型对应的条目。
 
         Veo 官方文档（docs/api-docs/providers/gemini-aistudio.md）把 Image-to-video 与 Reference images
         列为并列模式。Veo 3.1 系列的首帧/尾帧/参考图三维一致，按名字族认定；其余名字取 name_family 的
@@ -194,12 +198,12 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
             return VideoCapabilities(last_frame=True, max_reference_images=3, audio_track=audio_track)
 
         return capabilities_by_names(
-            model, match, fallback=replace(UNRECOGNIZED_MODEL_CAPABILITIES, audio_track=audio_track)
+            model, match, fallback=replace(UNRECOGNIZED_MODEL_CAPABILITIES, audio_track=audio_track), entry=entry
         )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._video_model)
+        return self.video_capabilities_for_model(self._video_model, self._catalog_entry)
 
     @property
     def _request_base_url(self) -> str | None:

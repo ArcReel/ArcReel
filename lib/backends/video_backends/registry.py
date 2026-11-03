@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from arcreel_market_core.video_backend_contract import (
     VideoBackend,
@@ -12,6 +12,9 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationResult,
 )
 from lib.billing.metering import Usage
+
+if TYPE_CHECKING:
+    from arcreel_catalog_core import CatalogEntry
 
 _BACKEND_FACTORIES: dict[str, Callable[..., VideoBackend]] = {}
 
@@ -33,12 +36,13 @@ def get_registered_backends() -> list[str]:
     return list(_BACKEND_FACTORIES.keys())
 
 
-def video_capabilities_for_model(name: str, model_id: str) -> VideoCapabilities:
+def video_capabilities_for_model(name: str, model_id: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
     """读某后端对某 model 声明的视频能力 —— 纯查表，不构造实例（无需 api_key）。
 
     ``name`` 是 registry 名（内置侧由 ``ProviderSpec.registry_backend`` 给出，与 provider_id
     不必相同：gemini-aistudio / gemini-vertex 同映射到 ``gemini``）。展示层解析内置模型的
-    布尔能力位走这里，使 backend 保持唯一真相源，不在注册表复制第二份能力声明。
+    布尔能力位走这里，使 backend 保持唯一真相源，不在注册表复制第二份能力声明。``entry`` 是模型对应的
+    条目，backend 按它的名字认定通道能力；不给时按 ``model_id`` 现查（docs/adr/0105）。
     """
     factory = _BACKEND_FACTORIES.get(name)
     if factory is None:
@@ -46,7 +50,7 @@ def video_capabilities_for_model(name: str, model_id: str) -> VideoCapabilities:
     caps_fn = getattr(factory, "video_capabilities_for_model", None)
     if caps_fn is None:
         raise ValueError(f"video backend {name!r} does not declare video_capabilities_for_model")
-    caps = caps_fn(model_id)
+    caps = caps_fn(model_id, entry)
     if not isinstance(caps, VideoCapabilities):
         raise ValueError(f"video backend {name!r} video_capabilities_for_model returned {type(caps).__name__}")
     return caps

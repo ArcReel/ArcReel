@@ -9,6 +9,7 @@ from pathlib import Path
 
 from openai import AsyncOpenAI
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.aspect_size import VIDEO_TIER_SHORT_EDGE, parse_aspect_ratio, resolution_to_short_edge
 from arcreel_market_core.video_backend_contract import (
     IMAGE_MIME_TYPES,
@@ -32,7 +33,11 @@ from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_cl
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, capabilities_by_names
+from lib.backends.video_backends.name_family import (
+    UNRECOGNIZED_MODEL_CAPABILITIES,
+    EntryBoundCapabilities,
+    capabilities_by_names,
+)
 from lib.billing.metering import Usage
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.logging_utils import format_kwargs_for_log
@@ -139,7 +144,7 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str) -> str:
     return chosen
 
 
-class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
+class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """OpenAI Sora 视频生成后端。"""
 
     def __init__(
@@ -164,7 +169,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         return self._model
 
     @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
         """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
 
         Sora input_reference 为单张首帧图，参考图上限为 1；首帧与参考共享该单槽位。
@@ -182,11 +187,12 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
                 else None
             ),
             fallback=replace(UNRECOGNIZED_MODEL_CAPABILITIES, audio_track=VideoAudioMode.ALWAYS_ON),
+            entry=entry,
         )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model)
+        return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     @property
     def _request_base_url(self) -> str:

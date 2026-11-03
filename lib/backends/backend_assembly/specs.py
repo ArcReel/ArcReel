@@ -600,7 +600,10 @@ def declared_builtin_video_capabilities(provider_id: str, model_id: str) -> Vide
         return declarative_video_capabilities(definition)
     from lib.backends.video_backends.registry import video_capabilities_for_model
 
-    return video_capabilities_for_model(spec.registry_backend, model_id)
+    # 调用通道按模型对应的条目认定能力：官方收录的取清单所引的条目，用户添加的取条目绑定或按名字现查的结果。
+    return video_capabilities_for_model(
+        spec.registry_backend, model_id, catalog.provider_model_entry(provider_id, model_id, "video")
+    )
 
 
 def builtin_video_metered_usage(

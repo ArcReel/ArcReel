@@ -17,6 +17,7 @@ from arcreel_market_core.video_backend_contract import (
 )
 from lib.backends.video_backends.ark import ArkVideoBackend
 from lib.backends.video_frame_slots import FIRST_FRAME_ADAPTIVE_RATIO, resolve_first_frame_aspect_ratio
+from lib.catalog import query as catalog
 from tests.fakes import (
     blocking_file_read_gate,
     bounded_poll_clock,
@@ -632,6 +633,29 @@ class TestArkServiceTierParam:
 
         create_kwargs = ark_backend._client.content_generation.tasks.create.call_args.kwargs
         assert "service_tier" not in create_kwargs
+
+    @pytest.mark.parametrize(("bound", "sends_tier"), [(True, False), (False, True)], ids=["bound-2.0", "unbound"])
+    async def test_opaque_model_follows_the_bound_entry(self, tmp_path, bound: bool, sends_tier: bool):
+        """不透明模型 ID 绑定 Seedance 2.0 条目后按 2.0 不发 service_tier，请求里仍是原模型 ID；未绑定时照旧发送。"""
+        with patch("lib.backends.video_backends.ark.create_ark_client", return_value=MagicMock()):
+            backend = ArkVideoBackend(api_key="test", model="ep-20261103-opaque")
+        if bound:
+            entry = catalog.find_bound_entry("bytedance/doubao-seedance-2.0", "video")
+            assert entry is not None
+            backend = backend.with_catalog_entry(entry)
+        captured: dict = {}
+
+        def fake_create(**kwargs):
+            captured.update(kwargs)
+            raise RuntimeError("stop")
+
+        backend._client.content_generation.tasks.create = fake_create
+        with pytest.raises(RuntimeError):
+            await backend._create_task(VideoGenerationRequest(prompt="x", output_path=tmp_path / "o.mp4"))
+
+        assert captured["model"] == "ep-20261103-opaque"
+        assert ("service_tier" in captured) is sends_tier
+        assert backend.video_capabilities.max_reference_images == (9 if bound else 0)
 
     async def test_seedance_1_5_sends_service_tier(self, ark_backend, tmp_path):
         output = tmp_path / "out.mp4"
