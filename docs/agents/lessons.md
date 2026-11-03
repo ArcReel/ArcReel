@@ -6,7 +6,7 @@
 
 ## 收尾自查
 
-凡最终要提 PR 的工作都在收尾时自查一次，包括交互式会话和小修复；AFK 批次中的 implementer、stage-reviewer、review-looper 各自查一次。
+凡最终要提 PR 的工作都在收尾时自查一次，包括交互式会话和小修复；AFK 批次中的 implementer、stage-reviewer、fixer、review-looper 各自查一次。
 
 自问：这次有没有出过值得改进环境的错？符合任一条就算：
 
@@ -21,7 +21,7 @@
 
 问题出在更早的 PR 里时，评论仍发在当前 PR，编号按「计数与晋升」的计数单位写。
 
-AFK 角色还没有自己的 PR 时（implementer，以及 stage PR 创建前的 stage-reviewer），把候选按同一格式写进 handoff，由 team-lead 在 stage PR 上统一发评论。
+AFK 角色还没有自己的 PR 时（implementer，以及 stage PR 创建前的 stage-reviewer 与 fixer），把候选按同一格式写进 handoff，由 team-lead 在 stage PR 上统一发评论。
 
 ## 条目格式
 

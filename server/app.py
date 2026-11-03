@@ -855,8 +855,12 @@ def create_generation_worker() -> GenerationWorker:
 
 @app.get("/health")
 async def health_check():
-    """健康检查"""
-    return {"status": "ok", "message": "视频项目管理 WebUI 运行正常"}
+    """健康检查；commit 为镜像构建时注入的 commit sha，源码运行时为 null。"""
+    return {
+        "status": "ok",
+        "message": "视频项目管理 WebUI 运行正常",
+        "commit": os.environ.get("ARCREEL_BUILD_COMMIT") or None,
+    }
 
 
 @app.get("/agent-installation-guide.md", include_in_schema=False)

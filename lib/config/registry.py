@@ -20,7 +20,6 @@ class ProviderMeta:
     """
 
     display_name: str
-    description: str
     required_keys: list[str]
     optional_keys: list[str] = field(default_factory=list)
     secret_keys: list[str] = field(default_factory=list)
@@ -82,7 +81,6 @@ class ProviderMeta:
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     "gemini-aistudio": ProviderMeta(
         display_name="AI Studio",
-        description="Google AI Studio 提供 Gemini 系列模型，支持图片、视频和语音生成，适合快速原型和个人项目。",
         required_keys=["api_key"],
         optional_keys=[
             "base_url",
@@ -97,7 +95,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "gemini-vertex": ProviderMeta(
         display_name="Vertex AI",
-        description="Google Cloud Vertex AI 企业级平台，支持 Gemini 和 Imagen 模型，提供更高配额和音频生成能力。",
         required_keys=["credentials_path"],
         optional_keys=[
             "gcs_bucket",
@@ -112,7 +109,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "ark": ProviderMeta(
         display_name="火山方舟",
-        description="字节跳动火山方舟 AI 平台，支持 Seedance 视频生成和 Seedream 图片生成，具备音频生成和种子控制能力。",
         required_keys=["api_key"],
         optional_keys=["base_url", "image_max_workers", "video_max_workers"],
         secret_keys=["api_key"],
@@ -120,7 +116,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "ark-agent-plan": ProviderMeta(
         display_name="火山方舟 Agent Plan",
-        description="火山方舟 Agent Plan 套餐，聚合豆包及多家主流大模型，覆盖文本、图片与视频生成。",
         required_keys=["api_key"],
         optional_keys=["video_max_workers", "image_max_workers"],
         secret_keys=["api_key"],
@@ -128,28 +123,24 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "grok": ProviderMeta(
         display_name="Grok",
-        description="xAI Grok 模型，支持视频和图片生成。",
         required_keys=["api_key"],
         optional_keys=["video_max_workers", "image_max_workers"],
         secret_keys=["api_key"],
     ),
     "openai": ProviderMeta(
         display_name="OpenAI",
-        description="OpenAI 官方平台，支持 GPT-5.5 / GPT-5.4 文本与 GPT Image 2 图片生成。",
         required_keys=["api_key"],
         optional_keys=["base_url", "image_max_workers"],
         secret_keys=["api_key"],
     ),
     "vidu": ProviderMeta(
         display_name="Vidu",
-        description="生数科技 Vidu 视频生成平台，支持文生视频、图生视频、首尾帧、参考生视频与参考生图，仅图片与视频能力。",
         required_keys=["api_key"],
         optional_keys=["base_url", "image_max_workers", "video_max_workers"],
         secret_keys=["api_key"],
     ),
     "dashscope": ProviderMeta(
         display_name="阿里百炼",
-        description="阿里云百炼（Model Studio）全模态平台，支持 Qwen 文本、Qwen-Image / 万相图像与 HappyHorse / 万相视频（含参考生视频）。",
         required_keys=["api_key"],
         # wan3_base_url：万相 3.0 走独立 maas 域名，且域名里含地域与 workspace，
         # 无法由通用 base_url 派生，故单列一键。仅 wan3.0-video 的请求消费它（见
@@ -160,7 +151,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "minimax": ProviderMeta(
         display_name="MiniMax",
-        description="MiniMax（海螺）多模态平台，提供文本、图片、视频与语音生成。默认连接国内站，海外可将 base_url 切换到国际站。",
         required_keys=["api_key"],
         optional_keys=["base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
         secret_keys=["api_key"],
@@ -168,10 +158,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "kling": ProviderMeta(
         display_name="可灵 Kling",
-        description=(
-            "快手可灵 Kling 视频与图像生成平台。API Key（Bearer）适用于全部模型；"
-            "Access Key + Secret Key（JWT）仅适用于 3.0 及更早模型，二者二选一，同时填写时 API Key 优先。"
-        ),
         # 首个需要两个 secret 字符串的内置供应商（JWT HS256 鉴权），凭证按 registry key 名
         # 存入 provider_credential 的 access_key / secret_key 定型列（见 ADR 0037）。api_key 复用
         # 该表已有的 api_key 定型列（其余 provider 的静态 Bearer key 同列），无需新迁移。
@@ -187,7 +173,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "agnes": ProviderMeta(
         display_name="Agnes",
-        description="Agnes 多模态平台（OpenAI 风格），使用 Bearer API Key 鉴权；当前支持图像 / 文本 / 视频生成。",
         required_keys=["api_key"],
         optional_keys=["base_url", "image_max_workers", "video_max_workers"],
         secret_keys=["api_key"],
