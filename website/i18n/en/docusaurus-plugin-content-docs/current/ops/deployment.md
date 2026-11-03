@@ -225,6 +225,8 @@ To check manually:
 curl -f http://localhost:1241/health
 ```
 
+This endpoint requires no authentication. In official images, the response includes a `commit` field holding the commit sha the image was built from, which tells you which version the instance is running; when run directly from source, it is `null`.
+
 ### 4.2 View Logs {#view-logs}
 
 ```bash

@@ -2,6 +2,8 @@
 
 本目录只保存导航：官方来源链接、ArcReel 依赖的主题和稳定代码入口。运行时事实仍归 registry、backend 与 endpoint 声明，不从索引反向加载。
 
+「简介来源」一项是例外，它支撑 `lib/i18n/<locale>/providers.py` 的 `provider_desc_<id>`：简介只写平台是什么，来源优先取 Wikipedia 或 Wikidata 词条，词条缺失或过时时改用官方页面。
+
 ## 修改流程
 
 1. 以 `PROVIDER_REGISTRY` / `ENDPOINT_REGISTRY` 的规范 id 定位对应文件；一个 id 一个文件。

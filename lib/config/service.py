@@ -122,7 +122,6 @@ async def build_anthropic_env(session: AsyncSession) -> AnthropicEnv:
 class ProviderStatus:
     name: str
     display_name: str
-    description: str
     status: Literal["ready", "unconfigured", "error"]
     media_types: list[str]
     capabilities: list[str]
@@ -185,7 +184,6 @@ class ConfigService:
                 ProviderStatus(
                     name=name,
                     display_name=meta.display_name,
-                    description=meta.description,
                     status=status,
                     media_types=catalog.provider_media_types(name),
                     capabilities=catalog.provider_capabilities(name),
