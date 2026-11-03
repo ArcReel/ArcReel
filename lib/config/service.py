@@ -16,8 +16,6 @@ from lib.config.repository import ProviderConfigRepository, SystemSettingReposit
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.infra.schema_guards import is_int
 
-DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-lite-generate-preview"
-DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image"
 DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
 DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
 # 旁白默认音色（DashScope 预设）；全局 setting 未配置时的兜底。全局音色与语速只作为新建 TTS 项目
@@ -129,7 +127,7 @@ class ProviderStatus:
     # 凭证（界面称「密钥」）条数，供设置页二级栏显示「已配置 N 个密钥」。
     credential_count: int
     models: dict[str, dict] | None = None  # model_id -> CatalogModel 的 dict 形态
-    # 用户停用的模型键：不出现在默认模型设置的候选里，也不被自动挑选（docs/adr/0099）。
+    # 不作候选的模型键（用户停用的，加上已下线的）：不出现在默认模型设置的候选里，也不被自动挑选（docs/adr/0099）。
     disabled_models: frozenset[str] = frozenset()
 
 
@@ -234,10 +232,6 @@ class ConfigService:
                 f"video poll timeout must be an integer of at least {MIN_VIDEO_POLL_TIMEOUT_SECONDS} seconds"
             )
         await self._setting_repo.set("video_poll_timeout_seconds", str(value))
-
-    async def get_default_video_backend(self) -> tuple[str, str]:
-        raw = await self._setting_repo.get("default_video_backend", DEFAULT_VIDEO_BACKEND)
-        return self._parse_backend(raw, DEFAULT_VIDEO_BACKEND)
 
     async def get_default_text_backend(self) -> tuple[str, str]:
         raw = await self._setting_repo.get("default_text_backend", DEFAULT_TEXT_BACKEND)

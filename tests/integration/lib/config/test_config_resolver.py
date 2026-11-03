@@ -46,9 +46,6 @@ class _FakeConfigService:
     async def get_all_settings(self) -> dict[str, str]:
         return dict(self._settings)
 
-    async def get_default_video_backend(self) -> tuple[str, str]:
-        return ("gemini-aistudio", "veo-3.1-fast-generate-preview")
-
     async def get_provider_config(self, provider: str) -> dict[str, str]:
         return {"api_key": f"key-{provider}"}
 
@@ -763,10 +760,11 @@ class TestVoiceConsistency:
         caps = await _video_caps(db_factory, {"video_backend": "minimax/MiniMax-Hailuo-2.3"})
         assert caps["voice_consistency"] == "none"
 
-    async def test_agnes_true_silent_is_none(self, db_factory):
-        """Agnes 真无声模型 → none。"""
-        caps = await _video_caps(db_factory, {"video_backend": "agnes/agnes-video-v2.0"})
-        assert caps["voice_consistency"] == "none"
+    async def test_discontinued_model_is_rejected_instead_of_read(self, db_factory):
+        """项目选的是已下线的模型（Agnes v2.0）：能力读取同调用一样报下线，不再给出能力。"""
+        with pytest.raises(ModelNotInCatalogError) as excinfo:
+            await _video_caps(db_factory, {"video_backend": "agnes/agnes-video-v2.0"})
+        assert excinfo.value.code == "model_discontinued"
 
     async def test_custom_provider_without_overrides_defaults_to_soft(self, db_factory):
         """自定义供应商无 generate_audio 目录声明：与 default_tier_generates_audio 同口径，
@@ -1077,7 +1075,6 @@ class TestLayeredBackendSkeleton:
 
         params = {
             "media_type": "image",
-            "parse_fallback": "fallback/m",
             "project_bucket_key": "img_bucket",
             "project_default_key": "img_default",
             "global_bucket_key": "global_bucket",

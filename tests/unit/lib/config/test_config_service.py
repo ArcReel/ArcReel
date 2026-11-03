@@ -77,18 +77,6 @@ async def test_video_poll_timeout_rejects_values_below_minimum(config_service: C
         await config_service.set_video_poll_timeout_seconds(value)
 
 
-async def test_get_default_video_backend(config_service: ConfigService):
-    await config_service.set_setting("default_video_backend", "ark/doubao-seedance-1-5-pro-251215")
-    provider_id, model_id = await config_service.get_default_video_backend()
-    assert provider_id == "ark"
-    assert model_id == "doubao-seedance-1-5-pro-251215"
-
-
-async def test_get_default_backend_fallback(config_service: ConfigService):
-    provider_id, _model_id = await config_service.get_default_video_backend()
-    assert provider_id == "gemini-aistudio"
-
-
 async def test_unknown_provider_raises(config_service: ConfigService):
     with pytest.raises(ValueError, match="Unknown provider"):
         await config_service.set_provider_config("unknown-provider", "key", "val")

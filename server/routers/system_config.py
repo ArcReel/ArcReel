@@ -170,8 +170,8 @@ async def _enumerate_candidates(
 ) -> tuple[list[_ModelCandidate], dict[str, str]]:
     """列出所有可选模型（内置 ready 供应商与自定义供应商下已启用的供应商模型），并附任务类型桶归属。
 
-    候选只来自已启用的供应商模型，默认层与任务类型桶层同受此约束（能力过滤只加在桶层）。内置供应商的启用状态
-    取自供应商状态的 ``disabled_models``（见 :mod:`lib.catalog.builtin_models`）。
+    候选只来自已启用、未下线的供应商模型，默认层与任务类型桶层同受此约束（能力过滤只加在桶层）。内置供应商的这两项
+    取自供应商状态的 ``disabled_models``（见 :func:`lib.catalog.builtin_models.disabled_builtin_models`）。
 
     供应商名与模型名走 ``translate_or``，与 ``/providers`` 目录同一条路径：有译名表的按请求
     语言成文，没有的（纯品牌名、自定义供应商用户自填的名字）原样返回 registry / DB 里的原名。

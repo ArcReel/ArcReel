@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import cast
 
@@ -19,6 +20,8 @@ from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.catalog import query as catalog
+from lib.catalog.errors import ModelDiscontinuedError, ModelNotInCatalogError
+from lib.catalog.query import factory_snapshot
 from lib.config.resolver import ConfigResolver, ProviderModel, VideoBucketCapabilityError, VoiceConsistency
 from lib.custom_provider import make_provider_id
 from lib.db.models.config import SystemSetting
@@ -42,6 +45,7 @@ from server.services.tasks.generation_context import (
     VideoLaneResult,
     resolve_generation_context,
 )
+from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes
 from tests.factories import make_video_request_facts
 from tests.fakes import bind_session_factory, use_backend_assembler, use_project_manager
 
@@ -570,6 +574,39 @@ class TestBackendCache:
         generation_context.invalidate_backend_cache()
         await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
         assert len(fake_assemble) == 2, "失效后须重建 backend"
+
+    async def test_cached_backend_is_not_reused_once_the_model_is_discontinued(self, monkeypatch):
+        """同一进程跨过关停日期：缓存里关停前构造的 backend 不再被取用，调用报下线，默认模型也不再沿用。"""
+        default = catalog.default_model("ark", "image")
+        assert default is not None
+        install_catalog(
+            monkeypatch,
+            with_entry_changes(
+                factory_snapshot(), "ark", default, shutdown_date=date(2026, 11, 24), successor="bytedance/next"
+            ),
+        )
+        built: list[str | None] = []
+
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+            built.append(model_id)
+            return _FakeBackend(name=provider_id, model=model_id or "default-model")
+
+        use_backend_assembler(monkeypatch, _assemble)
+        resolver = cast(ConfigResolver, None)
+
+        set_catalog_today(monkeypatch, date(2026, 11, 23))
+        explicit = await generation_context._get_or_create_image_backend("ark", {"model": default}, resolver)
+        implicit = await generation_context._get_or_create_image_backend("ark", {}, resolver)
+        assert (explicit.model, implicit.model, built) == (default, default, [default])
+
+        set_catalog_today(monkeypatch, date(2026, 11, 24))
+        with pytest.raises(ModelDiscontinuedError) as excinfo:
+            await generation_context._get_or_create_image_backend("ark", {"model": default}, resolver)
+        assert excinfo.value.params["successor"] == "bytedance/next"
+        with pytest.raises(ModelNotInCatalogError) as excinfo:
+            await generation_context._get_or_create_image_backend("ark", {}, resolver)
+        assert excinfo.value.code == "provider_unsupported_media"
+        assert built == [default], "跨过关停日期后不再构造，也不取缓存"
 
     async def test_image_buckets_do_not_share_a_cache_entry(self, monkeypatch):
         """同 (media_type, provider, model) 的 t2i 与 i2i 各自构造：桶参与构造，须各占一条缓存。

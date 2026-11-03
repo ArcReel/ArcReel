@@ -30,6 +30,11 @@
             }
           ]
         },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
+        },
         "endpoint": null
       },
       {
@@ -51,6 +56,11 @@
               "per": 1
             }
           ]
+        },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
         },
         "endpoint": null
       },
@@ -74,6 +84,11 @@
             }
           ]
         },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
+        },
         "endpoint": null
       },
       {
@@ -95,6 +110,11 @@
               "per": 1
             }
           ]
+        },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
         },
         "endpoint": null
       },
@@ -118,6 +138,11 @@
             }
           ]
         },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
+        },
         "endpoint": null
       },
       {
@@ -139,6 +164,11 @@
               "per": 1
             }
           ]
+        },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
         },
         "endpoint": null
       },
@@ -168,6 +198,11 @@
             }
           ]
         },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
+        },
         "endpoint": null
       },
       {
@@ -195,6 +230,11 @@
               "per": 1000000
             }
           ]
+        },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
         },
         "endpoint": null
       },
@@ -224,6 +264,11 @@
             }
           ]
         },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
+        },
         "endpoint": null
       },
       {
@@ -251,6 +296,11 @@
               "per": 1000000
             }
           ]
+        },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
         },
         "endpoint": null
       },
@@ -280,6 +330,11 @@
             }
           ]
         },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
+        },
         "endpoint": null
       },
       {
@@ -307,6 +362,11 @@
               "per": 1000000
             }
           ]
+        },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
         },
         "endpoint": null
       },
@@ -336,6 +396,11 @@
             }
           ]
         },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
+        },
         "endpoint": null
       },
       {
@@ -363,6 +428,11 @@
               "per": 1000000
             }
           ]
+        },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
         },
         "endpoint": null
       },
@@ -392,6 +462,11 @@
             }
           ]
         },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
+        },
         "endpoint": null
       },
       {
@@ -420,6 +495,11 @@
             }
           ]
         },
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
+        },
         "endpoint": null
       },
       {
@@ -434,6 +514,11 @@
           "unpriced"
         ],
         "price": null,
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
+        },
         "endpoint": null
       },
       {
@@ -448,6 +533,11 @@
           "unpriced"
         ],
         "price": null,
+        "lifecycle": {
+          "status": "available",
+          "shutdown_date": null,
+          "successor": null
+        },
         "endpoint": null
       }
     ],

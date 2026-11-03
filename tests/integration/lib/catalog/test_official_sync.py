@@ -8,6 +8,7 @@ import json
 import threading
 from collections.abc import AsyncGenerator, Iterable
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 
 import anyio
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from arcreel_catalog_core import CatalogData, CatalogEntry, EntryKey, TextFacts, dump_entry
 from lib.catalog import builtin_models, official_sync
 from lib.catalog import query as catalog
+from lib.catalog.errors import ModelDiscontinuedError
 from lib.config.repository import SystemSettingRepository
 from lib.db.base import Base
 from lib.db.models.catalog_official_sync import CatalogOfficialSync
@@ -130,6 +132,30 @@ async def test_newer_dataset_is_applied_as_a_batch(db_factory, http_client) -> N
     assert catalog.official_data().dataset_version == UPSTREAM.dataset_version
     assert catalog.get_entry(_key("legacy")).display_name == "Legacy"
     assert official_sync.sync_status().last_success_at == status.last_success_at
+
+
+async def test_retained_entry_keeps_its_lifecycle_after_upstream_deletes_it(db_factory, http_client) -> None:
+    """官方数据删除了退役条目：本地保留的条目仍带关停日期与后继，引用它的调用报错照样写明下线说明。"""
+    retired = replace(_text("retired", "Retired"), shutdown_date=date(2026, 1, 15), successor="acme/chat")
+    await _sync(
+        db_factory, http_client, _dataset("2026-02-01T00:00:00Z", [_text("chat", "Chat v2"), retired], ["chat"])
+    )
+    await _sync(db_factory, http_client, _dataset("2026-03-01T00:00:00Z", [_text("chat", "Chat v3")], ["chat"]))
+
+    def assert_retained() -> None:
+        entry = catalog.get_entry(_key("retired"))
+        assert entry is not None
+        assert (entry.shutdown_date, entry.successor) == (date(2026, 1, 15), "acme/chat")
+
+    assert_retained()
+    # 重启后从库里装回的数据里，保留的条目同样带着生命周期字段
+    official_sync.reset_for_tests()
+    async with db_factory() as session:
+        await official_sync.load_synced_data(session)
+    assert_retained()
+    with pytest.raises(ModelDiscontinuedError) as excinfo:
+        catalog.require_callable(PROVIDER, "retired", "text")
+    assert (excinfo.value.params["shutdown_date"], excinfo.value.params["successor"]) == ("2026-01-15", "acme/chat")
 
 
 async def test_unparseable_data_is_rejected_and_local_catalog_unchanged(db_factory, http_client) -> None:

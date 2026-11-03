@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import date
 from typing import Annotated, Any, Literal, assert_never, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -34,6 +35,7 @@ from lib.billing.multipliers import get_provider_multiplier
 from lib.catalog import builtin_discovery, builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.composition import EntrySource
+from lib.catalog.lifecycle import Lifecycle, LifecycleStatus, entry_lifecycle
 from lib.catalog.price_summary import summarize_price
 from lib.catalog.reload_order import LatestReadWins
 from lib.catalog.user_entries import (
@@ -84,7 +86,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/providers", tags=["Providers"])
 
-ModelFlag = Literal["discontinued", "unpriced", "modified"]
+ModelFlag = Literal["discontinued", "retiring", "unpriced", "modified"]
+
+
+class LifecycleResponse(BaseModel):
+    """供应商模型所对应条目在今天的生命周期（UTC 日期）：状态、关停日期与官方后继（「模型厂商/官方模型名」）。
+
+    对应不上条目的模型为 ``available``，两个日期字段为 ``null``。
+    """
+
+    status: LifecycleStatus
+    shutdown_date: date | None = None
+    successor: str | None = None
 
 
 class PriceSummaryItemResponse(BaseModel):
@@ -107,9 +120,10 @@ class ProviderModelItem(BaseModel):
     - ``model_id``：设置与项目里引用这个模型的模型键；``api_model_name`` 是发给供应商的模型名。
     - ``display_name``：对应条目的显示名（自定义供应商取用户填写的名字）；没有时为 ``null``，界面显示模型 ID。
     - ``official``：内置供应商官方收录的模型，只能启用、停用；用户添加的与自定义供应商的模型为 ``false``。
-    - ``flags``：``discontinued`` 条目已下架；``unpriced`` 调用费用会记为未定价（对应不上条目或条目没有价格，
+    - ``flags``：``discontinued`` 条目已下线；``retiring`` 条目即将下线（关停日期在 ``lifecycle``）；``unpriced`` 调用费用会记为未定价（对应不上条目或条目没有价格，
       两级倍率之积为 0 时不计费，不标）；``modified`` 用户改过对应的条目，不再随官方更新。
     - ``endpoint``：自定义供应商模型的调用端点键；内置供应商为 ``null``。
+    - ``lifecycle``：所对应条目在今天的生命周期。已下线的模型仍在列表里，但不进入任何候选、也不能调用。
     """
 
     model_id: str
@@ -121,6 +135,7 @@ class ProviderModelItem(BaseModel):
     official: bool
     flags: list[ModelFlag]
     price: PriceSummaryResponse | None
+    lifecycle: LifecycleResponse
     endpoint: str | None = None
 
 
@@ -339,16 +354,22 @@ async def reload_user_added_models(session: AsyncSession) -> None:
     )
 
 
-def _flags(entry: CatalogEntry | None, multiplier: float) -> list[ModelFlag]:
+def _flags(entry: CatalogEntry | None, multiplier: float, state: Lifecycle) -> list[ModelFlag]:
     flags: list[ModelFlag] = []
-    if entry is not None and entry.discontinued:
+    if state.status == "discontinued":
         flags.append("discontinued")
+    elif state.status == "retiring":
+        flags.append("retiring")
     priced = entry is not None and entry.price is not None and entry.price.is_priceable
     if not priced and multiplier != 0:
         flags.append("unpriced")
     if entry is not None and catalog.entry_source(entry.key) == "modified":
         flags.append("modified")
     return flags
+
+
+def _lifecycle(state: Lifecycle) -> LifecycleResponse:
+    return LifecycleResponse(status=state.status, shutdown_date=state.shutdown_date, successor=state.successor)
 
 
 def _price(entry: CatalogEntry | None) -> PriceSummaryResponse | None:
@@ -374,8 +395,9 @@ def _builtin_item(item: builtin_models.BuiltinModelItem, provider_multiplier: fl
         enabled=item.enabled,
         is_default=item.is_default,
         official=view.official,
-        flags=_flags(view.entry, provider_multiplier * view.multiplier),
+        flags=_flags(view.entry, provider_multiplier * view.multiplier, view.lifecycle),
         price=_price(view.entry),
+        lifecycle=_lifecycle(view.lifecycle),
     )
 
 
@@ -400,6 +422,7 @@ def _custom_item(row: CustomProviderModel, media_type: MediaType, provider_multi
         row.model_id, media_type=media_type, binding=catalog.binding_key(row.entry_binding, media_type)
     )
     display_name = row.display_name.strip() if row.display_name and row.display_name.strip() != row.model_id else None
+    state = entry_lifecycle(entry)
     return ProviderModelItem(
         model_id=row.model_id,
         api_model_name=row.model_id,
@@ -408,8 +431,9 @@ def _custom_item(row: CustomProviderModel, media_type: MediaType, provider_multi
         enabled=row.is_enabled,
         is_default=row.is_enabled and row.is_default,
         official=False,
-        flags=_flags(entry, provider_multiplier * row.multiplier),
+        flags=_flags(entry, provider_multiplier * row.multiplier, state),
         price=_price(entry),
+        lifecycle=_lifecycle(state),
         endpoint=row.endpoint,
     )
 

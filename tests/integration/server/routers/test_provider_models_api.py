@@ -76,7 +76,7 @@ def test_builtin_list_has_state_flags_and_price_summary(models_client: TestClien
             {"meter": "output_tokens", "min_price": 0.15, "max_price": 0.15, "per": 1_000_000},
         ],
     }
-    # 条目已下架的官方收录模型：没有状态行时为停用
+    # 条目已下线的官方收录模型：没有状态行时为停用
     legacy = models["agnes-2.0-flash"]
     assert (legacy["enabled"], legacy["is_default"]) == (False, False)
     assert "discontinued" in legacy["flags"]
@@ -94,10 +94,15 @@ async def test_disabling_default_model_takes_effect_immediately(
     assert (resp.json()["enabled"], resp.json()["is_default"]) == (False, False)
     assert "agnes-3.0-flash" in await _disabled(db_factory, "agnes")
 
+    models_client.put("/api/v1/providers/agnes/models/enabled", json={"model_id": "agnes-3.0-flash", "enabled": True})
+    assert "agnes-3.0-flash" not in await _disabled(db_factory, "agnes")
+
+    # 手动启用已下线的模型：列表里显示已启用与已下线，但它仍不进入候选
     models_client.put("/api/v1/providers/agnes/models/enabled", json={"model_id": "agnes-2.0-flash", "enabled": True})
     models = _models(models_client, "agnes")
     assert models["agnes-2.0-flash"]["enabled"] is True
-    assert "agnes-2.0-flash" not in await _disabled(db_factory, "agnes")
+    assert models["agnes-2.0-flash"]["lifecycle"]["status"] == "discontinued"
+    assert "agnes-2.0-flash" in await _disabled(db_factory, "agnes")
     missing = models_client.put("/api/v1/providers/agnes/models/enabled", json={"model_id": "nope", "enabled": True})
     assert missing.status_code == 404
 

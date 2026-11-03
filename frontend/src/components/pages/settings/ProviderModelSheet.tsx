@@ -378,7 +378,7 @@ function ModelSheetForm({
         <SheetTitle>
           <span className="flex min-w-0 flex-wrap items-center gap-2">
             <TruncatedText text={name} />
-            <ProviderModelFlags flags={titleFlags} />
+            <ProviderModelFlags flags={titleFlags} shutdownDate={detail.model.lifecycle.shutdown_date} />
           </span>
         </SheetTitle>
         <SheetDescription>{providerName}</SheetDescription>
