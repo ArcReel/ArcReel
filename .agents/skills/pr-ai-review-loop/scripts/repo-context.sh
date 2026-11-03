@@ -62,3 +62,16 @@ snapshot_file_for() {
   local owner_repo="$1" pr="$2"
   printf '%s\n' "$SNAP_DIR/poll-${owner_repo//\//-}-${pr}.json"
 }
+
+# Keep owner/name routes on every page: Link headers can point at blocked numeric IDs.
+rest_pages() {
+  local endpoint="$1" projection="${2:-.}" page=1 separator='?' response count
+  [[ "$endpoint" != *'?'* ]] || separator='&'
+  while true; do
+    response=$(gh api "${endpoint}${separator}per_page=100&page=${page}") || return $?
+    count=$(jq -er "${projection} | if type == \"array\" then length else error(\"expected array\") end" <<< "$response") || return $?
+    jq "$projection" <<< "$response" || return $?
+    (( count == 100 )) || break
+    page=$((page + 1))
+  done
+}

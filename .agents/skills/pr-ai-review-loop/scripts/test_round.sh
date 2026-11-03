@@ -4,7 +4,7 @@
 # USAGE
 #   bash test_round.sh
 #
-# gh is stubbed on PATH: `repo view` answers a fixed slug, `pr view` answers the head SHA
+# gh is stubbed on PATH: REST repository lookup answers a fixed slug, PR lookup the head SHA
 # from ROUND_TEST_HEAD. TMPDIR is redirected so the ledger lands in a throwaway dir.
 
 set -euo pipefail
@@ -28,9 +28,9 @@ export TMPDIR="$TMP_ROOT/tmp"
 cat > "$TMP_ROOT/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "$1 $2" == "repo view" ]]; then
+if [[ "$1 $2" == "api repos/{owner}/{repo}" ]]; then
   printf '%s\n' 'ArcReel/ArcReel'
-elif [[ "$1 $2" == "pr view" ]]; then
+elif [[ "$1 $2" == "api repos/ArcReel/ArcReel/pulls/1767" ]]; then
   printf '%s\n' "${ROUND_TEST_HEAD:-abc123}"
 else
   echo "unexpected gh invocation: $*" >&2

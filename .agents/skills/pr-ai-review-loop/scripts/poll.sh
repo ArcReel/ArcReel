@@ -165,10 +165,8 @@
 #    CodeRabbit's old inline comments get their commit_id advanced when it re-reviews a new HEAD
 #    (in-place edit or thread re-link — exact mechanism unconfirmed). created_at is per-comment-stable.
 #
-# 3. REST vs GraphQL bot login strings are NOT interchangeable.
-#    GraphQL `author.login` = "coderabbitai" (no [bot] suffix).
-#    REST    `user.login`   = "coderabbitai[bot]" (with [bot] suffix).
-#    This script uses both endpoints; downstream consumers must use the right form for each datum.
+# 3. Snapshot author.login omits the [bot] suffix for compatibility; REST user.login
+#    retains it. Consumers must use the right form for each datum.
 #
 # 4. Trigger-command dedup matches comments that START with the command (case-insensitive,
 #    leading spaces/tabs tolerated, trailing text allowed). Prefix matching — not full-line —
@@ -265,46 +263,50 @@ enter_snapshot_dir "POLL_ERROR" || exit $?
 WORKDIR=$(mktemp -d "$SNAP_DIR/tmp.XXXXXX")
 trap 'rm -rf "$WORKDIR"' EXIT
 
-OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>"$WORKDIR/gh_repo_view.err") || {
-  echo "POLL_ERROR: gh repo view failed (auth? wrong cwd?)" >&2
+OWNER_REPO=$(gh api 'repos/{owner}/{repo}' --jq .full_name 2>"$WORKDIR/gh_repo_view.err") || {
+  echo "POLL_ERROR: REST repository lookup failed (auth? wrong cwd?)" >&2
   cat "$WORKDIR/gh_repo_view.err" >&2
   exit 4
 }
 
 SNAPSHOT_FILE=$(snapshot_file_for "$OWNER_REPO" "$PR")
 
-# Main query — GraphQL via gh pr view. author.login here is WITHOUT [bot] suffix.
-gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "$WORKDIR/main.json" 2>"$WORKDIR/gh_pr_view.err" || {
-  echo "POLL_ERROR: gh pr view $PR failed" >&2
-  cat "$WORKDIR/gh_pr_view.err" >&2
+# REST PR metadata; list endpoints below are reused to assemble the legacy schema.
+gh api "repos/${OWNER_REPO}/pulls/${PR}" > "$WORKDIR/pr.json" 2>"$WORKDIR/gh_pr.err" || {
+  echo "POLL_ERROR: REST PR $PR fetch failed" >&2
+  cat "$WORKDIR/gh_pr.err" >&2
+  exit 5
+}
+rest_pages "repos/${OWNER_REPO}/pulls/${PR}/commits" > "$WORKDIR/commits.json" 2>"$WORKDIR/gh_commits.err" || {
+  echo "POLL_ERROR: REST commits fetch failed" >&2
+  cat "$WORKDIR/gh_commits.err" >&2
   exit 5
 }
 
-# REST endpoints. `gh api --paginate` emits one JSON value per page; --slurpfile therefore
+# REST pagination emits one JSON value per page; --slurpfile therefore
 # sees one array per page for array endpoints. Flatten paginated arrays with `add`.
 # user.login here is WITH [bot] suffix.
 
-# Sub-query A — REST issue comments. Used to get CodeRabbit walkthrough's updated_at
-# (GraphQL doesn't expose updated_at on PR comments).
-gh api "repos/${OWNER_REPO}/issues/${PR}/comments" --paginate > "$WORKDIR/sub_a.json" 2>"$WORKDIR/gh_issue_comments.err" || {
+# Sub-query A — REST issue comments, including CodeRabbit walkthrough updated_at.
+rest_pages "repos/${OWNER_REPO}/issues/${PR}/comments" > "$WORKDIR/sub_a.json" 2>"$WORKDIR/gh_issue_comments.err" || {
   echo "POLL_ERROR: REST issue comments fetch failed" >&2
   cat "$WORKDIR/gh_issue_comments.err" >&2
   exit 5
 }
 
 # Sub-query B — PR-level reactions (Codex silent +1 pass path).
-gh api "repos/${OWNER_REPO}/issues/${PR}/reactions" --paginate > "$WORKDIR/sub_b.json" 2>"$WORKDIR/gh_reactions.err" || {
+rest_pages "repos/${OWNER_REPO}/issues/${PR}/reactions" > "$WORKDIR/sub_b.json" 2>"$WORKDIR/gh_reactions.err" || {
   echo "POLL_ERROR: REST reactions fetch failed" >&2
   cat "$WORKDIR/gh_reactions.err" >&2
   exit 5
 }
 
 # Sub-query B2 — exact reactors on human-authored @codex review comments. The
-# reactionGroups count returned by `gh pr view` cannot identify who added eyes, so
+# comment reaction count cannot identify who added eyes, so
 # using it would let an unrelated human reaction suppress the cold-start fallback.
 printf '[]\n' > "$WORKDIR/sub_b2.json"
 while IFS= read -r comment_id; do
-  gh api "repos/${OWNER_REPO}/issues/comments/${comment_id}/reactions" --paginate > "$WORKDIR/comment_reactions.json" 2>"$WORKDIR/gh_comment_reactions.err" || {
+  rest_pages "repos/${OWNER_REPO}/issues/comments/${comment_id}/reactions" > "$WORKDIR/comment_reactions.json" 2>"$WORKDIR/gh_comment_reactions.err" || {
     echo "POLL_ERROR: REST comment reactions fetch failed for comment ${comment_id}" >&2
     cat "$WORKDIR/gh_comment_reactions.err" >&2
     exit 5
@@ -323,15 +325,14 @@ done < <(
 )
 
 # Sub-query C — REST inline review comments on the PR diff (severity tags live here).
-gh api "repos/${OWNER_REPO}/pulls/${PR}/comments" --paginate > "$WORKDIR/sub_c.json" 2>"$WORKDIR/gh_pr_comments.err" || {
+rest_pages "repos/${OWNER_REPO}/pulls/${PR}/comments" > "$WORKDIR/sub_c.json" 2>"$WORKDIR/gh_pr_comments.err" || {
   echo "POLL_ERROR: REST PR review comments fetch failed" >&2
   cat "$WORKDIR/gh_pr_comments.err" >&2
   exit 5
 }
 
-# Sub-query C2 — REST reviews. `gh pr view --json reviews` omits the review commit;
-# REST `node_id` matches GraphQL review `id` and supplies the exact `commit_id`.
-gh api "repos/${OWNER_REPO}/pulls/${PR}/reviews" --paginate > "$WORKDIR/sub_c2.json" 2>"$WORKDIR/gh_pr_reviews.err" || {
+# Sub-query C2 — REST reviews. node_id preserves snapshot IDs; commit_id anchors coverage.
+rest_pages "repos/${OWNER_REPO}/pulls/${PR}/reviews" > "$WORKDIR/sub_c2.json" 2>"$WORKDIR/gh_pr_reviews.err" || {
   echo "POLL_ERROR: REST PR reviews fetch failed" >&2
   cat "$WORKDIR/gh_pr_reviews.err" >&2
   exit 5
@@ -339,10 +340,10 @@ gh api "repos/${OWNER_REPO}/pulls/${PR}/reviews" --paginate > "$WORKDIR/sub_c2.j
 
 # Sub-query D — check runs on the PR head. Feeds two projections: codeql_checks (exit
 # gate: "analysis finished before declaring PASS") and checks_failing (red CI can block
-# reviewers). --paginate with -q runs the projection per page, emitting one array per
+# reviewers). The projection runs per page, emitting one array per
 # page; downstream slurpfile flattens with `add` (same as sub-query E).
-HEAD_SHA=$(jq -r '.headRefOid' "$WORKDIR/main.json")
-gh api "repos/${OWNER_REPO}/commits/${HEAD_SHA}/check-runs?per_page=100" --paginate -q '[.check_runs[] | {name, app: .app.slug, status, conclusion, started_at}]' > "$WORKDIR/sub_d.json" 2>"$WORKDIR/gh_check_runs.err" || {
+HEAD_SHA=$(jq -r '.head.sha' "$WORKDIR/pr.json")
+rest_pages "repos/${OWNER_REPO}/commits/${HEAD_SHA}/check-runs" '[.check_runs[] | {name, app: .app.slug, status, conclusion, started_at}]' > "$WORKDIR/sub_d.json" 2>"$WORKDIR/gh_check_runs.err" || {
   echo "POLL_ERROR: REST check-runs fetch failed" >&2
   cat "$WORKDIR/gh_check_runs.err" >&2
   exit 5
@@ -353,16 +354,27 @@ gh api "repos/${OWNER_REPO}/commits/${HEAD_SHA}/check-runs?per_page=100" --pagin
 # conflict), so degrade to available=false instead of failing the whole poll.
 SECURITY_ALERTS_AVAILABLE=true
 SECURITY_ALERTS_HINT=""
-if ! gh api "repos/${OWNER_REPO}/code-scanning/alerts?ref=refs/pull/${PR}/merge&state=open&per_page=100" --paginate > "$WORKDIR/sub_e_pr.json" 2>"$WORKDIR/gh_alerts_pr.err"; then
+if ! rest_pages "repos/${OWNER_REPO}/code-scanning/alerts?ref=refs/pull/${PR}/merge&state=open" > "$WORKDIR/sub_e_pr.json" 2>"$WORKDIR/gh_alerts_pr.err"; then
   SECURITY_ALERTS_AVAILABLE=false
   SECURITY_ALERTS_HINT="pr-ref: $(head -n 2 "$WORKDIR/gh_alerts_pr.err" | tr '\n' ' ' | cut -c1-300)"
   echo '[]' > "$WORKDIR/sub_e_pr.json"
 fi
-if ! gh api "repos/${OWNER_REPO}/code-scanning/alerts?state=open&per_page=100" --paginate > "$WORKDIR/sub_e_base.json" 2>"$WORKDIR/gh_alerts_base.err"; then
+if ! rest_pages "repos/${OWNER_REPO}/code-scanning/alerts?state=open" > "$WORKDIR/sub_e_base.json" 2>"$WORKDIR/gh_alerts_base.err"; then
   SECURITY_ALERTS_AVAILABLE=false
   SECURITY_ALERTS_HINT="${SECURITY_ALERTS_HINT} base: $(head -n 2 "$WORKDIR/gh_alerts_base.err" | tr '\n' ' ' | cut -c1-300)"
   echo '[]' > "$WORKDIR/sub_e_base.json"
 fi
+
+# Preserve GraphQL-era node IDs, timestamps, and unsuffixed author logins in snapshots.
+jq -n --slurpfile pr "$WORKDIR/pr.json" --slurpfile reviews "$WORKDIR/sub_c2.json" \
+  --slurpfile comments "$WORKDIR/sub_a.json" --slurpfile commits "$WORKDIR/commits.json" '
+  {number: $pr[0].number, createdAt: $pr[0].created_at, headRefOid: $pr[0].head.sha,
+   reviews: [$reviews[][] | {id: .node_id, author: {login: ((.user.login // "") | sub("\\[bot\\]$"; ""))},
+     submittedAt: .submitted_at, state, body}],
+   comments: [$comments[][] | {id: .node_id, author: {login: ((.user.login // "") | sub("\\[bot\\]$"; ""))},
+     createdAt: .created_at, body}],
+   commits: [$commits[][] | {oid: .sha, committedDate: .commit.committer.date}]}
+  ' > "$WORKDIR/main.json"
 
 GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 

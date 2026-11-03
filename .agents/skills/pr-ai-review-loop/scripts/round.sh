@@ -53,8 +53,8 @@ for tool in gh jq; do
   fi
 done
 
-OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner) || {
-  echo "ROUND_ERROR: gh repo view failed (auth? wrong cwd?)" >&2
+OWNER_REPO=$(gh api 'repos/{owner}/{repo}' --jq .full_name) || {
+  echo "ROUND_ERROR: REST repository lookup failed (auth? wrong cwd?)" >&2
   exit 4
 }
 
@@ -93,8 +93,8 @@ case "$CMD" in
       exit 2
     fi
 
-    HEAD_SHA=$(gh pr view "$PR" --json headRefOid -q .headRefOid) || {
-      echo "ROUND_ERROR: gh pr view $PR failed" >&2
+    HEAD_SHA=$(gh api "repos/${OWNER_REPO}/pulls/${PR}" --jq .head.sha) || {
+      echo "ROUND_ERROR: REST PR lookup $PR failed" >&2
       exit 5
     }
     MARKED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)

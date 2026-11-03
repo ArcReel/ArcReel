@@ -227,7 +227,7 @@ repo_view_once() {
   LAST_ERROR_FILE="$error_file"
   : > "$error_file"
   if run_until_deadline "$output_file" "$error_file" \
-    gh repo view --json nameWithOwner --jq .nameWithOwner; then
+    gh api 'repos/{owner}/{repo}' --jq .full_name; then
     repo_slug=$(<"$output_file")
     if [[ "$repo_slug" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
       return 0
@@ -258,43 +258,55 @@ else
     report_timeout
     exit 0
   fi
-  echo "WAIT_ERROR: gh repo view failed" >&2
+  echo "WAIT_ERROR: REST repository lookup failed" >&2
   cat "$LAST_ERROR_FILE" >&2
   exit 4
 fi
 
 REPO_SLUG=$(<"$WORKDIR/repo-slug")
-OWNER=${REPO_SLUG%%/*}
-REPO=${REPO_SLUG#*/}
-
-# GraphQL variable names are literals consumed by GitHub, not shell expansions.
-# shellcheck disable=SC2016
-REVIEWS_QUERY='query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviews(first:100,after:$endCursor){nodes{id submittedAt updatedAt state commit{oid}}pageInfo{hasNextPage endCursor}}}}}'
-# shellcheck disable=SC2016
-COMMENTS_QUERY='query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid comments(first:100,after:$endCursor){nodes{id updatedAt reactionGroups{content reactors(first:1){totalCount}}}pageInfo{hasNextPage endCursor}}}}}'
+# Each page goes through the deadline, response validation, and failure classifier.
+fetch_pages() {
+  local output_file="$1" error_file="$2" availability="$3" endpoint="$4" projection="${5:-.}"
+  local page=1 separator='?' count
+  [[ "$endpoint" != *'?'* ]] || separator='&'
+  : > "$output_file"
+  while true; do
+    fetch_json "$WORKDIR/page.json" "$error_file" "$availability" \
+      gh api --include "${endpoint}${separator}per_page=100&page=${page}" || return 1
+    count=$(jq -er "${projection} | if type == \"array\" then length else error(\"expected array\") end" "$WORKDIR/page.json" 2> "$error_file") || {
+      LAST_ERROR_FILE="$error_file"
+      FAILURE_KIND="transient"
+      RETRY_AFTER=0
+      return 1
+    }
+    cat "$WORKDIR/page.json" >> "$output_file"
+    printf '\n' >> "$output_file"
+    (( count == 100 )) || break
+    page=$((page + 1))
+  done
+}
 
 probe_once() {
   local output_file="$1"
   local security_available=true
 
-  fetch_json "$WORKDIR/reviews.json" "$WORKDIR/reviews.err" required \
-    gh api --include graphql --paginate \
-    -F owner="$OWNER" -F repo="$REPO" -F number="$PR" \
-    -f query="$REVIEWS_QUERY" || return 1
+  fetch_pages "$WORKDIR/reviews.json" "$WORKDIR/reviews.err" required \
+    "repos/${REPO_SLUG}/pulls/${PR}/reviews" || return 1
 
-  fetch_json "$WORKDIR/comments.json" "$WORKDIR/comments.err" required \
-    gh api --include graphql --paginate \
-    -F owner="$OWNER" -F repo="$REPO" -F number="$PR" \
-    -f query="$COMMENTS_QUERY" || return 1
+  fetch_pages "$WORKDIR/comments.json" "$WORKDIR/comments.err" required \
+    "repos/${REPO_SLUG}/issues/${PR}/comments" || return 1
 
-  fetch_json "$WORKDIR/reactions.json" "$WORKDIR/reactions.err" required \
-    gh api --include "repos/${REPO_SLUG}/issues/${PR}/reactions" --paginate || return 1
+  fetch_json "$WORKDIR/pr.json" "$WORKDIR/pr.err" required \
+    gh api --include "repos/${REPO_SLUG}/pulls/${PR}" || return 1
 
-  fetch_json "$WORKDIR/inline-comments.json" "$WORKDIR/inline-comments.err" required \
-    gh api --include "repos/${REPO_SLUG}/pulls/${PR}/comments" --paginate || return 1
+  fetch_pages "$WORKDIR/reactions.json" "$WORKDIR/reactions.err" required \
+    "repos/${REPO_SLUG}/issues/${PR}/reactions" || return 1
+
+  fetch_pages "$WORKDIR/inline-comments.json" "$WORKDIR/inline-comments.err" required \
+    "repos/${REPO_SLUG}/pulls/${PR}/comments" || return 1
 
   local head_sha
-  head_sha=$(jq -er -s '.[0].data.repository.pullRequest.headRefOid' "$WORKDIR/comments.json" 2> "$WORKDIR/head.err") || {
+  head_sha=$(jq -er -s '.[0].head.sha' "$WORKDIR/pr.json" 2> "$WORKDIR/head.err") || {
     LAST_ERROR_FILE="$WORKDIR/head.err"
     printf 'GitHub probe returned no head SHA\n' >> "$LAST_ERROR_FILE"
     FAILURE_KIND="transient"
@@ -302,11 +314,11 @@ probe_once() {
     return 1
   }
 
-  fetch_json "$WORKDIR/check-runs.json" "$WORKDIR/check-runs.err" required \
-    gh api --include "repos/${REPO_SLUG}/commits/${head_sha}/check-runs?per_page=100" --paginate || return 1
+  fetch_pages "$WORKDIR/check-runs.json" "$WORKDIR/check-runs.err" required \
+    "repos/${REPO_SLUG}/commits/${head_sha}/check-runs" '.check_runs' || return 1
 
-  if fetch_json "$WORKDIR/security-alerts-pr.json" "$WORKDIR/security-alerts-pr.err" optional \
-    gh api --include "repos/${REPO_SLUG}/code-scanning/alerts?ref=refs/pull/${PR}/merge&state=open&per_page=100" --paginate; then
+  if fetch_pages "$WORKDIR/security-alerts-pr.json" "$WORKDIR/security-alerts-pr.err" optional \
+    "repos/${REPO_SLUG}/code-scanning/alerts?ref=refs/pull/${PR}/merge&state=open"; then
     :
   elif [[ "$FAILURE_KIND" == "unavailable" ]]; then
     security_available=false
@@ -315,8 +327,8 @@ probe_once() {
     return 1
   fi
 
-  if fetch_json "$WORKDIR/security-alerts-base.json" "$WORKDIR/security-alerts-base.err" optional \
-    gh api --include "repos/${REPO_SLUG}/code-scanning/alerts?state=open&per_page=100" --paginate; then
+  if fetch_pages "$WORKDIR/security-alerts-base.json" "$WORKDIR/security-alerts-base.err" optional \
+    "repos/${REPO_SLUG}/code-scanning/alerts?state=open"; then
     :
   elif [[ "$FAILURE_KIND" == "unavailable" ]]; then
     security_available=false
@@ -328,6 +340,7 @@ probe_once() {
   LAST_ERROR_FILE="$WORKDIR/probe.err"
   : > "$LAST_ERROR_FILE"
   if ! jq -n \
+    --slurpfile pr "$WORKDIR/pr.json" \
     --slurpfile reviews "$WORKDIR/reviews.json" \
     --slurpfile comments "$WORKDIR/comments.json" \
     --slurpfile reactions "$WORKDIR/reactions.json" \
@@ -337,23 +350,16 @@ probe_once() {
     --slurpfile security_alerts_base "$WORKDIR/security-alerts-base.json" \
     --argjson security_available "$security_available" \
     '
-    if any($reviews[]; .errors? != null) or any($comments[]; .errors? != null) then
-      error("GraphQL response contains errors")
-    else
       {
-        head: $comments[0].data.repository.pullRequest.headRefOid,
+        head: $pr[0].head.sha,
         reviews:
-          ([$reviews[].data.repository.pullRequest.reviews.nodes[]?
-            | {id, submitted_at: .submittedAt, updated_at: .updatedAt,
-               state, commit_oid: .commit.oid}]
+          ([$reviews[][]?
+            # REST reviews omit updated_at; body changes still need to wake the loop.
+            | {id, submitted_at, body, state, commit_oid: .commit_id}]
            | sort_by(.id)),
         issue_comments:
-          ([$comments[].data.repository.pullRequest.comments.nodes[]?
-            | {id, updated_at: .updatedAt,
-               reactions:
-                 ([.reactionGroups[]?
-                   | {content, total_count: .reactors.totalCount}]
-                  | sort_by(.content))}]
+          ([$comments[][]?
+            | {id, updated_at, reactions}]
            | sort_by(.id)),
         codex_reactions:
           ([$reactions[][]?
@@ -390,7 +396,6 @@ probe_once() {
              | sort_by(.number))
         }
       }
-    end
     ' > "$output_file.next" 2> "$LAST_ERROR_FILE"; then
     printf 'GitHub probe could not assemble a complete state fingerprint\n' >> "$LAST_ERROR_FILE"
     FAILURE_KIND="transient"
