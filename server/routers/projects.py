@@ -68,7 +68,7 @@ from lib.infra.async_thread import (
 )
 from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.json_io import domain_error_on_value_error
-from lib.material.formal_objects import formal_commit_on
+from lib.material.formal_objects import formal_commit_on, release_holder
 from lib.project import deleted_projects
 from lib.project.asset_fingerprints import compute_asset_fingerprints
 from lib.project.asset_types import asset_name_comparison_key
@@ -1267,6 +1267,11 @@ async def _restore_deleted_project(layout: DataRootLayout, deleted_id: str) -> P
 async def purge_deleted_project(deleted_id: str):
     """彻底删除已删除项目（只开放给创作者，不给 Agent 工具）"""
     await run_sync_transaction(deleted_projects.purge, get_project_manager().layout, deleted_id)
+    try:
+        # 项目已彻底删除，它的正式对象引用随之撤下；失败时维护循环在保留期过后兜底
+        await release_holder(deleted_id)
+    except Exception:
+        logger.warning("撤下已删除项目的正式对象引用失败 deleted=%s", deleted_id, exc_info=True)
     return {"success": True}
 
 

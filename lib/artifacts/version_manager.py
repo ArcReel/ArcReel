@@ -301,6 +301,20 @@ class VersionManager:
             return storage.persist(self.project_path, resource_type, source, LocalLocator(rel_path))
         return PersistedContent(LocalMaterialStorage(self.project_path).persist(source, LocalLocator(rel_path)))
 
+    def _retain_snapshot(
+        self, source: Path, rel_path: str, created_snapshots: list[Path], stored: ObjectLocator, digest: str
+    ) -> PersistedContent:
+        """加回远端内容版本 ``stored``：快照位置写一份本地工作文件，字节与记录的摘要一致时沿用原持久定位。
+
+        不重新上传，也不按正式提交的保存方式另存：加回的仍是原来那个对象上的内容版本。字节不一致时它不是那个
+        对象的内容，按本地版本保存。
+        """
+
+        created_snapshots.append(self.project_path / rel_path)
+        self._ensure_dirs()
+        actual = LocalMaterialStorage(self.project_path).persist(source, LocalLocator(rel_path))
+        return PersistedContent(actual, stored if actual == digest else None)
+
     @classmethod
     def is_managed_snapshot_path(cls, resource_type: str, relative_path: object) -> bool:
         """Whether a record points to a canonical file in its typed history bucket."""
@@ -599,11 +613,13 @@ class VersionManager:
         created_snapshots: list[Path],
         *,
         content_version_id: str | None = None,
+        retained: tuple[ObjectLocator, str] | None = None,
     ) -> int:
         """Snapshot ``source`` into history as a new record and select it in ``resource_data``.
 
         The snapshot path is appended to ``created_snapshots`` before copying so
-        the caller's rollback also removes a partially written snapshot.
+        the caller's rollback also removes a partially written snapshot. ``retained`` is the remote
+        persistent locator and digest of a content version being added back (see :meth:`_retain_snapshot`).
         """
 
         records = resource_data.setdefault("versions", [])
@@ -614,7 +630,11 @@ class VersionManager:
         rel_path = version_snapshot_relative_path(
             resource_type, resource_id, version=new_version, timestamp=self._generate_timestamp()
         )
-        persisted = self._persist_snapshot(resource_type, source, rel_path, created_snapshots)
+        persisted = (
+            self._persist_snapshot(resource_type, source, rel_path, created_snapshots)
+            if retained is None
+            else self._retain_snapshot(source, rel_path, created_snapshots, *retained)
+        )
         records.append(
             _new_version_record(
                 version=new_version,
@@ -1375,7 +1395,8 @@ class VersionManager:
         """把 ``source_file`` 作为资源的一条历史版本加回，当前版本不变；返回新版本快照的项目内相对路径。
 
         ``metadata`` 是被删版本原有的元数据（生成依据等），随版本一起加回，加回的版本才能照常选回；
-        其中的内容版本身份沿用到加回的版本上，加回的仍是同一个内容版本。
+        其中的内容版本身份沿用到加回的版本上，加回的仍是同一个内容版本。远端内容版本（带持久定位与摘要）
+        的字节与摘要一致时沿用原持久定位，``source_file`` 只成为它的工作文件。
 
         恢复删除记录时用：原路径已有当前文件，被恢复的文件不覆盖它。当前文件还没有版本记录时
         先补录成当前版本，否则加回的版本会成为唯一一条、看起来像是当前版本。
@@ -1393,6 +1414,9 @@ class VersionManager:
             created: list[Path] = []
             restored_metadata = dict(metadata or {})
             content_version_id = restored_metadata.pop(CONTENT_VERSION_ID, None)
+            stored = ObjectLocator.from_record(restored_metadata.pop(STORAGE, None))
+            digest = restored_metadata.pop(CONTENT_DIGEST, None)
+            retained = (stored, digest) if stored is not None and isinstance(digest, str) else None
             try:
                 self._append_selected_snapshot(
                     resource_type,
@@ -1403,6 +1427,7 @@ class VersionManager:
                     restored_metadata,
                     created,
                     content_version_id=content_version_id if isinstance(content_version_id, str) else None,
+                    retained=retained,
                 )
                 resource_data["current_version"] = current_version
                 self._save_versions(data)
@@ -1444,8 +1469,8 @@ class VersionManager:
                             "metadata": {
                                 key: value
                                 for key, value in record.items()
-                                if key
-                                not in {"version", "file", "prompt", VERSION_CONTENT_DIGEST, _PREVIOUS_CURRENT_VERSION}
+                                # 摘要随记录保留：远端内容版本加回时据此确认字节仍是原对象的内容
+                                if key not in {"version", "file", "prompt", _PREVIOUS_CURRENT_VERSION}
                             },
                         }
                         try:

@@ -553,8 +553,10 @@ async def lifespan(app: FastAPI):
     trash_expiry = start_trash_expiry(layout)
     # 供应商素材库入库任务：启动时恢复中断的提交，之后推进中转上传、状态查询与中转副本清理；随应用关停取消
     asset_ingest = start_asset_ingest(async_session_factory)
-    # 远端素材：启动时结算中断的正式提交，之后重试删除待删除的正式对象、清理闲置的本地工作文件；随应用关停取消
-    material_maintenance = start_material_maintenance(async_session_factory, layout.projects_dir)
+    # 远端素材：启动时结算中断的正式提交，之后重试删除待删除的正式对象、重算对象引用、清理闲置的本地工作文件；随应用关停取消
+    material_maintenance = start_material_maintenance(
+        async_session_factory, layout.projects_dir, layout.deleted_projects_dir
+    )
     try:
         async with remote_mcp_host.run():
             yield
