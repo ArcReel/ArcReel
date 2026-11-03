@@ -249,6 +249,15 @@ class SharedVersionMetadata:
         return parsed
 
 
+def _same_present_file(first: Path, second: Path) -> bool:
+    """两个在场路径是否同一个文件。缓存已清理的远端工作文件不在本地，不会与另一路径是同一文件。"""
+
+    try:
+        return first.samefile(second)
+    except FileNotFoundError:
+        return False
+
+
 def _refusal_reason(refused: InputRefused) -> str:
     return "generation input refused: " + ", ".join(
         f"{gap.code}({gap.asset_type}: {gap.name})" if gap.asset_type else f"{gap.code}({gap.name})"
@@ -601,7 +610,7 @@ class TargetStatePlanner:
         if artifact is None or snapshot is None:
             return None
         try:
-            if artifact.samefile(snapshot):
+            if _same_present_file(artifact, snapshot):
                 return None
             artifact_digest = visual_file_digest(artifact)
             snapshot_digest = visual_file_digest(snapshot)

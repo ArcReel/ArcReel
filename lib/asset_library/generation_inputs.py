@@ -28,10 +28,10 @@ from lib.asset_library.bindings import AssetLibraryScope, resolve_bound_scope
 from lib.asset_library.links import UPLOADABLE_RESOURCE_TYPES, asset_uri, is_usable, selected_link
 from lib.backends.provider_assets import REFERENCE_IMAGE_ROLE, inference_credential, provider_asset_roles
 from lib.db.models.asset_library import ProviderAssetLink
-from lib.infra.content_digest import sha256_file
 from lib.infra.image_utils import IMAGE_FILE_EXTENSIONS
 from lib.infra.path_safety import safe_join
 from lib.material.storage import CONTENT_DIGEST, CONTENT_VERSION_ID
+from lib.material.work_files import material_file_digest
 from lib.project.resource_paths import resource_of_path
 
 
@@ -77,14 +77,17 @@ class ProviderAssetLinkUnavailableError(RuntimeError):
 def reference_image_sources(project_path: Path, images: Sequence[tuple[Path, str]]) -> list[ReferenceImageSource]:
     """按项目内图片文件当下的字节给出参考图来源；``images`` 是（文件路径, 资产或衍生名称），顺序即发出顺序。
 
-    文件不在项目目录内或不是普通文件时抛 ``FileNotFoundError`` / ``PathTraversalError``。
+    缓存已清理的远端内容版本按记录的摘要给出，与取回后发出的字节一致。文件不在项目目录内、或既不在本地
+    也不是远端内容版本时抛 ``FileNotFoundError`` / ``PathTraversalError``。
     """
     root = project_path.resolve()
     sources: list[ReferenceImageSource] = []
     for path, name in images:
-        resolved = safe_join(project_path, path, require_file=True)
+        resolved = safe_join(project_path, path)
         sources.append(
-            ReferenceImageSource(locator=resolved.relative_to(root).as_posix(), sha256=sha256_file(resolved), name=name)
+            ReferenceImageSource(
+                locator=resolved.relative_to(root).as_posix(), sha256=material_file_digest(resolved), name=name
+            )
         )
     return sources
 

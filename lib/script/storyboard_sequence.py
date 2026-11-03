@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from lib.infra.path_safety import safe_join, try_safe_join
+from lib.material.work_files import material_file_present
 from lib.project.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.script.script_editor import resolve_items
 from lib.script.script_models import get_generated_assets
@@ -138,7 +139,7 @@ def resolve_storyboard_video_image(*, project_path: Path, resource_id: str, item
     storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
     if storyboard_file is None:
         raise StoryboardImageBindingRequired(f"storyboard binding missing: {resource_id}")
-    if not storyboard_file.is_file():
+    if not material_file_present(storyboard_file):
         raise StoryboardImageUnavailable(f"storyboard not found: {storyboard_file.name}")
     return storyboard_file
 

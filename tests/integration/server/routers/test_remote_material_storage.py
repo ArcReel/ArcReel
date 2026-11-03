@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from typing import Any
 from urllib.parse import quote
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -25,6 +26,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from tos.exceptions import TosServerError
 
+from lib.artifacts.artifact_activation import assert_artifact_target_state_plan_unchanged
+from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ArtifactStatus
+from lib.artifacts.artifact_planner import plan_artifact_target_state
+from lib.backends.image_backends.dashscope import DashScopeImageBackend
 from lib.config.repository import SystemSettingRepository
 from lib.db import get_async_session
 from lib.db.base import utc_now
@@ -39,15 +45,38 @@ from lib.material.formal_objects import (
     sweep_formal_objects,
 )
 from lib.material.work_files import ensure_content_version_file, hold_work_file
+from lib.project.asset_derivatives import derivative_artifact_id, derivative_sheet_relative_path
+from lib.project.asset_types import DERIVATIVES_FIELD
 from lib.project.project_manager import ProjectManager
+from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
+from lib.script.reference_video.execution_checkpoint import ProviderMediaInput, stage_provider_media_for_task
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import characters, file_view, files, object_storage, project_trash, versions
 from server.services.project.provider_asset_links import load_link_panel
+from server.services.tasks import derivative_sheet_tasks
+from server.services.tasks.image_edit_tasks import execute_image_edit_task
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import bind_session_factory, use_object_storage_sdk, use_project_manager, use_upload_claim_registration
-from tests.integration.server.derivative_sheet_support import solid_png_bytes
+from tests.fakes import (
+    bind_session_factory,
+    use_generation_context,
+    use_object_storage_sdk,
+    use_project_manager,
+    use_upload_claim_registration,
+)
+from tests.http_capture import capture_http, only_request, request_json
+from tests.integration.server.derivative_sheet_support import (
+    GENERATION_URL,
+    RESULT_IMAGE_RGB,
+    RESULT_URL,
+    build_generator,
+    close_to,
+    decode_data_url_image,
+    solid_png_bytes,
+    wire_derivative_generation,
+)
 from tests.integration.server.routers.projects_router_support import build_projects_client
+from tests.integration.server.services.tasks.generation_tasks_support import fake_resolve_ctx
 
 TOS_SK = "TEST-TOS-SECRET-0066"
 BUCKET = "formal-bucket"
@@ -646,3 +675,143 @@ async def test_deleted_project_keeps_objects_until_purged_and_shared_objects_sur
         [link] = (await session.execute(select(ProviderAssetLink))).scalars()
     assert (link.provider_asset_id, link.project_name) == ("asset-own", entry["id"])
     assert not any(op == "delete" and key == record_shared["storage"]["key"] for op, key in bucket.calls)
+
+
+# ---- 远端图片参与时效判定、生成与编辑 ---------------------------------------------------------------
+
+ALICE_RGB = (200, 10, 10)
+
+
+def _alice_sheet_state(project: ProjectManager) -> tuple[ArtifactStatus, dict[ArtifactKey, ArtifactManifestEntry]]:
+    project_dir = project.get_project_path("demo")
+    comparison = ArtifactCurrencyResolver(project_dir).compare(
+        ArtifactKey.asset_sheet("character", "Alice"), artifact_path="characters/Alice.png"
+    )
+    return comparison.status, dict(plan_artifact_target_state(project_dir).entries)
+
+
+async def _remote_alice_with_evicted_cache(api: TestClient, sessions, project: ProjectManager) -> dict[str, Any]:
+    await _remote(sessions)
+    assert _upload(api, solid_png_bytes(ALICE_RGB, size=(400, 400))).status_code == 200
+    [record] = _history(project)["versions"]
+    assert "storage" in record
+    assert _cleanup(api)["removed"] == 2
+    project_dir = project.get_project_path("demo")
+    assert not (project_dir / "characters" / "Alice.png").exists()
+    assert not (project_dir / record["file"]).exists()
+    return record
+
+
+def _remote_saved(project_dir: Path, history: dict[str, Any], bucket: MemoryBucket, artifact_path: str) -> bytes:
+    """当前版本已保存到远端：版本记录带 storage，对象就在桶里，正式文件就是它的工作副本。"""
+    record = next(item for item in history["versions"] if item["version"] == history["current_version"])
+    stored = record["storage"]
+    content = bucket.objects[(stored["bucket"], stored["key"])]
+    assert hashlib.sha256(content).hexdigest() == record["content_digest"]
+    assert (project_dir / artifact_path).read_bytes() == content
+    return content
+
+
+async def test_evicted_remote_sheet_keeps_currency_and_workflow_plan(api, sessions, project, bucket):
+    """清理工作文件不改变资产图的时效与目标态规划，规划的稳定性复核照常成立，且判定不触发取回。"""
+    await _remote(sessions)
+    assert _upload(api, solid_png_bytes(ALICE_RGB, size=(400, 400))).status_code == 200
+    before_status, before_entries = await asyncio.to_thread(_alice_sheet_state, project)
+    plan = await asyncio.to_thread(plan_artifact_target_state, project.get_project_path("demo"))
+    assert before_status is ArtifactStatus.CURRENT
+
+    assert _cleanup(api)["removed"] == 2
+    after_status, after_entries = await asyncio.to_thread(_alice_sheet_state, project)
+
+    assert after_status is ArtifactStatus.CURRENT
+    assert after_entries == before_entries
+    await asyncio.to_thread(assert_artifact_target_state_plan_unchanged, project.get_project_path("demo"), plan)
+    assert not any(op == "get" for op, _key in bucket.calls)
+
+
+async def test_generation_from_evicted_remote_sheet_fetches_it_and_saves_the_new_image_remotely(
+    api, sessions, project, bucket, monkeypatch
+):
+    """衍生图生成以缓存已清理的远端角色图为参考：发给供应商的是取回的原图，生成结果保存到远端。"""
+    await _remote_alice_with_evicted_cache(api, sessions, project)
+
+    def _register(entry: dict[str, Any]) -> None:
+        entry.setdefault(DERIVATIVES_FIELD, {})["战斗装"] = {"description": "换上黑色重甲", "character_sheet": ""}
+
+    await asyncio.to_thread(project.update_asset_entry, "character", "demo", "Alice", _register)
+    project_dir = project.get_project_path("demo")
+    generator = build_generator(
+        project_dir, DashScopeImageBackend(api_key="TEST-DASHSCOPE-KEY", model="qwen-image-2.0")
+    )
+    wire_derivative_generation(monkeypatch, project, generator)
+
+    result = solid_png_bytes(RESULT_IMAGE_RGB)
+    with capture_http() as router:
+        submit = router.post(GENERATION_URL).mock(
+            return_value=httpx.Response(
+                200, json={"output": {"choices": [{"message": {"content": [{"image": RESULT_URL}]}}]}}
+            )
+        )
+        router.get(RESULT_URL).mock(return_value=httpx.Response(200, content=result))
+        await derivative_sheet_tasks.execute_character_derivative_task("demo", "Alice/战斗装", {}, task_id="task-1")
+
+    content = request_json(only_request(submit))["input"]["messages"][0]["content"]
+    [sent] = [item["image"] for item in content if "image" in item]
+    assert close_to(decode_data_url_image(sent).convert("RGB").getpixel((8, 8)), ALICE_RGB)
+
+    sheet_path = derivative_sheet_relative_path("Alice", "战斗装")
+    versions = json.loads((project_dir / "versions" / "versions.json").read_text(encoding="utf-8"))
+    derivative_history = versions[CHARACTER_DERIVATIVE_RESOURCE_TYPE][derivative_artifact_id("Alice", "战斗装")]
+    assert _remote_saved(project_dir, derivative_history, bucket, sheet_path) == result
+
+
+async def test_image_edit_of_evicted_remote_sheet_edits_the_fetched_image_and_saves_remotely(
+    api, sessions, project, bucket, monkeypatch
+):
+    """编辑缓存已清理的远端角色图：编辑源取回后交给供应商，编辑结果作为新版本保存到远端，再次清理不改变时效。"""
+    await _remote_alice_with_evicted_cache(api, sessions, project)
+    project_dir = project.get_project_path("demo")
+    generator = build_generator(
+        project_dir, DashScopeImageBackend(api_key="TEST-DASHSCOPE-KEY", model="qwen-image-2.0")
+    )
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator))
+
+    edited = solid_png_bytes(RESULT_IMAGE_RGB)
+    with capture_http() as router:
+        submit = router.post(GENERATION_URL).mock(
+            return_value=httpx.Response(
+                200, json={"output": {"choices": [{"message": {"content": [{"image": RESULT_URL}]}}]}}
+            )
+        )
+        router.get(RESULT_URL).mock(return_value=httpx.Response(200, content=edited))
+        outcome = await execute_image_edit_task(
+            "demo", "Alice", {"resource_type": "character", "prompt": "把头发改成红色"}, task_id="task-1"
+        )
+
+    content = request_json(only_request(submit))["input"]["messages"][0]["content"]
+    [sent] = [item["image"] for item in content if "image" in item]
+    assert close_to(decode_data_url_image(sent).convert("RGB").getpixel((8, 8)), ALICE_RGB)
+    assert outcome["version"] == 2
+    assert _remote_saved(project_dir, _history(project), bucket, "characters/Alice.png") == edited
+
+    edited_state = await asyncio.to_thread(_alice_sheet_state, project)
+    assert _cleanup(api)["removed"] == 2  # 新版本的快照与正式文件
+    assert await asyncio.to_thread(_alice_sheet_state, project) == edited_state
+
+
+async def test_video_reference_staging_fetches_the_evicted_remote_sheet(api, sessions, project, bucket):
+    """视频任务把参考图暂存为任务私有副本前取回缓存已清理的远端图片；供应商延迟取图只读这份副本。"""
+    record = await _remote_alice_with_evicted_cache(api, sessions, project)
+    project_dir = project.get_project_path("demo")
+    reference = ProviderMediaInput(
+        path=project_dir / "characters" / "Alice.png",
+        role="reference_image",
+        logical_type="character",
+        logical_name="Alice",
+        kind="sheet",
+    )
+
+    [staged] = await stage_provider_media_for_task(project_dir, "task-1", (reference,))
+
+    assert staged.sha256 == record["content_digest"]
+    assert hashlib.sha256((project_dir / staged.staged_locator).read_bytes()).hexdigest() == record["content_digest"]

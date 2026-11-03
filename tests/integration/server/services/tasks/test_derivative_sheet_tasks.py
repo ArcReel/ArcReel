@@ -18,10 +18,9 @@ from lib.generation.generation_queue import DispatchProviderChanged
 from lib.infra.api_errors import BadRequestError
 from lib.project.asset_derivatives import derivative_artifact_key, derivative_sheet_relative_path
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
-from server.services.tasks import derivative_sheet_tasks
 from server.services.tasks.derivative_sheet_tasks import execute_character_derivative_task
 from server.services.tasks.image_edit_tasks import execute_image_edit_task
-from tests.fakes import use_generation_context, use_project_manager
+from tests.fakes import use_project_manager
 from tests.http_capture import capture_http, only_request, request_json
 from tests.integration.server.derivative_sheet_support import (
     GENERATION_URL,
@@ -36,9 +35,9 @@ from tests.integration.server.derivative_sheet_support import (
     read_project_json,
     seed_derivative_project,
     solid_png_bytes,
+    wire_derivative_generation,
     write_two_tone_png,
 )
-from tests.integration.server.services.tasks.generation_tasks_support import fake_resolve_ctx
 
 _SHEET_PATH = derivative_sheet_relative_path("阿岚", "战斗装")
 _ARTIFACT_KEY = derivative_artifact_key("阿岚", "战斗装")
@@ -46,9 +45,7 @@ _ARTIFACT_KEY = derivative_artifact_key("阿岚", "战斗装")
 
 def _wire(monkeypatch, pm, generator) -> None:
     """把任务的项目管理器与生成上下文接到本用例自己的真实项目/生成器上。"""
-    monkeypatch.setattr(derivative_sheet_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(derivative_sheet_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
-    use_generation_context(monkeypatch, fake_resolve_ctx(generator))
+    wire_derivative_generation(monkeypatch, pm, generator)
 
 
 def _backend() -> DashScopeImageBackend:

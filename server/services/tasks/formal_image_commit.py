@@ -8,7 +8,7 @@ Manifest registration commit together, and a failed commit never leaves the new 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,7 +26,9 @@ from lib.artifacts.image_reference_snapshot import FrozenImageReferences
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.generation.generation_queue import ensure_dispatch_provider
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
+from lib.material.formal_objects import formal_commit
 from lib.material.storage import ContentVersion
+from lib.material.work_files import local_work_files
 from lib.project.asset_types import ASSET_SPECS, AssetSpec, resolve_asset_key
 from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
@@ -369,10 +371,16 @@ def storyboard_formal_image_callback(
 
 
 @asynccontextmanager
-async def frozen_generation_input(freeze: Callable[[], FrozenGenerationInput]) -> AsyncGenerator[FrozenGenerationInput]:
+async def frozen_generation_input(
+    freeze: Callable[[], FrozenGenerationInput],
+    *,
+    project_path: Path | None = None,
+    sources: Sequence[Path] = (),
+) -> AsyncGenerator[FrozenGenerationInput]:
     """在工作线程里冻结生成输入，退出时在工作线程里清理任务私有的参考图快照。
 
-    冻结结果在线程里一建好就登记：取消落在冻结那一程时返回值会丢，退出时按登记回收快照目录。
+    ``sources`` 是要冻结的参考图（``project_path`` 下）：缓存已清理的远端内容版本先经共用读取入口取回，
+    冻结期间登记使用。冻结结果在线程里一建好就登记：取消落在冻结那一程时返回值会丢，退出时按登记回收快照目录。
     """
 
     frozen: list[FrozenGenerationInput] = []
@@ -381,7 +389,11 @@ async def frozen_generation_input(freeze: Callable[[], FrozenGenerationInput]) -
         frozen.append(freeze())
 
     try:
-        await run_sync_transaction(_freeze)
+        if project_path is None:
+            await run_sync_transaction(_freeze)
+        else:
+            async with local_work_files(project_path, sources):
+                await run_sync_transaction(_freeze)
         yield frozen[0]
     finally:
         if frozen:
@@ -463,7 +475,9 @@ async def run_formal_image_task(
         )
 
     try:
-        await _submit()
+        # 新图片内容版本按全局设置保存（缺省本地）；远端确认保存后才发布版本
+        async with formal_commit(project_name):
+            await _submit()
     finally:
         await run_noninterruptible_sync(frozen_references.cleanup)
 
