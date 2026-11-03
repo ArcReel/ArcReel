@@ -496,6 +496,15 @@ def reject_discontinued(provider_id: str, model_id: str, media_type: str) -> Non
     """
     indexed = _indexed_model(provider_id, model_id, media_type)
     entry = indexed.entry if indexed is not None else find_entry(model_id, media_type=media_type)
+    reject_discontinued_entry(provider_id, model_id, media_type, entry)
+
+
+def reject_discontinued_entry(provider_id: str, model_id: str, media_type: str, entry: CatalogEntry | None) -> None:
+    """供应商模型所对应的条目今天已下线时抛 :class:`ModelDiscontinuedError`，带下线日期与后继。
+
+    调用方自己定好了条目：内置供应商经 :func:`reject_discontinued`，自定义供应商按条目绑定或名字对应
+    （``lib.custom_provider.model_facts.model_entry``）。``entry`` 为 ``None`` 时没有生命周期信息，不拦。
+    """
     state = entry_lifecycle(entry)
     if state.discontinued:
         raise _discontinued_error(provider_id, model_id, media_type, state)

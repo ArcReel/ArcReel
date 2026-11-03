@@ -824,7 +824,20 @@ class TestGetOrCreateAudioBackend:
         yield
         generation_context.invalidate_backend_cache()
 
-    async def test_custom_provider_routes_through_assemble(self, monkeypatch):
+    async def test_custom_provider_routes_through_assemble(self, monkeypatch, db_factory):
+        from lib.custom_provider import make_provider_id
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        async with db_factory() as session:
+            provider = await CustomProviderRepository(session).create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://relay.test/v1",
+                api_key="sk-relay",
+                models=[{"model_id": "tts-1", "display_name": "tts-1", "endpoint": "openai-tts", "is_enabled": True}],
+            )
+            await session.commit()
+            provider_id = make_provider_id(provider.id)
         sentinel = object()
         calls = []
 
@@ -836,13 +849,13 @@ class TestGetOrCreateAudioBackend:
 
         use_backend_assembler(monkeypatch, _fake_assemble)
 
-        resolver = cast(ConfigResolver, None)
-        b1 = await generation_context._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
-        b2 = await generation_context._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
+        resolver = ConfigResolver(db_factory)
+        b1 = await generation_context._get_or_create_audio_backend(provider_id, {"model": "tts-1"}, resolver)
+        b2 = await generation_context._get_or_create_audio_backend(provider_id, {"model": "tts-1"}, resolver)
 
         assert b1 is sentinel
         assert b2 is sentinel
-        assert calls == [("custom-3", "audio", "tts-1")], "第二次调用须命中缓存，不再重建 backend"
+        assert calls == [(provider_id, "audio", "tts-1")], "第二次调用须命中缓存，不再重建 backend"
 
     async def test_builtin_created_and_cached(self, monkeypatch):
         created = []

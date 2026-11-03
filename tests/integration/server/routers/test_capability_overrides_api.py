@@ -26,7 +26,7 @@ from tests.fakes import use_project_manager, use_projects_session_factory
 
 # 系统判定 last_frame=False、max_reference_images=1 —— 覆盖前后差异可断言
 VIDEO_ENDPOINT = "openai-video"
-VIDEO_MODEL = "sora-2"
+VIDEO_MODEL = "relay-sora"
 
 # openai-video 的 delegate 不序列化 end_image（见 _check_capability_overrides 的
 # end_image_capable 门槛），last_frame 覆盖为 True 的用例须换一个真正支持尾帧的 endpoint。

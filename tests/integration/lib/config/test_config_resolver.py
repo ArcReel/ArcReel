@@ -1189,6 +1189,76 @@ class TestResolveVideoBackend:
 
         assert (resolved.provider_id, resolved.model_id) == (f"custom-{provider.id}", "runtime-model")
 
+    @pytest.mark.parametrize(
+        ("project_key", "generation_type"), [("video_backend", None), ("video_provider_r2v", "r2v")]
+    )
+    async def test_discontinued_custom_model_is_rejected_instead_of_converging(
+        self, db_factory, project_key, generation_type
+    ):
+        """自定义视频模型按名字对应到已下线的条目（sora-2）：不收敛到默认模型，报下线错误；停用的也一样。"""
+        from lib.catalog.errors import ModelDiscontinuedError
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        async with db_factory() as session:
+            provider = CustomProvider(
+                display_name="Relay", discovery_format="openai", base_url="https://example.com", api_key="xxx"
+            )
+            session.add(provider)
+            await session.flush()
+            session.add_all(
+                [
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="sora-2",
+                        display_name="Sora 2",
+                        endpoint="openai-video",
+                        is_enabled=False,
+                    ),
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="runtime-model",
+                        display_name="Runtime",
+                        endpoint="openai-video",
+                        is_enabled=True,
+                        is_default=True,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        resolver = ConfigResolver(db_factory)
+        with pytest.raises(ModelDiscontinuedError) as excinfo:
+            await resolver.resolve_video_backend(
+                {project_key: f"custom-{provider.id}/sora-2"}, None, generation_type=generation_type
+            )
+        assert excinfo.value.params == {"provider": f"custom-{provider.id}", "model": "sora-2"}
+
+    async def test_auto_resolve_skips_a_discontinued_custom_default(self, db_factory):
+        """没有任何默认模型设置、也没有 ready 内置供应商时：自定义供应商已下线的默认模型不被自动挑中。"""
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={}, ready_providers=[])
+        async with db_factory() as session:
+            provider = CustomProvider(
+                display_name="Relay", discovery_format="openai", base_url="https://example.com", api_key="xxx"
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="sora-2",
+                    display_name="Sora 2",
+                    endpoint="openai-video",
+                    is_enabled=True,
+                    is_default=True,
+                )
+            )
+            await session.flush()
+            with pytest.raises(ValueError, match="未找到可用的 video 供应商"):
+                await resolver._auto_resolve_backend(fake_svc, session, "video")
+
     async def test_falls_through_to_global_default(self):
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_video_backend": "ark/doubao-seedance-1-5-pro"})

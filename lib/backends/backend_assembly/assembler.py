@@ -76,6 +76,46 @@ async def assemble_backend(
     return backend
 
 
+async def callable_model_key(
+    *,
+    provider_id: str,
+    media_type: str,
+    model_id: str | None,
+    resolver: ConfigResolver,
+    generation_type: str | None = None,
+) -> str | None:
+    """复用 backend 实例前的调用检查：按今天的生命周期确认这次调用的模型可以调用，返回实例缓存用的模型键。
+
+    缓存里的实例可能构造于关停日期之前，命中缓存会绕过 :func:`assemble_backend` 里的检查，所以调用方在查缓存前调用本函数。
+
+    - 内置供应商：``model_id`` 为 ``None`` 时取目录现在的默认模型（没有可用默认时抛 ``ModelNotInCatalogError``，与装配同一口径），
+      返回定下的模型键；已下线抛 ``ModelDiscontinuedError``。这里刻意不查「是否在清单里」，完整检查在真正构造时执行。
+    - 自定义供应商：按装载同一条规则（``lib.custom_provider.loader.select_custom_model``）定下模型行，显式引用的模型已下线、
+      或回退后没有未下线的默认模型时同样报错；``model_id`` 原样返回（默认模型按任务类型桶分槽，键里另有桶）。
+    - 未登记的供应商原样返回，由装配报错。
+    """
+    if is_custom_provider(provider_id):
+        from lib.custom_provider.loader import select_custom_model
+
+        async with resolver._open_session() as (session, _):
+            await select_custom_model(
+                session=session,
+                provider_id=provider_id,
+                model_id=model_id,
+                media_type=media_type,
+                generation_type=generation_type,
+            )
+        return model_id
+    if provider_id not in PROVIDER_REGISTRY:
+        return model_id
+    if model_id is None:
+        model_id = catalog.default_model(provider_id, media_type)
+        if model_id is None:
+            raise ModelNotInCatalogError(provider_id=provider_id, model_id="", media_type=media_type)
+    catalog.reject_discontinued(provider_id, model_id, media_type)
+    return model_id
+
+
 def _callable_builtin_model(provider_id: str, media_type: str, model_id: str | None) -> str:
     """内置供应商这次调用实际使用的模型键，按今天的生命周期检查过可以调用。
 
