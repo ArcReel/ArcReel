@@ -37,6 +37,7 @@ from lib.backends.video_backends.name_family import (
     UNRECOGNIZED_MODEL_CAPABILITIES,
     EntryBoundCapabilities,
     capabilities_by_names,
+    match_by_names,
 )
 from lib.billing.metering import Usage
 from lib.infra.async_thread import run_noninterruptible_sync
@@ -99,16 +100,18 @@ def _video_error_message(video: object) -> str:
     return "unknown"
 
 
-def _resolve_size(model: str, resolution: str | None, aspect_ratio: str) -> str:
+def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, family_model: str | None = None) -> str:
     """比例优先：在 model+分辨率档对应的 sora 合法档中选比例最接近 aspect_ratio 的；并列取像素更高者。
 
     分辨率档只决定 720p vs 1080p 子集、不决定比例：sora-2-pro 选 1080p 时 9:16→1080x1920（精确且高清），
     sora-2（base）或缺分辨率时落 720p（缺分辨率默认 720P，不擅自升 1080p 以免超额计费）。size 必传以锁定
     比例，绝不出现「不传 size → 上游默认比例」。其它比例（1:1/21:9 等）sora 无对应档，吸附后告警。
+
+    ``family_model`` 是按名字族认得的 sora 型号（绑定条目的不透明模型取条目的名字），不给时按 ``model`` 判断。
     """
     aw, ah = parse_aspect_ratio(aspect_ratio)
     target = aw / ah
-    is_pro = "pro" in model.lower()
+    is_pro = "pro" in (family_model or model).lower()
     short = resolution_to_short_edge(resolution, tier_map=VIDEO_TIER_SHORT_EDGE)
     # sora 支持的短边档：base 仅 720；pro 增 1080。按「最近档」选（等距取更高档），避免把
     # short=1000 这类自定义分辨率值无故降到 720p（floor 会误降，最近档不会）。
@@ -250,7 +253,14 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             "seconds": str(request.duration_seconds),
         }
         # 始终下传合法 size 以锁定比例（sora 固定档，不传则上游用自家默认比例）
-        kwargs["size"] = _resolve_size(self._model, request.resolution, request.aspect_ratio)
+        kwargs["size"] = _resolve_size(
+            self._model,
+            request.resolution,
+            request.aspect_ratio,
+            family_model=match_by_names(
+                self._model, lambda name: name if name.startswith("sora-2") else None, entry=self._catalog_entry
+            ),
+        )
 
         # 收集所有参考图（start_image + reference_images）：存在性检查与读图都是阻塞 I/O，整体卸载到线程
         refs = await asyncio.to_thread(_encode_input_references, request, self._model)

@@ -50,6 +50,7 @@ from lib.backends.video_backends.name_family import (
     UNRECOGNIZED_MODEL_CAPABILITIES,
     EntryBoundCapabilities,
     capabilities_by_names,
+    match_by_names,
 )
 from lib.billing.metering import Usage
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
@@ -208,8 +209,19 @@ def _match_video_capabilities(name: str) -> VideoCapabilities | None:
     return None
 
 
-def _uses_v25_contract(model: str) -> bool:
+_KNOWN_MODELS = frozenset({_V20_MODEL, *_V25_REFERENCE_LIMITS})
+
+
+def _uses_v25_contract(model: str | None) -> bool:
     return model in {_V25_MODEL, _V25_FLASH_MODEL}
+
+
+def _known_model(model: str, entry: CatalogEntry | None = None) -> str | None:
+    """按名字认得的 Agnes 型号，决定请求契约（2.5 或 v2.0）与逐型号限制；认不得时为 ``None``，按 v2.0 契约提交。
+
+    名字按 name_family 的规则取（``entry`` 是模型对应的条目），与能力声明同一套名字，请求里仍发 API 模型名。
+    """
+    return match_by_names(model, lambda name: name if name in _KNOWN_MODELS else None, entry=entry)
 
 
 def _safe_body_for_log(body: dict) -> dict:
@@ -336,6 +348,11 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     def video_capabilities(self) -> VideoCapabilities:
         return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
+    @property
+    def _contract_model(self) -> str | None:
+        """决定请求契约的型号：与 :attr:`video_capabilities` 按同一个条目认定，绑定 2.5 条目的不透明模型走 2.5 契约。"""
+        return _known_model(self._model, self._catalog_entry)
+
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         # 请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
         if request.reference_audio_files:
@@ -381,8 +398,9 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     def _build_payload(self, request: VideoGenerationRequest) -> dict:
         """按 model 分派旧 v2.0 或 2.5 请求契约。"""
-        if _uses_v25_contract(self._model):
-            return self._build_v25_payload(request)
+        contract = self._contract_model
+        if contract in _V25_REFERENCE_LIMITS:
+            return self._build_v25_payload(request, contract)
         return self._build_v20_payload(request)
 
     def _build_v20_payload(self, request: VideoGenerationRequest) -> dict:
@@ -427,10 +445,10 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
         return payload
 
-    def _build_v25_payload(self, request: VideoGenerationRequest) -> dict:
+    def _build_v25_payload(self, request: VideoGenerationRequest, contract: str) -> dict:
         """构建 2.5 提交体：mode + 秒数字符串 + 分辨率档位 + Data URI 媒体。"""
         self._reject_v25_aspect_ratio(request.aspect_ratio)
-        size = self._normalize_v25_resolution(request.resolution)
+        size = self._normalize_v25_resolution(request.resolution, contract)
 
         payload: dict = {
             "model": self._model,
@@ -452,7 +470,7 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
 
         if reference_images:
-            limit = _V25_REFERENCE_LIMITS[self._model]
+            limit = _V25_REFERENCE_LIMITS[contract]
             if len(reference_images) > limit:
                 raise VideoCapabilityError(
                     "video_reference_images_exceeded",
@@ -472,8 +490,8 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
         return payload
 
-    def _normalize_v25_resolution(self, resolution: str | None) -> str:
-        allowed = _V25_FLASH_RESOLUTIONS if self._model == _V25_FLASH_MODEL else _V25_RESOLUTIONS
+    def _normalize_v25_resolution(self, resolution: str | None, contract: str) -> str:
+        allowed = _V25_FLASH_RESOLUTIONS if contract == _V25_FLASH_MODEL else _V25_RESOLUTIONS
         normalized = (resolution or "720p").upper()
         if normalized not in allowed:
             raise VideoCapabilityError(
@@ -567,7 +585,7 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             provider=PROVIDER_AGNES,
             request=request,
         )
-        return _extract_task_id(resp.json(), prefer_video_id=_uses_v25_contract(self._model))
+        return _extract_task_id(resp.json(), prefer_video_id=_uses_v25_contract(self._contract_model))
 
     async def _poll_once(self, client: httpx.AsyncClient, task_id: str) -> dict:
         resp = await client.get(
@@ -580,7 +598,7 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     async def _query_video_once(self, client: httpx.AsyncClient, video_id: str) -> dict:
         """单次按 ``video_id`` 查询；重试由调用方选择内层装饰器或外层轮询统一承担。"""
         params = {"video_id": video_id}
-        if _uses_v25_contract(self._model):
+        if _uses_v25_contract(self._contract_model):
             params["model_name"] = self._model
         resp = await client.get(
             f"{self._host}{_VIDEO_QUERY_ENDPOINT}",
@@ -650,7 +668,7 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         is_resume: bool,
     ) -> VideoGenerationResult:
         async def poll_fn() -> dict:
-            if _uses_v25_contract(self._model):
+            if _uses_v25_contract(self._contract_model):
                 return await self._query_video_once(client, task_id)
             return await self._poll_once(client, task_id)
 
@@ -688,7 +706,7 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             video_uri=video_url,
             task_id=task_id,
             seed=request.seed,
-            generate_audio=_uses_v25_contract(self._model),
+            generate_audio=_uses_v25_contract(self._contract_model),
         )
 
     @staticmethod

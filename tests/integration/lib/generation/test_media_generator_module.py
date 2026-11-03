@@ -6,6 +6,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import ClassVar
 
+import httpx
+import openai
 import pytest
 
 from lib.artifacts.version_manager import PaidVersionCommit, VersionManager
@@ -29,7 +31,7 @@ from tests.fakes import (
     write_backend_output,
     write_generation_targets,
 )
-from tests.http_capture import capture_http
+from tests.http_capture import capture_http, only_request, request_json
 
 
 class _FakeImageBackend:
@@ -1443,7 +1445,6 @@ class TestMediaGenerator:
 
 # ── 咽喉层参考图压缩接线 ────────────────────────────────────────────────────
 
-import httpx
 from PIL import Image
 
 from lib.generation.media_generator import _is_413
@@ -2147,3 +2148,179 @@ class TestFirstFrameRatioAdaptiveOnly:
         )
 
         assert gen.ledger.started[-1]["aspect_ratio"] == "16:9"
+
+
+class _BuiltinConfig:
+    """内置装配的凭证来源替身：只回答 ``assemble_backend`` 装载段要的供应商配置。"""
+
+    async def provider_config_with_credential(self, provider_id: str) -> tuple[dict[str, str], None]:
+        return {"api_key": f"TEST-{provider_id}-key"}, None
+
+
+_OPAQUE = "opaque-relay-model"
+
+
+async def _builtin_video_backend(provider_id: str, model_id: str, entry_binding: str | None):
+    """内置供应商下的视频模型，经生产装配构造；``entry_binding`` 给出时作为用户添加的模型并绑定条目。"""
+    from lib.backends.backend_assembly.assembler import assemble_backend
+    from lib.catalog import query as catalog
+
+    if entry_binding is not None:
+        catalog.install_user_added_models(
+            [catalog.UserAddedModel(provider_id, model_id, "video", entry_binding=entry_binding)]
+        )
+    return await assemble_backend(
+        provider_id=provider_id,
+        media_type="video",
+        model_id=model_id,
+        resolver=_BuiltinConfig(),
+    )
+
+
+def _custom_video_backend(endpoint: str, model_id: str, entry_binding: str | None):
+    """自定义供应商的视频模型，经生产工厂构造。"""
+    from types import SimpleNamespace
+
+    from lib.custom_provider.factory import create_custom_backend
+
+    provider = SimpleNamespace(provider_id="custom-9", base_url="https://relay.test", api_key="TEST-relay-key")
+    return create_custom_backend(
+        provider=provider,
+        model_id=model_id,
+        endpoint=endpoint,
+        entry_binding=entry_binding,
+    )
+
+
+@pytest.fixture
+def _reset_user_added_models():
+    from lib.catalog import query as catalog
+
+    yield
+    catalog.install_user_added_models(())
+
+
+@pytest.mark.usefixtures("_reset_user_added_models")
+class TestEntryBoundVideoRequests:
+    """绑定条目的不透明模型 ID 经 MediaGenerator 发出的实际请求，与同一条目的官方模型一致，请求里仍是原模型 ID。
+
+    能力由生产装配的调用通道给出（MediaGenerator 按它填请求能力并做闸门），不替换请求事实；在提交处拦截出站请求。
+    """
+
+    @staticmethod
+    def _generator(tmp_path: Path, backend, provider_id: str) -> MediaGenerator:
+        gen = _build_generator(tmp_path)
+        gen._video_backend = backend
+        gen._video_provider_id = provider_id
+        gen._config = FakeConfigResolver(requested_generate_audio=True)
+        return gen
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "kuaishou/kling-v2-6"), ("kling-v2-6", None)])
+    async def test_kling_720p_audio_follows_the_bound_entry(self, tmp_path, model, binding):
+        """可灵 v2-6 有声只支持 1080P：绑定 v2-6 的不透明 ID 在 720p 档同样发 ``sound=off``。"""
+        gen = self._generator(tmp_path, _custom_video_backend("kling-video", model, binding), "custom-9")
+
+        with capture_http() as router:
+            submit = router.post(url__startswith="https://relay.test/v1/videos/").mock(
+                return_value=httpx.Response(400, json={"code": 1201, "message": "stop"})
+            )
+            with pytest.raises(httpx.HTTPStatusError):
+                await gen.generate_video_async(
+                    prompt="p", resource_type="videos", resource_id="E1S01", duration_seconds=5, resolution="720p"
+                )
+
+        body = request_json(only_request(submit))
+        assert body["model_name"] == model
+        assert body["sound"] == "off"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "agnes/agnes-video-2.5"), ("agnes-video-2.5", None)])
+    async def test_agnes_bound_to_2_5_uses_the_2_5_contract(self, tmp_path, model, binding):
+        """绑定 Agnes 2.5 条目的不透明 ID 走 2.5 契约：5 张参考图以 reference 模式发出，不按 v2.0 的 4 张上限拒绝。"""
+        backend = await _builtin_video_backend("agnes", model, binding)
+        gen = self._generator(tmp_path, backend, "agnes")
+        refs = []
+        for i in range(5):
+            ref = tmp_path / f"ref{i}.png"
+            ref.write_bytes(PNG_BYTES)
+            refs.append(ref)
+
+        with capture_http() as router:
+            submit = router.post(url__regex=r".*/v1/videos$").mock(
+                return_value=httpx.Response(400, json={"error": {"message": "stop"}})
+            )
+            with pytest.raises(httpx.HTTPStatusError):
+                await gen.generate_video_async(
+                    prompt="p",
+                    resource_type="reference_videos",
+                    resource_id="E1U1",
+                    reference_images=refs,
+                    duration_seconds=5,
+                )
+
+        body = request_json(only_request(submit))
+        assert body["model"] == model
+        assert body["mode"] == "reference"
+        assert len(body["images"]) == 5
+        assert "num_frames" not in body
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "xai/grok-imagine-video"), ("grok-imagine-video", None)])
+    async def test_grok_bound_to_classic_rejects_first_frame_with_references(self, tmp_path, model, binding):
+        """绑定 classic 条目的不透明 ID 与 classic 一样，在付费调用前拒绝首帧与参考图并存。"""
+        from arcreel_market_core.video_backend_contract import VideoCapabilityError
+
+        backend = await _builtin_video_backend("grok", model, binding)
+        gen = self._generator(tmp_path, backend, "grok")
+        start = tmp_path / "start.png"
+        start.write_bytes(PNG_BYTES)
+        ref = tmp_path / "ref.png"
+        ref.write_bytes(PNG_BYTES)
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                start_image=start,
+                reference_images=[ref],
+                duration_seconds=5,
+            )
+        assert exc.value.code == "video_reference_images_with_frames_unsupported"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "openai/sora-2-pro"), ("sora-2-pro", None)])
+    async def test_openai_bound_to_sora_2_pro_reaches_1080p(self, tmp_path, model, binding):
+        """绑定 sora-2-pro 条目的不透明 ID 与 sora-2-pro 一样可以发 1080p 档尺寸。"""
+        gen = self._generator(tmp_path, _custom_video_backend("openai-video", model, binding), "custom-9")
+
+        with capture_http() as router:
+            submit = router.post("https://relay.test/v1/videos").mock(
+                return_value=httpx.Response(400, json={"error": {"message": "stop", "type": "invalid_request_error"}})
+            )
+            with pytest.raises(openai.BadRequestError):
+                await gen.generate_video_async(
+                    prompt="p", resource_type="videos", resource_id="E1S01", duration_seconds=4, resolution="1080p"
+                )
+
+        request = only_request(submit)
+        assert f'name="model"\r\n\r\n{model}'.encode() in request.content
+        assert b"1080x1920" in request.content
+
+    def test_gemini_vertex_bound_entry_keeps_the_audio_switch(self):
+        """Vertex 下绑定可控音轨条目的不透明 ID 与官方型号同为可控，未绑定的仍按恒有声保守声明。"""
+        from lib.catalog import query as catalog
+        from lib.config.resolver import builtin_video_audio_track
+
+        catalog.install_user_added_models(
+            [
+                catalog.UserAddedModel("gemini-vertex", _OPAQUE, "video", entry_binding="google/veo-3.1-generate-001"),
+                catalog.UserAddedModel("gemini-vertex", "veo-unbound-relay", "video"),
+            ]
+        )
+        assert builtin_video_audio_track("gemini-vertex", _OPAQUE, generation_type="i2v") == "controllable"
+        assert (
+            builtin_video_audio_track("gemini-vertex", "veo-3.1-generate-001", generation_type="i2v") == "controllable"
+        )
+        assert builtin_video_audio_track("gemini-vertex", "veo-unbound-relay", generation_type="i2v") == "always_on"
