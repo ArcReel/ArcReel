@@ -98,6 +98,7 @@ from lib.custom_provider.path_overrides import (
 )
 
 if TYPE_CHECKING:
+    from arcreel_catalog_core import CatalogEntry
     from lib.db.models.custom_provider import CustomProvider
 
 
@@ -143,9 +144,10 @@ class EndpointSpec:
     # 调 video_caps_for_model 按 model_id 读取该 model 的真实上限。
     video_max_reference_images: int | None = None
     # 当 video_max_reference_images 为 None 时，resolver 用此纯函数按 model_id 读 backend 声明的
-    # caps —— 不构造 SDK client、不查 provider 行。video_max_reference_images 为 int 时此字段应为
+    # caps —— 不构造 SDK client、不查 provider 行。第二个参数是模型对应的条目（条目绑定优先，否则按名字现查），
+    # backend 按它的名字认定通道能力（docs/adr/0104、0105）。video_max_reference_images 为 int 时此字段应为
     # None（endpoint 维度已能给出硬上限）。二者对每个 video endpoint 恰填其一（见注册表末尾不变式）。
-    video_caps_for_model: Callable[[str], VideoCapabilities] | None = None
+    video_caps_for_model: Callable[[str, CatalogEntry | None], VideoCapabilities] | None = None
     # 该 endpoint 的 delegate.generate() 是否真的读取 VideoGenerationRequest.end_image 并下传
     # 尾帧约束。仅 video 类有意义；False 时即便系统判定或用户覆盖把 last_frame 置为 True，执行层
     # 也会静默丢弃尾帧、按无约束生成——写入侧 last_frame 覆盖据此收窄可开启的 endpoint 范围。
@@ -1256,7 +1258,7 @@ def declarative_endpoint_spec(
         request_path_template=declarative_request_path(definition),
         build_backend=_build_declarative_video(definition) if is_video else _build_declarative_image(definition),
         image_capabilities=None if is_video else image_capabilities_from_definition(definition),
-        video_caps_for_model=(lambda _model_id: caps) if caps is not None else None,
+        video_caps_for_model=(lambda _model_id, _entry=None: caps) if caps is not None else None,
         end_image_capable=caps.last_frame if caps is not None else False,
         reference_audio_capable=caps is not None and caps.reference_audio_mode is not ReferenceAudioMode.NONE,
         definition=definition,
@@ -1348,7 +1350,7 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
         request_path_template="/prompt",
         build_backend=_build_comfyui_runtime(definition),
         image_capabilities=None if is_video else binding_image_capabilities(definition),
-        video_caps_for_model=(lambda _model_id: caps) if caps is not None else None,
+        video_caps_for_model=(lambda _model_id, _entry=None: caps) if caps is not None else None,
         # 两个运输位与声明式端点同处理：从 caps 反推，而不是各写一份判据。
         end_image_capable=caps.last_frame if caps is not None else False,
         definition=definition,

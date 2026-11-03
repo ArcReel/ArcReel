@@ -145,6 +145,7 @@ class CustomPriceSource:
                     model_id=model,
                     overrides=self.pricing.capability_overrides,
                     endpoint_spec=spec,
+                    entry_binding=self.pricing.entry_binding,
                 )
             except ValueError:
                 logger.debug("自定义模型 %s 的视频能力判定不出，预估按不带能力计量", model, exc_info=True)

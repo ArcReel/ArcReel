@@ -208,7 +208,9 @@ def custom_capability_view(
                 "resolutions": list(video.resolutions) if video.resolutions is not None else None,
             }
             try:
-                caps = system_video_capabilities(endpoint=endpoint, model_id=model_id, endpoint_spec=spec)
+                caps = system_video_capabilities(
+                    endpoint=endpoint, model_id=model_id, endpoint_spec=spec, entry_binding=entry_binding
+                )
             except ValueError:
                 logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
                 caps = VideoCapabilities()

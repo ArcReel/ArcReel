@@ -56,10 +56,11 @@ def create_custom_backend(
             model_id=model_id,
             overrides=capability_overrides,
             endpoint_spec=spec,
+            entry_binding=entry_binding,
         )
         # 一并记住 endpoint 与路径覆盖：两者都是 backend 构造的真正输入粒度，已提交任务的续跑
-        # 据此比对协议是否已被换掉（docs/adr/0054、docs/adr/0101）。参考图槽位是否接受素材引用按模型对应的
-        # 条目认定（条目绑定优先），与内置供应商同一判定，不按模型名推断。
+        # 据此比对协议是否已被换掉（docs/adr/0054、docs/adr/0101）。通道能力与参考图槽位是否接受素材引用都按
+        # 模型对应的条目认定（条目绑定优先），与读侧合成、内置供应商同一判定；请求里仍发 model_id。
         return (
             backend.with_endpoint(endpoint, path_overrides=paths)
             .with_video_capabilities(merged, overrides=applied)

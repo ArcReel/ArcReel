@@ -28,6 +28,7 @@ from typing import cast
 
 import httpx
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
     VideoAudioMode,
     VideoCapabilities,
@@ -50,7 +51,7 @@ from lib.backends.kling_shared import (
 from lib.backends.providers import PROVIDER_KLING
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import match_by_names
+from lib.backends.video_backends.name_family import EntryBoundCapabilities, match_by_names
 from lib.billing.metering import Usage
 
 logger = logging.getLogger(__name__)
@@ -172,9 +173,9 @@ def _match_video_caps(name: str) -> _KlingVideoModelCaps | None:
     return _KLING_VIDEO_CAPS.get(key)
 
 
-def _lookup_video_caps(model: str) -> _KlingVideoModelCaps:
-    """model 的能力位：名字按 name_family 的规则逐个精确命中，都认不得时取统一回落。"""
-    found = match_by_names(model, _match_video_caps)
+def _lookup_video_caps(model: str, entry: CatalogEntry | None = None) -> _KlingVideoModelCaps:
+    """model 的能力位：名字按 name_family 的规则逐个精确命中（``entry`` 是对应的条目），都认不得时取统一回落。"""
+    found = match_by_names(model, _match_video_caps, entry=entry)
     return found if found is not None else _UNRECOGNIZED_VIDEO_CAPS
 
 
@@ -235,7 +236,7 @@ def _decode_job_id(job_id: str) -> tuple[str, str, bool | None]:
     return _TEXT2VIDEO, job_id, None
 
 
-class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
+class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdPersistenceMixin):
     """可灵 Kling 视频后端（异步轮询，JWT / Bearer 双模式）。
 
     鉴权 / base_url 装配 / submit-poll 骨架由 ``KlingBackendBase`` 共享；``provider_job_id`` 持久化由
@@ -269,8 +270,11 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         # 按 model 取能力位（归一化前缀/大小写后精确命中）；认不得的 model（bearer 透传）取统一回落。
         self._caps = _lookup_video_caps(self._model)
 
+    def _on_catalog_entry_changed(self) -> None:
+        self._caps = _lookup_video_caps(self._model, self._catalog_entry)
+
     @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
         # first_frame 恒真（各档均支持 i2v 首帧）；last_frame / reference_images / 上限按 model 从
         # _KLING_VIDEO_CAPS 读（_lookup_video_caps 归一化前缀/大小写后精确命中，认不得时取统一回落）。
         # max_reference_images 只在此处声明（编排层裁剪与生成时防御同读它），取保守值——
@@ -284,7 +288,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         # 按执行闸门那份能力照常发出。declare 一个仅在少数档位成立的 True 会让无 tier
         # 上下文的调用方按此位放行 end_image、多数请求撞硬失败；保守声明 False 更贴近默认档的
         # 真实执行结果，与认不得的 model 取保守回落同一原则。
-        caps = _lookup_video_caps(model)
+        caps = _lookup_video_caps(model, entry)
         return VideoCapabilities(
             text_to_video=caps.text_to_video,
             first_frame=True,
@@ -308,7 +312,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model)
+        return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None) -> VideoCapabilities:
         """按实际请求档位收窄的 last_frame 声明，供有请求上下文的调用方使用。
@@ -322,7 +326,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         护栏放行条件对齐，避免 pro 档请求被上层静默丢帧（该请求实际会被 `_build_payload` 接受），
         也避免 4k+pro 组合被误判放行（`_resolve_mode` 对该组合解出 ``"4k"`` 而非 ``"pro"``）。
         """
-        caps = _lookup_video_caps(self._model)
+        caps = _lookup_video_caps(self._model, self._catalog_entry)
         mode = self._resolve_mode_from(resolution, service_tier)
         last_frame = caps.last_frame and (not caps.last_frame_requires_pro or mode == "pro")
         return VideoCapabilities(

@@ -227,14 +227,16 @@ class CustomVideoBackend:
         )
 
     def with_catalog_entry(self, entry: CatalogEntry | None) -> CustomVideoBackend:
-        """返回让被包装协议 backend 按 ``entry`` 认定素材引用槽位的新实例；协议不接受素材引用时原样返回。
+        """返回让被包装协议 backend 按 ``entry`` 认定通道能力与素材引用槽位的新实例；协议不按条目认定时原样返回。
 
-        ``entry`` 是这个模型对应的条目（条目绑定优先，否则按名字现查），见 :attr:`provider_asset_roles`。
+        ``entry`` 是这个模型对应的条目（条目绑定优先，否则按名字现查）。档位查询（:meth:`video_capabilities_for_tier`）
+        以协议 backend 的声明为基底，所以协议 backend 要与工厂注入的合成能力按同一个条目认定；请求里的模型不变。
+        素材引用槽位见 :attr:`provider_asset_roles`。
         """
         rebind = getattr(self._delegate, "with_catalog_entry", None)
         if not callable(rebind):
             return self
-        # 协议 backend 的 with_catalog_entry 返回同类副本（见 ArkVideoBackend.with_catalog_entry）。
+        # 协议 backend 的 with_catalog_entry 返回同类副本（见 name_family.EntryBoundCapabilities）。
         delegate = cast("VideoBackend", rebind(entry))
         return CustomVideoBackend(
             provider_id=self._provider_id,

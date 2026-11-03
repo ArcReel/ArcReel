@@ -19,6 +19,8 @@ from lib.artifacts.version_manager import VersionManager
 from lib.asset_library.bindings import CredentialType, account_scope, confirm_binding, get_bindable_credential
 from lib.asset_library.generation_inputs import choose_reference_image_assets
 from lib.backends.backend_assembly.assembler import assemble_backend
+from lib.backends.video_frame_slots import resolve_video_capabilities
+from lib.catalog import query as catalog
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import make_provider_id
 from lib.db.models.asset_library import ProviderAssetLink
@@ -242,3 +244,99 @@ async def test_custom_endpoint_asset_support_comes_from_the_model_entry(
     assert _link_problems(read) == _link_problems(execution)
     codes = [p["code"] for p in _link_problems(read)]
     assert codes == (["provider_asset_link_failed"] if applies else [])
+
+
+async def _configured_projection(world: _World, provider_id: str, model_id: str) -> ReferenceUnitRequestProjection:
+    """生产读侧投影：请求事实按项目配置与真实能力解析，不替换。"""
+    project = {**world.project, "video_provider_r2v": f"{provider_id}/{model_id}"}
+    return await project_reference_unit_request(
+        project=project, script=_SCRIPT, unit=_UNIT, project_path=world.project_path, resolver=world.resolver
+    )
+
+
+async def test_opaque_custom_model_bound_to_seedance_gets_the_entry_video_capabilities(world: _World):
+    """不透明模型 ID 绑定 Seedance 2.0 条目：参考生视频可选，两张参考图都不被裁掉，素材关联核对随之生效；
+    执行时调用通道按同一条目声明能力，请求里仍是原模型 ID。"""
+    db_id = await world.custom_provider(
+        [{"model_id": OPAQUE_MODEL, "is_default": True, "entry_binding": "bytedance/doubao-seedance-2.0"}]
+    )
+    await world.bind("custom", db_id)
+    await world.link(state="failed", error_code="DownloadFailed", error_message="cannot fetch")
+    provider_id = make_provider_id(db_id)
+
+    selected = await world.resolver.resolve_video_backend(
+        {"video_provider_r2v": f"{provider_id}/{OPAQUE_MODEL}"}, None, generation_type="r2v"
+    )
+    projection = await _configured_projection(world, provider_id, OPAQUE_MODEL)
+    backend = await assemble_backend(
+        provider_id=provider_id, media_type="video", model_id=OPAQUE_MODEL, resolver=world.resolver
+    )
+
+    assert (selected.provider_id, selected.model_id) == (provider_id, OPAQUE_MODEL)
+    assert projection.request_facts is not None
+    assert projection.request_facts.max_reference_images == 9
+    assert len(projection.request_assets) == 2
+    assert [p["code"] for p in projection.problem_payloads()] == ["provider_asset_link_failed"]
+    assert backend.model == OPAQUE_MODEL
+    assert backend.video_capabilities.max_reference_images == 9
+    assert backend.video_capabilities_for_tier("default").max_reference_images == 9
+
+
+async def test_opaque_custom_model_without_binding_keeps_the_conservative_capabilities(world: _World):
+    """未绑定条目的不透明模型 ID 仍按保守回落：没有参考图能力，参考生视频不可选。"""
+    db_id = await world.custom_provider([{"model_id": OPAQUE_MODEL, "is_default": True}])
+    provider_id = make_provider_id(db_id)
+
+    with pytest.raises(ValueError, match="r2v"):
+        await world.resolver.resolve_video_backend(
+            {"video_provider_r2v": f"{provider_id}/{OPAQUE_MODEL}"}, None, generation_type="r2v"
+        )
+    backend = await assemble_backend(
+        provider_id=provider_id, media_type="video", model_id=OPAQUE_MODEL, resolver=world.resolver
+    )
+    assert backend.video_capabilities_for_tier("default").max_reference_images == 0
+
+
+async def test_explicit_capability_override_still_wins_over_the_bound_entry(world: _World):
+    """用户的能力覆盖优先于绑定条目给出的通道能力。"""
+    db_id = await world.custom_provider(
+        [
+            {
+                "model_id": OPAQUE_MODEL,
+                "is_default": True,
+                "entry_binding": "bytedance/doubao-seedance-2.0",
+                "capability_overrides": {"max_reference_images": 3},
+            }
+        ]
+    )
+    provider_id = make_provider_id(db_id)
+
+    caps = await world.resolver.video_capabilities_for_model(provider_id, OPAQUE_MODEL, generation_type="r2v")
+    backend = await assemble_backend(
+        provider_id=provider_id, media_type="video", model_id=OPAQUE_MODEL, resolver=world.resolver
+    )
+    assert caps["max_reference_images"] == 3
+    assert backend.video_capabilities_for_tier("default").max_reference_images == 3
+
+
+async def test_user_added_builtin_model_bound_to_seedance_gets_the_entry_video_capabilities(world: _World):
+    """内置方舟下用户添加的不透明模型 ID 绑定 Seedance 2.0 条目：读侧与执行侧都按条目取得参考图能力。"""
+    async with world.sessions() as session:
+        await CredentialRepository(session).create(provider="ark", name="主 Key", api_key="TEST-ark-inference-key-0001")
+        await session.commit()
+    catalog.install_user_added_models(
+        [catalog.UserAddedModel("ark", OPAQUE_MODEL, "video", entry_binding="bytedance/doubao-seedance-2.0")]
+    )
+    try:
+        projection = await _configured_projection(world, "ark", OPAQUE_MODEL)
+        backend = await assemble_backend(
+            provider_id="ark", media_type="video", model_id=OPAQUE_MODEL, resolver=world.resolver
+        )
+    finally:
+        catalog.install_user_added_models(())
+
+    assert projection.request_facts is not None
+    assert projection.request_facts.max_reference_images == 9
+    assert len(projection.request_assets) == 2
+    assert backend.model == OPAQUE_MODEL
+    assert resolve_video_capabilities(backend).max_reference_images == 9

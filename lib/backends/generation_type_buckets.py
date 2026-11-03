@@ -117,6 +117,7 @@ def custom_model_buckets(
             model_id=model_id,
             overrides=capability_overrides,
             endpoint_spec=endpoint_spec,
+            entry_binding=entry_binding,
         )
     except ValueError:
         return frozenset()

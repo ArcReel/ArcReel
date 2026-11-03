@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.aspect_size import VIDEO_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from arcreel_market_core.video_backend_contract import (
     VideoAudioMode,
@@ -45,7 +46,11 @@ from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import image_to_base64_data_uri
 from lib.backends.providers import PROVIDER_AGNES
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, capabilities_by_names
+from lib.backends.video_backends.name_family import (
+    UNRECOGNIZED_MODEL_CAPABILITIES,
+    EntryBoundCapabilities,
+    capabilities_by_names,
+)
 from lib.billing.metering import Usage
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
@@ -285,7 +290,7 @@ def _failure_reason(state: dict) -> str | None:
     return f"Agnes 视频生成失败: {message}"
 
 
-class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
+class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """Agnes 视频后端（异步 submit/poll，裸 base64 图像，支持 resume）。"""
 
     def __init__(
@@ -311,7 +316,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         return self._model
 
     @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
         """按模型名纯计算 caps —— 不构造 SDK client（无需 api_key）。
 
         首帧 + 尾帧（首尾关键帧）+ 多图主体参考；参考图不与首帧叠加（单通道 + mode 不可叠加）。
@@ -324,11 +329,12 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             model,
             _match_video_capabilities,
             fallback=replace(UNRECOGNIZED_MODEL_CAPABILITIES, audio_track=VideoAudioMode.ALWAYS_OFF),
+            entry=entry,
         )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model)
+        return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         # 请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。

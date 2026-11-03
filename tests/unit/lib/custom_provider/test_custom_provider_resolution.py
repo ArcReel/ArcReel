@@ -317,7 +317,7 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
     from lib.custom_provider import make_provider_id
     from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 
-    def _negative_caps(model: str) -> VideoCapabilities:
+    def _negative_caps(model: str, entry: object = None) -> VideoCapabilities:
         return VideoCapabilities(max_reference_images=-1)
 
     bad_spec = dataclasses.replace(ENDPOINT_REGISTRY["ark-seedance"], video_caps_for_model=_negative_caps)

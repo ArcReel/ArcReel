@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import logging
 import re
 from collections.abc import Generator
@@ -39,7 +38,7 @@ from lib.backends.provider_assets import (
 from lib.backends.providers import PROVIDER_ARK
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import capabilities_by_names
+from lib.backends.video_backends.name_family import EntryBoundCapabilities, capabilities_by_names
 from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -194,7 +193,7 @@ def _task_failure(task: Any, request: VideoGenerationRequest) -> str | None:
     return f"Ark 视频生成失败(status={task.status}): {error or 'Unknown error'}"
 
 
-class ArkVideoBackend(ProviderJobIdPersistenceMixin):
+class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """Ark (火山方舟) 视频生成后端。"""
 
     def __init__(
@@ -223,8 +222,8 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         # 的粒度是世代而非具体型号：同代的未知后缀照样按族群剔除 service_tier，这正是要的，
         # 该参数是整代都不接受。逐型号的严格判定另走 _matches_known_model 白名单（尾帧与参考
         # 音频用），两者不可互换。这是 backend 内部的运输细节，不进 VideoCapabilities——后者只
-        # 声明调用方需要据以取舍的输入路径。
-        self._supports_service_tier = self._accepts_service_tier(self._model)
+        # 声明调用方需要据以取舍的输入路径。模型对应的条目属于这两代时同样不带。
+        self._supports_service_tier = self._accepts_service_tier_for(self._model, catalog_entry)
         self._inference_credential = inference_credential
         self._catalog_entry = catalog_entry
 
@@ -242,11 +241,17 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         """当前模型可以用 ``asset://`` 素材引用代替图片内容的槽位，按装配时给出的模型条目认定。"""
         return self.provider_asset_roles_for_entry(self._catalog_entry)
 
-    def with_catalog_entry(self, entry: CatalogEntry | None) -> ArkVideoBackend:
-        """返回按 ``entry`` 认定素材引用槽位的副本；其余状态（客户端、凭证、模型）与本实例共用。"""
-        clone = copy.copy(self)
-        clone._catalog_entry = entry
-        return clone
+    @staticmethod
+    def _accepts_service_tier_for(model: str, entry: CatalogEntry | None) -> bool:
+        """请求体是否带 ``service_tier``：API 模型名或所对应条目的名字属于 Seedance 2.0 / 2.5 时都不带。
+
+        不透明的 API 模型名绑定了 2.x 条目时，只看 API 模型名会误判为 1.x 而下发这个参数，上游在参考生视频下拒绝。
+        """
+        names = (model,) if entry is None else (model, entry.name, *entry.aliases)
+        return all(ArkVideoBackend._accepts_service_tier(name) for name in names)
+
+    def _on_catalog_entry_changed(self) -> None:
+        self._supports_service_tier = self._accepts_service_tier_for(self._model, self._catalog_entry)
 
     @staticmethod
     def provider_asset_roles_for_entry(entry: CatalogEntry | None) -> frozenset[str]:
@@ -409,17 +414,17 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         return "seedance-1-" in model_lower or "seedance-1." in model_lower
 
     @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
         """按模型名纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
 
         resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
-        保持 backend 为单一真相源。名字按 ``name_family`` 的规则取，Seedance 1.x / 2.0 / 2.5 三个
-        系列之外的名字统一回落。
+        保持 backend 为单一真相源。名字按 ``name_family`` 的规则取（``entry`` 是模型对应的条目，不给时按
+        ``model`` 现查），Seedance 1.x / 2.0 / 2.5 三个系列之外的名字统一回落。
 
         音轨形态全系取 ``VideoCapabilities`` 的默认值（开关可控）：``_build_payload`` 无条件把
         ``generate_audio`` 放进请求体，各档 Seedance 都认这个开关，故无需分支声明。
         """
-        return capabilities_by_names(model, ArkVideoBackend._match_video_capabilities)
+        return capabilities_by_names(model, ArkVideoBackend._match_video_capabilities, entry=entry)
 
     @staticmethod
     def _match_video_capabilities(model: str) -> VideoCapabilities | None:
@@ -491,7 +496,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model)
+        return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""

@@ -25,6 +25,7 @@ from typing import Literal
 
 import httpx
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
@@ -63,7 +64,7 @@ from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.providers import PROVIDER_DASHSCOPE
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import capabilities_by_names
+from lib.backends.video_backends.name_family import EntryBoundCapabilities, capabilities_by_names
 from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
@@ -443,15 +444,15 @@ def _match_profile(model: str) -> VideoCapabilities | None:
     return None
 
 
-def _profile_for_model(model: str | None) -> VideoCapabilities:
-    """model 的能力档：名字按 name_family 的规则逐个解析，都认不得时取统一回落。
+def _profile_for_model(model: str | None, entry: CatalogEntry | None = None) -> VideoCapabilities:
+    """model 的能力档：名字按 name_family 的规则逐个解析（``entry`` 是对应的条目），都认不得时取统一回落。
 
     __init__ 与 video_capabilities_for_model 共用本函数，保持单一真相源。
     """
-    return capabilities_by_names(model or "", _match_profile)
+    return capabilities_by_names(model or "", _match_profile, entry=entry)
 
 
-class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
+class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """阿里百炼视频后端（异步 video-synthesis 端点）。"""
 
     def __init__(
@@ -474,6 +475,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         self._transport_layer = transport_layer
         self._video_capabilities = _profile_for_model(self._model)
 
+    def _on_catalog_entry_changed(self) -> None:
+        self._video_capabilities = _profile_for_model(self._model, self._catalog_entry)
+
     @property
     def name(self) -> str:
         return PROVIDER_DASHSCOPE
@@ -483,17 +487,17 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         return self._model
 
     @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
-        """按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
+    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
+        """按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。``entry`` 是模型对应的条目。
 
         resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
         保持 backend 为单一真相源。
         """
-        return _profile_for_model(model)
+        return _profile_for_model(model, entry)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model)
+        return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     @property
     def _request_base_url(self) -> str:
