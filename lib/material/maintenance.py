@@ -13,6 +13,7 @@ from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.material.formal_objects import recover_formal_commits, retain_formal_objects, sweep_formal_objects
+from lib.material.global_library import cleanup_global_work_files
 from lib.material.work_files import DEFAULT_MIN_IDLE, cleanup_work_cache
 
 logger = logging.getLogger(__name__)
@@ -29,10 +30,12 @@ class MaterialMaintenance:
         session_factory: async_sessionmaker[AsyncSession],
         projects_dir: Path,
         deleted_projects_dir: Path | None = None,
+        data_root: Path | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._projects_dir = projects_dir
         self._deleted_projects_dir = deleted_projects_dir
+        self._data_root = data_root
         self._task: asyncio.Task[None] | None = None
 
     async def _loop(self) -> None:
@@ -58,6 +61,10 @@ class MaterialMaintenance:
                     await cleanup_work_cache(
                         self._projects_dir, min_idle=DEFAULT_MIN_IDLE, session_factory=self._session_factory
                     )
+                    if self._data_root is not None:
+                        await cleanup_global_work_files(
+                            self._data_root, min_idle=DEFAULT_MIN_IDLE, session_factory=self._session_factory
+                        )
                 except Exception:
                     logger.warning("清理远端素材工作文件失败，等下一轮", exc_info=True)
             await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
@@ -75,9 +82,13 @@ class MaterialMaintenance:
 
 
 def start_material_maintenance(
-    session_factory: async_sessionmaker[AsyncSession], projects_dir: Path, deleted_projects_dir: Path | None = None
+    session_factory: async_sessionmaker[AsyncSession],
+    projects_dir: Path,
+    deleted_projects_dir: Path | None = None,
+    data_root: Path | None = None,
 ) -> MaterialMaintenance:
-    maintenance = MaterialMaintenance(session_factory, projects_dir, deleted_projects_dir)
+    """``data_root`` 给出时一并清理全局资产库里远端图片的闲置工作文件。"""
+    maintenance = MaterialMaintenance(session_factory, projects_dir, deleted_projects_dir, data_root)
     maintenance.start()
     return maintenance
 

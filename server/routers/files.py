@@ -54,11 +54,13 @@ from lib.episode.source_kinds import SourceKind
 from lib.episode.source_trash import trash_source_file
 from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
+from lib.infra.data_root_layout import GLOBAL_ASSETS_DIRNAME
 from lib.infra.image_thumbnails import ensure_image_thumbnail, is_thumbnail_source, snap_thumbnail_width
 from lib.infra.image_utils import IMAGE_FILE_EXTENSIONS, normalize_uploaded_image, validate_image_bytes
 from lib.infra.json_io import atomic_write_bytes
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.material.formal_objects import formal_commit
+from lib.material.global_library import ensure_global_image
 from lib.material.work_files import ensure_work_file, hold_work_file
 from lib.project.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
 from lib.project.project_change_hints import (
@@ -387,21 +389,27 @@ async def serve_global_asset(asset_type: str, filename: str, request: Request, _
     if "/" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_filename"))
 
-    def _sync() -> tuple[Path, os.stat_result, str]:
-        root = get_project_manager().get_global_assets_root()
+    def _resolve() -> tuple[Path, Path]:
+        project_manager = get_project_manager()
+        root = project_manager.get_global_assets_root()
         # 防御性检查：即使 filename 通过了字符串校验，也要确保解析后的路径仍在 root 之内
         # （防御 symlink / URL 编码等边界场景）
         try:
-            path = safe_join(root, asset_type, filename)
+            return project_manager.data_root, safe_join(root, asset_type, filename)
         except PathTraversalError as exc:
             raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
 
+    def _sync(path: Path) -> tuple[Path, os.stat_result, str]:
         stat_result = _regular_file_stat(path) if path.suffix.lower() in PUBLIC_MEDIA_EXTENSIONS else None
         if stat_result is None:
             raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
         return path, stat_result, guess_media_type(path)
 
-    path, stat_result, media_type = await asyncio.to_thread(_sync)
+    data_root, resolved_path = await asyncio.to_thread(_resolve)
+    # 库里远端图片的工作文件被清理后，从对象存储取回再服务
+    await ensure_global_image(data_root, f"{GLOBAL_ASSETS_DIRNAME}/{asset_type}/{filename}")
+    with hold_work_file(resolved_path):
+        path, stat_result, media_type = await asyncio.to_thread(_sync, resolved_path)
 
     # 文件名是 uuid，前端以 ?fp=<updated_at> 作版本键（?v= 同义）；带版本键即 immutable
     query = request.query_params

@@ -2,8 +2,8 @@
 回收站与项目删除按引用保留正式对象。
 
 真实编排：资产图经文件路由上传（正式提交入口按全局设置选择保存位置），预览与缩略图经公开文件路由读取，
-工作文件经对象存储路由的清理入口清理，删除与恢复经文件视图、资产、项目回收站与项目路由。只替换对象存储的
-网络边界：TOS SDK 在 ``create_sdk_client`` 换成内存桶。
+工作文件经对象存储路由的清理入口清理，删除与恢复经文件视图、资产、项目回收站与项目路由，全局资产库经资产库路由保存与应用。
+只替换对象存储的网络边界：TOS SDK 在 ``create_sdk_client`` 换成内存桶。
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from lib.artifacts.artifact_activation import assert_artifact_target_state_plan_
 from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ArtifactStatus
 from lib.artifacts.artifact_planner import plan_artifact_target_state
+from lib.artifacts.version_manager import VersionManager
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
 from lib.config.repository import SystemSettingRepository
 from lib.db import get_async_session
@@ -52,13 +53,14 @@ from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from lib.script.reference_video.execution_checkpoint import ProviderMediaInput, stage_provider_media_for_task
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.routers import characters, file_view, files, object_storage, project_trash, versions
+from server.routers import assets, characters, file_view, files, object_storage, project_trash, versions
 from server.services.project.provider_asset_links import load_link_panel
 from server.services.tasks import derivative_sheet_tasks
 from server.services.tasks.image_edit_tasks import execute_image_edit_task
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import (
     bind_session_factory,
+    use_assets_router_sessions,
     use_generation_context,
     use_object_storage_sdk,
     use_project_manager,
@@ -159,7 +161,8 @@ def project(tmp_path: Path, monkeypatch) -> ProjectManager:
 
 
 @pytest.fixture
-def api(sessions, project) -> Generator[TestClient]:
+def api(sessions, project, monkeypatch) -> Generator[TestClient]:
+    use_assets_router_sessions(monkeypatch, sessions)
     app = FastAPI()
 
     async def _session():
@@ -175,6 +178,7 @@ def api(sessions, project) -> Generator[TestClient]:
         file_view.router,
         project_trash.router,
         characters.router,
+        assets.router,
     ):
         app.include_router(router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     app.include_router(files.public_router, prefix="/api/v1")
@@ -312,8 +316,6 @@ async def test_concurrent_reads_download_once(api, sessions, project, bucket):
     record = _history(project)["versions"][0]
     project_dir = project.get_project_path("demo")
 
-    from lib.artifacts.version_manager import VersionManager
-
     content_version = VersionManager(project_dir).find_content_version("characters", record["content_version_id"])
     assert content_version is not None
     paths = await asyncio.gather(*(ensure_content_version_file(project_dir, content_version) for _ in range(4)))
@@ -362,7 +364,6 @@ async def test_storage_contract_failed_commit_keeps_previous_version(
 
     _cleanup(api)
     project_dir = project.get_project_path("demo")
-    from lib.artifacts.version_manager import VersionManager
 
     [record] = _history(project)["versions"]
     content_version = VersionManager(project_dir).find_content_version("characters", record["content_version_id"])

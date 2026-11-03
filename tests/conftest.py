@@ -314,8 +314,10 @@ def idle_material_maintenance(monkeypatch):
         async def _loop(self) -> None:
             await asyncio.Event().wait()
 
-    def start_idle(session_factory, projects_dir, deleted_projects_dir=None) -> maintenance.MaterialMaintenance:
-        runner = _IdleMaintenance(session_factory, projects_dir, deleted_projects_dir)
+    def start_idle(
+        session_factory, projects_dir, deleted_projects_dir=None, data_root=None
+    ) -> maintenance.MaterialMaintenance:
+        runner = _IdleMaintenance(session_factory, projects_dir, deleted_projects_dir, data_root)
         runner.start()
         return runner
 
