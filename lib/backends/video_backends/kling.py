@@ -378,10 +378,12 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
         )
 
     def _effective_audio(self, request: VideoGenerationRequest, *, subpath: str) -> bool:
-        return self._effective_audio_for(self._model, request, subpath=subpath)
+        return self._effective_audio_for(self._model, request, subpath=subpath, entry=self._catalog_entry)
 
     @staticmethod
-    def _effective_audio_for(model: str, request: VideoGenerationRequest, *, subpath: str) -> bool:
+    def _effective_audio_for(
+        model: str, request: VideoGenerationRequest, *, subpath: str, entry: CatalogEntry | None = None
+    ) -> bool:
         """实际是否产出视频内人声：请求要 + model 有 generate_audio 能力 + 走得到音频开关的子路径
         + 满足该 model 的分辨率约束；用户把音轨覆盖为恒有声时不套分辨率约束。
 
@@ -389,7 +391,8 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
 
         ``subpath`` 必传而非由 ``request.reference_images`` 推断：resume 请求重建时不带图字段
         （见 ``media_generator.resume_video_async``），按参考图推断会把旧格式 job_id 的多图主体
-        任务判成有声。generate 侧由 ``_build_payload`` 给出，resume 侧由 job_id 解码得出。
+        任务判成有声。generate 侧由 ``_build_payload`` 给出，resume 侧由 job_id 解码得出。``entry`` 是模型对应的
+        条目：分辨率约束与能力声明按同一个模型认定（docs/adr/0104、0105）。
 
         音轨形态读执行闸门那份能力（``request.video_capabilities``，含用户放宽），直接构造的请求
         回落 ``video_capabilities_for_model`` 的声明——与展示层、入队预检同一份。multi-image2video 原生
@@ -398,7 +401,9 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
         """
         if subpath == _MULTI_IMAGE2VIDEO:
             return False
-        audio_track = (request.video_capabilities or KlingVideoBackend.video_capabilities_for_model(model)).audio_track
+        audio_track = (
+            request.video_capabilities or KlingVideoBackend.video_capabilities_for_model(model, entry)
+        ).audio_track
         if audio_track is VideoAudioMode.ALWAYS_OFF:
             return False
         if audio_track is VideoAudioMode.ALWAYS_ON:
@@ -407,7 +412,7 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             return True
         if not request.generate_audio:
             return False
-        if _lookup_video_caps(model).audio_requires_1080p:
+        if _lookup_video_caps(model, entry).audio_requires_1080p:
             # 官方约束的维度是分辨率（v2-6「生成有声视频时，仅支持生成 1080P」），但可灵请求体没有
             # 分辨率字段：输出档位只由 mode 决定，``request.resolution`` 除识别 4k 档外不进入 payload。
             # 判据因此落在实际发出的 mode 上。声明该位的 model（v2-6）只有 std / pro 两档，pro 即

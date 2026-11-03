@@ -22,7 +22,7 @@ from lib.backends.data_uri import image_to_data_uri
 from lib.backends.grok_shared import create_grok_client
 from lib.backends.providers import PROVIDER_GROK
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import EntryBoundCapabilities, capabilities_by_names
+from lib.backends.video_backends.name_family import EntryBoundCapabilities, capabilities_by_names, match_by_names
 from lib.billing.metering import Usage
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
@@ -180,8 +180,13 @@ class GrokVideoBackend(EntryBoundCapabilities):
 
     def _check_classic_first_frame_with_references(self, request: VideoGenerationRequest) -> None:
         """classic 模型拒收首帧与参考图并存（参考生视频页「Classic grok-imagine-video ... rejects combining
-        ``image`` with reference inputs」），在付费调用前拒绝，而不是两者一并下发后由供应商判失败。"""
-        if self._model == _MODEL_CLASSIC and request.start_image and request.reference_images:
+        ``image`` with reference inputs」），在付费调用前拒绝，而不是两者一并下发后由供应商判失败。
+
+        是不是 classic 按名字族认定（与能力声明同一套名字，绑定 classic 条目的不透明模型同样拒绝）。"""
+        family = match_by_names(
+            self._model, lambda name: name if name.startswith(_MODEL_CLASSIC) else None, entry=self._catalog_entry
+        )
+        if family == _MODEL_CLASSIC and request.start_image and request.reference_images:
             raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
 
     async def _create_video(self, request: VideoGenerationRequest):

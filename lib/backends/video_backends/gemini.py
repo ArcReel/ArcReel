@@ -50,6 +50,7 @@ from lib.backends.video_backends.name_family import (
     UNRECOGNIZED_MODEL_CAPABILITIES,
     EntryBoundCapabilities,
     capabilities_by_names,
+    capability_names,
 )
 from lib.billing.metering import Usage
 from lib.config.system_config import resolve_vertex_credentials_path
@@ -190,7 +191,10 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         gemini-vertex 与 gemini-aistudio，静态查询只拿得到 model_id，故判据落在 model_id 上——两家
         目录的 model 命名不重叠，未登记的 Veo model 保守按「有音轨、无开关」声明。
         """
-        audio_track = VideoAudioMode.CONTROLLABLE if model in _AUDIO_SWITCH_MODELS else VideoAudioMode.ALWAYS_ON
+        # 音轨开关按 API 模型名或所对应条目的名字认定：绑定 Vertex 条目的不透明模型同样可控。实际是否下发开关仍由
+        # backend_type 决定（见 generate 与 _create_task），AI Studio 不会因此发出静音请求。
+        names = {model, *capability_names(model, entry)}
+        audio_track = VideoAudioMode.CONTROLLABLE if names & _AUDIO_SWITCH_MODELS else VideoAudioMode.ALWAYS_ON
 
         def match(name: str) -> VideoCapabilities | None:
             if not _is_veo_3_1(name):
