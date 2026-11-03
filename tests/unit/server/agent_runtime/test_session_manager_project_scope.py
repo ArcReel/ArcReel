@@ -95,13 +95,13 @@ class TestSessionManagerProjectScope:
         assert "PreToolUse" in hooks
         matcher = hooks["PreToolUse"][0]
         assert matcher.matcher is None
-        # Without can_use_tool: subagent tool allowlist + file_access_hook
-        assert len(matcher.hooks) == 2
+        # Without can_use_tool: subagent tool allowlist + file_access + read image guard
+        assert len(matcher.hooks) == 3
         assert matcher.hooks[0] is not manager._options_assembler._keep_stream_open_hook
 
     @pytest.mark.asyncio
     async def test_build_options_with_can_use_tool_adds_keep_alive_hook(self, tmp_path, monkeypatch, meta_store):
-        """With can_use_tool: keep_stream_open + subagent tool allowlist + file_access hooks."""
+        """With can_use_tool: keep_stream_open + subagent tool allowlist + file_access + read image guard hooks."""
         project_dir = DataRootLayout(tmp_path / "projects").projects_dir / "demo"
         project_dir.mkdir(parents=True)
         manager = SessionManager(
@@ -133,7 +133,7 @@ class TestSessionManagerProjectScope:
         assert "PreToolUse" in hooks
         matcher = hooks["PreToolUse"][0]
         assert matcher.matcher is None
-        assert len(matcher.hooks) == 3
+        assert len(matcher.hooks) == 4
         assert matcher.hooks[0] is manager._options_assembler._keep_stream_open_hook
 
     @pytest.mark.asyncio

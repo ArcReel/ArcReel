@@ -175,8 +175,9 @@ async def test_build_adds_keep_alive_hook_with_can_use_tool(tmp_path: Path) -> N
 
     pre_without = without.hooks["PreToolUse"][0].hooks
     pre_with = with_cut.hooks["PreToolUse"][0].hooks
-    assert len(pre_without) == 2
-    assert len(pre_with) == 3
+    # subagent 名单 + 文件访问 + Read 读图防护（+ can_use_tool 时再加 keep-alive）
+    assert len(pre_without) == 3
+    assert len(pre_with) == 4
     assert pre_with[0] is assembler._keep_stream_open_hook
 
 

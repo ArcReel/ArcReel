@@ -35,6 +35,7 @@ from lib.infra.data_root_layout import DataRootLayout
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy, Decision
 from server.agent_runtime.arcreel_mcp import build_arcreel_mcp_server
+from server.agent_runtime.read_image_guard import build_read_image_guard_hook
 from server.auth import EMBEDDED_AGENT_SUB, create_token, is_auth_enabled
 
 logger = logging.getLogger(__name__)
@@ -306,6 +307,9 @@ class OptionsAssembler:
         hook_callbacks: list[Any] = [
             self._subagent_tool_hook,
             self._build_file_access_hook(project_cwd),
+            # 排在文件访问 hook 之后：先放行访问，再对放行的 Read 读图做体积/尺寸防护
+            # （超阈大图降采样转 JPEG 后 updatedInput 改指产物，避免整张大图内联卡住上游请求）。
+            build_read_image_guard_hook(project_cwd),
         ]
         if can_use_tool is not None:
             # Official Python SDK guidance: keep stream open when using

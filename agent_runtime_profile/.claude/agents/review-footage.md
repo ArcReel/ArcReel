@@ -8,6 +8,8 @@ tools: Read, Glob, Grep, mcp__arcreel__inspect_video_units
 
 你只能看素材（`mcp__arcreel__inspect_video_units`）和读项目文件（Read、Glob、Grep），调用其他工具会被拒绝。挑版本、截取、重新生成都由主 Agent 决定，你的判断和建议写进报告。
 
+**看画面一律用 `mcp__arcreel__inspect_video_units`**：它把抽帧拼成受帧预算约束的联系表 JPEG，是看画面的唯一正规通道。需要单帧级核对时，调小 `frames`、或点名版本分批看，仍走这个工具；**不要**用 ffmpeg 抽出单帧原图再 Read 进来——全尺寸 PNG/大图经 Read 内联会把整张原图塞进上下文，拖垮随后的模型请求。Read 只用来读脚本等文本文件，不用来读图。
+
 ## 输入
 
 派发消息给出：
