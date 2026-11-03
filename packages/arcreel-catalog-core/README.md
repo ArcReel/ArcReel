@@ -37,11 +37,20 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 - `discontinued` 表示已下架；`context_length` 是上下文长度（token）。
 - `facts` 是模型事实，按媒体类型取不同字段：
   - `text`：`image_input`、`structured_output`、`max_output_tokens`；
-  - `image`：`text_to_image`、`image_to_image`、`resolutions`（可选分辨率档位）；
+  - `image`：`text_to_image`、`image_to_image`、`resolutions`（可选分辨率档位）、`max_reference_images`、`output_token_bases`；
   - `video`：`durations`（可选时长，必填）、`resolutions`、`duration_constraints`
-    （`by_resolution` 按分辨率收窄可选时长，`with_reference_images` 是使用参考图时允许的时长）；
+    （`by_resolution` 按分辨率收窄可选时长，`with_reference_images` 是使用参考图时允许的时长），以及可选的 `max_reference_images`、`text_to_video`、`first_frame`、`last_frame`、`reference_audio`、`max_reference_audio_count`、`max_reference_audio_total_seconds`；
   - `audio`：无。
 - `price` 是价目表，没有价格时省略。
+
+新增的模型事实字段均可省略，缺失表示未收录，写出时仍省略，不增加「未知」取值：
+
+- `max_reference_images` 是非负整数，`0` 表示参考图数量上限为零，不表示无限制。图片是否接受图生图仍由 `image_to_image` 表达；视频首帧、尾帧是独立输入槽位。
+- 视频的 `text_to_video`、`first_frame`、`last_frame`、`reference_audio` 是可选布尔值，分别表示是否接受文生视频、首帧、尾帧、参考音频。显式 `false` 与缺失不同。
+- `max_reference_audio_count` 是参考音频数量上限（非负整数）；`max_reference_audio_total_seconds` 是多段参考音频合计时长上限（非负有限数，单位为秒）。显式 `0` 与缺失不同。
+- 图片的 `output_token_bases` 是质量档到正整数估算基数的映射，例如 `{"low": 16, "medium": 48, "high": 96}`；未收录时为空映射，写出时省略。分辨率档到请求 `quality` 的映射属于端点代码，不记在条目上。
+
+这些字段当前只定义数据格式，实例侧能力求值与 token 估算尚不读取它们。
 
 ### 价目表
 

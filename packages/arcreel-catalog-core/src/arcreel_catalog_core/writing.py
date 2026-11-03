@@ -18,14 +18,19 @@ def _facts(facts: ModelFacts) -> dict[str, object]:
                 raw["max_output_tokens"] = facts.max_output_tokens
             return raw
         case ImageFacts():
-            return {
+            raw = {
                 "text_to_image": facts.text_to_image,
                 "image_to_image": facts.image_to_image,
                 "resolutions": list(facts.resolutions),
             }
+            if facts.max_reference_images is not None:
+                raw["max_reference_images"] = facts.max_reference_images
+            if facts.output_token_bases:
+                raw["output_token_bases"] = dict(facts.output_token_bases)
+            return raw
         case VideoFacts():
             constraints = facts.duration_constraints
-            return {
+            raw = {
                 "durations": list(facts.durations),
                 "resolutions": list(facts.resolutions),
                 "duration_constraints": {
@@ -33,6 +38,18 @@ def _facts(facts: ModelFacts) -> dict[str, object]:
                     "with_reference_images": list(constraints.with_reference_images),
                 },
             }
+            for key, value in {
+                "max_reference_images": facts.max_reference_images,
+                "text_to_video": facts.text_to_video,
+                "first_frame": facts.first_frame,
+                "last_frame": facts.last_frame,
+                "reference_audio": facts.reference_audio,
+                "max_reference_audio_count": facts.max_reference_audio_count,
+                "max_reference_audio_total_seconds": facts.max_reference_audio_total_seconds,
+            }.items():
+                if value is not None:
+                    raw[key] = value
+            return raw
         case AudioFacts():
             return {}
         case _:
