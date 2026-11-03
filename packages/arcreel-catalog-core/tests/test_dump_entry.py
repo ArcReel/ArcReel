@@ -7,7 +7,7 @@ import json
 import pytest
 from catalog_factories import amphibious_image_entry, audio_entry, text_entry, video_entry
 
-from arcreel_catalog_core import CatalogFormatError, check_entry, dump_entry, parse_entry
+from arcreel_catalog_core import check_entry, dump_entry, parse_entry
 
 
 @pytest.mark.parametrize("factory", [text_entry, video_entry, amphibious_image_entry, audio_entry])
@@ -78,34 +78,6 @@ def test_dump_preserves_optional_model_facts(factory, additions):
     assert dumped["facts"] == raw["facts"]
     assert parse_entry(dumped) == entry
     assert check_entry(dumped) == []
-
-
-@pytest.mark.parametrize(
-    ("factory", "additions"),
-    [
-        (amphibious_image_entry, {"max_reference_images": True}),
-        (amphibious_image_entry, {"max_reference_images": -1}),
-        (amphibious_image_entry, {"output_token_bases": {"high": 0}}),
-        (amphibious_image_entry, {"output_token_bases": {"high": None}}),
-        (video_entry, {"first_frame": 1}),
-        (video_entry, {"max_reference_audio_count": 1.5}),
-        (video_entry, {"max_reference_audio_total_seconds": True}),
-    ],
-)
-def test_optional_model_facts_reject_invalid_types_and_counts(factory, additions):
-    raw = factory()
-    raw["facts"].update(additions)
-
-    with pytest.raises(CatalogFormatError):
-        parse_entry(raw)
-
-
-@pytest.mark.parametrize("value", [-1, float("inf"), float("nan")])
-def test_reference_audio_duration_must_be_nonnegative_and_finite_in_published_data(value):
-    raw = video_entry()
-    raw["facts"]["max_reference_audio_total_seconds"] = value
-
-    assert any(issue.path == "facts.max_reference_audio_total_seconds" for issue in check_entry(raw))
 
 
 def test_dump_omits_empty_optional_fields():

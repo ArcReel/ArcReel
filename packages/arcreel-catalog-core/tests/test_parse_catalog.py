@@ -87,6 +87,37 @@ def test_entry_of_unknown_media_type_is_skipped():
         pytest.param(
             lambda data: data["entries"][0]["price"]["meters"][0]["rows"][0].update(price="2"), id="单价不是数字"
         ),
+        pytest.param(
+            lambda data: data["entries"][2]["facts"].update(max_reference_images=True), id="参考图上限是布尔值"
+        ),
+        pytest.param(lambda data: data["entries"][2]["facts"].update(max_reference_images=-1), id="参考图上限为负"),
+        pytest.param(
+            lambda data: data["entries"][2]["facts"].update(output_token_bases={"high": 0}), id="估算基数不是正整数"
+        ),
+        pytest.param(
+            lambda data: data["entries"][2]["facts"].update(output_token_bases={"high": None}), id="估算基数为空"
+        ),
+        pytest.param(lambda data: data["entries"][2]["facts"].update(output_token_bases={"": 16}), id="质量档为空"),
+        pytest.param(lambda data: data["entries"][1]["facts"].update(first_frame=1), id="首帧不是布尔值"),
+        pytest.param(
+            lambda data: data["entries"][1]["facts"].update(max_reference_audio_count=1.5), id="参考音频数量不是整数"
+        ),
+        pytest.param(
+            lambda data: data["entries"][1]["facts"].update(max_reference_audio_total_seconds=True),
+            id="参考音频总时长是布尔值",
+        ),
+        pytest.param(
+            lambda data: data["entries"][1]["facts"].update(max_reference_audio_total_seconds=-1),
+            id="参考音频总时长为负",
+        ),
+        pytest.param(
+            lambda data: data["entries"][1]["facts"].update(max_reference_audio_total_seconds=float("nan")),
+            id="参考音频总时长不是有限数",
+        ),
+        pytest.param(
+            lambda data: data["entries"][1]["facts"].update(max_reference_audio_total_seconds=10**400),
+            id="参考音频总时长超出浮点范围",
+        ),
     ],
 )
 def test_unparseable_catalog_is_rejected(corrupt):

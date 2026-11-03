@@ -183,6 +183,16 @@ def _mutate(path: str, value: Any) -> Callable[[dict[str, Any]], None]:
             ("builtin_providers.kling.models[1].min_app_version", "invalid_app_version"),
             id="最低应用版本格式不对",
         ),
+        pytest.param(
+            lambda data: data["entries"][1]["facts"].update(reference_audio=True, max_reference_audio_count=0),
+            ("entries[1].facts.max_reference_audio_count", "reference_audio_without_count"),
+            id="接受参考音频但数量上限为 0",
+        ),
+        pytest.param(
+            _mutate("entries[0].price.meters[0].rows[0].price", 10**400),
+            ("entries[0].price.meters[0].rows[0].price", "negative_number"),
+            id="单价超出浮点范围",
+        ),
     ],
 )
 def test_build_side_rejects(mutation: Callable[[dict[str, Any]], None], expected: tuple[str, str]):
