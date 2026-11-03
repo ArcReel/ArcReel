@@ -92,7 +92,6 @@ updates:
           - "pdf-oxide"
           - "mammoth"
           - "docx2txt"
-          - "ebooklib"
           - "beautifulsoup4"
           - "lxml"
           - "charset-normalizer"
