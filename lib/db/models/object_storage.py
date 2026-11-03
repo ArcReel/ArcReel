@@ -96,10 +96,12 @@ class FormalObject(TimestampMixin, Base):
 
 
 class FormalObjectRef(TimestampMixin, Base):
-    """一条对正式素材对象的引用：某项目的一个内容版本使用它，或一次进行中的正式提交占用它。
+    """一条对正式素材对象的引用：某引用方的一个内容版本使用它，或一次进行中的正式提交占用它。
 
+    ``project_name`` 是引用方：项目名（项目整体删除后改挂墓碑名），或不是项目的消费者的带冒号键。
     ``state``：``pending`` 正式提交进行中（``attempt_id`` 是该提交），提交结算时按版本历史转为 ``active``
-    或删除；``active`` 版本历史中的内容版本 ``content_version_id`` 使用该对象。对象只要还有任何引用就不删除。
+    或删除；``active`` 引用方正在使用内容版本 ``content_version_id``（项目里即版本历史中的版本）；``trashed``
+    项目回收站里的删除记录仍可恢复出该内容版本。对象只要还有任何引用就不删除（见 ``docs/adr/0118``）。
     """
 
     __tablename__ = "object_storage_formal_object_ref"

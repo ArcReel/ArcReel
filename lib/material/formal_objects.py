@@ -15,15 +15,22 @@
 - 结算（:meth:`ObjectContentStorage.settle`）以项目的版本历史为准判断引用，不以提交是否抛错为准；
   进程在提交中途退出时，下次启动由 :func:`recover_formal_commits` 补做结算。
 
-后续生命周期（版本删除、回收站、归档、跨项目）改变某个内容版本是否仍使用对象时，调用
-:func:`reconcile_project_references` 按版本历史重算该项目的 ``active`` 引用，或经 :func:`add_reference` 为另一项目的
-内容版本登记引用；它们不直接删除对象。
+**保留契约**（见 ``docs/adr/0118``）：引用记在引用方名下，引用方是项目（项目名；整体删除后改挂墓碑名），
+或不是项目的消费者（带冒号的引用方键）。对象只要还有任何引用就保留，失去全部引用后由
+:func:`collect_unreferenced_objects` 这一处统一转为待删除并删除；各生命周期只维护自己名下的引用：
+
+- 项目：版本历史里的内容版本记 ``active``，项目回收站里仍可恢复的记 ``trashed``，由
+  :func:`reconcile_project_references` 按项目此刻的状态重算；回收站彻底删除、清空、过期后调用
+  :func:`reconcile_and_collect`，已删除项目彻底删除后调用 :func:`release_holder`。维护循环
+  （:func:`retain_formal_objects`）定期对所有项目重算一遍兜底。
+- 跨项目消费者：使用前 :func:`add_reference`，不再使用时 :func:`remove_reference`，整体消失时 :func:`release_holder`。
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator, Callable, Generator, Iterable
@@ -41,7 +48,7 @@ from lib.db.base import utc_now
 from lib.db.models.object_storage import FormalObject, FormalObjectRef, ObjectStorageConnection
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.api_errors import BadGatewayError, ConflictError
-from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async
+from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async, run_sync_transaction
 from lib.material.storage import (
     CONTENT_VERSION_ID,
     STORAGE,
@@ -519,54 +526,175 @@ def _default_project_path(project_name: str) -> Path:
     return get_project_manager().get_project_path(project_name)
 
 
-async def reconcile_project_references(
-    project_name: str,
-    project_path: Path,
-    session_factory: async_sessionmaker[AsyncSession] | None = None,
-) -> None:
-    """按项目此刻的版本历史重算它的 ``active`` 引用：新增缺失的，撤下不再使用的。不删除对象。
+# ---- 保留契约：引用方与统一回收（见 ``docs/adr/0118``） ------------------------------------------
 
-    供改变内容版本使用关系的生命周期操作在完成后调用；对象失去全部引用后是否删除由该操作自己决定。
+#: 引用的状态。``pending`` 进行中的正式提交占用；``active`` 引用方正在使用（项目版本历史里的内容版本，
+#: 或跨项目消费者登记的使用）；``trashed`` 项目回收站里的删除记录仍可恢复出这个内容版本。
+REF_PENDING = "pending"
+REF_ACTIVE = "active"
+REF_TRASHED = "trashed"
+_HELD_STATES = frozenset({REF_ACTIVE, REF_TRASHED})
+
+_VERSIONS_FILE = "versions/versions.json"
+#: 引用方持有的使用：对象定位 (连接 ID, 桶, key) → {(内容版本身份, 引用状态)}。
+type _Uses = dict[tuple[int, str, str], set[tuple[str, str]]]
+
+
+def _add_uses(uses: _Uses, data: object, state: str) -> None:
+    for _resource_type, _resource_id, record in iter_version_records(data):
+        _add_use(uses, record, state)
+
+
+def _add_use(uses: _Uses, record: object, state: str) -> None:
+    if not isinstance(record, dict):
+        return
+    locator = ObjectLocator.from_record(record.get(STORAGE))
+    content_version_id = record.get(CONTENT_VERSION_ID)
+    if locator is not None and isinstance(content_version_id, str):
+        uses.setdefault((locator.connection_id, locator.bucket, locator.key), set()).add((content_version_id, state))
+
+
+def _trash_uses(project_path: Path, uses: _Uses) -> None:
+    """项目回收站里仍可恢复的远端内容版本：删除的历史版本，以及结构删除记录快照里的版本历史。
+
+    结构快照收的是删除前整份版本历史，其中也有删除后仍留在项目里的版本；多算只会让对象多保留到记录清除，
+    不会少算。快照读不出时抛错，调用方放弃这次重算，不据此撤下引用。
     """
-    session_factory = session_factory or _default_session_factory()
-    referenced = await asyncio.to_thread(_referenced_objects, project_path)
+    from lib.project import project_trash
+
+    for record in project_trash.list_records(project_path):
+        if record.download_only:
+            continue
+        if record.object.get("kind") == "version":
+            _add_use(uses, record.object.get("metadata"), REF_TRASHED)
+        if record.has_snapshot:
+            snapshot = (
+                project_trash.trash_dir(project_path) / record.id / project_trash.SNAPSHOT_DIRNAME / _VERSIONS_FILE
+            )
+            if snapshot.is_file():
+                _add_uses(uses, json.loads(snapshot.read_text(encoding="utf-8")), REF_TRASHED)
+
+
+async def _replace_holder_uses(
+    session_factory: async_sessionmaker[AsyncSession], holder: str, uses: _Uses, states: frozenset[str]
+) -> set[int]:
+    """把引用方 ``holder`` 在 ``states`` 里的引用改成恰好是 ``uses``，返回被撤下引用的对象 ID。不删除对象。
+
+    ``uses`` 里没有登记的对象（例如另一个实例保存的）不建引用。
+    """
     async with session_factory() as session:
-        objects = {
-            (row.connection_id, row.bucket, row.object_key): row.id
-            for row in (await session.execute(select(FormalObject))).scalars()
-        }
+        rows = (
+            await session.execute(
+                select(FormalObject.id, FormalObject.connection_id, FormalObject.bucket, FormalObject.object_key)
+            )
+        ).all()
+        objects = {(cid, bucket, key): object_id for object_id, cid, bucket, key in rows}
         wanted = {
-            (objects[locator], content_version_id)
-            for locator, versions in referenced.items()
+            (objects[locator], content_version_id, state)
+            for locator, items in uses.items()
             if locator in objects
-            for content_version_id in versions
+            for content_version_id, state in items
+            if state in states
         }
         existing = list(
             (
                 await session.execute(
                     select(FormalObjectRef).where(
-                        FormalObjectRef.project_name == project_name, FormalObjectRef.state == "active"
+                        FormalObjectRef.project_name == holder, FormalObjectRef.state.in_(states)
                     )
                 )
             ).scalars()
         )
-        have = set()
+        have: set[tuple[int, str | None, str]] = set()
+        released: set[int] = set()
         for ref in existing:
-            identity = (ref.object_id, ref.content_version_id)
+            identity = (ref.object_id, ref.content_version_id, ref.state)
             if identity in wanted and identity not in have:
                 have.add(identity)
             else:
+                released.add(ref.object_id)
                 await session.delete(ref)
-        for object_id, content_version_id in wanted - have:
+        for object_id, content_version_id, state in wanted - have:
             session.add(
                 FormalObjectRef(
-                    object_id=object_id,
-                    project_name=project_name,
-                    content_version_id=content_version_id,
-                    state="active",
+                    object_id=object_id, project_name=holder, content_version_id=content_version_id, state=state
                 )
             )
         await session.commit()
+        return released
+
+
+async def reconcile_project_references(
+    project_name: str,
+    project_path: Path,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+) -> set[int]:
+    """按项目此刻的版本历史与项目回收站重算它持有的引用，返回被撤下引用的对象 ID。不删除对象。
+
+    版本历史里的远端内容版本记为 ``active``，回收站里仍可恢复的记为 ``trashed``。读取与改写引用都在项目锁与
+    版本锁内进行，与删除、恢复、正式提交互不交错：不会在内容版本从版本历史搬进回收站的途中撤下它的引用。
+    项目目录不在时抛错，不撤下任何引用。失去全部引用的对象经 :func:`collect_unreferenced_objects` 回收，
+    或直接调用 :func:`reconcile_and_collect`。
+    """
+    from lib.artifacts.formal_write import project_metadata_lock
+    from lib.artifacts.version_manager import VersionManager
+
+    session_factory = session_factory or _default_session_factory()
+    bridge = EventLoopBridge.capture()
+    project_path = Path(project_path)
+
+    def _locked() -> set[int]:
+        if not (project_path / "project.json").is_file():
+            raise FileNotFoundError(project_path)
+        with project_metadata_lock(project_path), VersionManager(project_path).locked_history() as data:
+            uses: _Uses = {}
+            _add_uses(uses, data, REF_ACTIVE)
+            _trash_uses(project_path, uses)
+            return bridge.run(_replace_holder_uses(session_factory, project_name, uses, _HELD_STATES))
+
+    return await run_sync_transaction(_locked)
+
+
+async def collect_unreferenced_objects(
+    object_ids: Iterable[int], session_factory: async_sessionmaker[AsyncSession] | None = None
+) -> int:
+    """统一回收规则：``object_ids`` 中已没有任何引用的已保存对象转为待删除并立即尝试删除，返回删除的数量。
+
+    仍有任何引用（含进行中提交的占用）的对象保留；删除失败记下原因，由 :func:`sweep_formal_objects` 退避重试；
+    连接已换桶时记 ``connection_changed``、不删除。上传未确认的对象归它的正式提交补偿，这里不碰。
+    """
+    session_factory = session_factory or _default_session_factory()
+    deleted = 0
+    for object_id in sorted(set(object_ids)):
+        async with session_factory() as session:
+            row = await session.get(FormalObject, object_id)
+            if row is None:
+                continue
+            key = row.object_key
+        async with _key_lock(key), session_factory() as session:
+            row = await session.get(FormalObject, object_id)
+            if row is None or row.state != "stored" or await _ref_count(session, object_id):
+                continue
+            row.state = "orphaned"
+            row.next_attempt_at = utc_now()
+            await session.commit()
+            current = await ObjectStorageConnectionRepository(session).get()
+            deleted += await _delete_orphan(session, row, current, None)
+            await session.commit()
+    return deleted
+
+
+async def reconcile_and_collect(
+    project_name: str,
+    project_path: Path,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+) -> int:
+    """重算项目持有的引用（:func:`reconcile_project_references`），再回收因此失去全部引用的对象；返回删除的数量。
+
+    项目回收站彻底删除、清空或过期清理之后调用。
+    """
+    released = await reconcile_project_references(project_name, project_path, session_factory)
+    return await collect_unreferenced_objects(released, session_factory)
 
 
 async def add_reference(
@@ -575,9 +703,11 @@ async def add_reference(
     content_version_id: str,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> bool:
-    """为某项目的内容版本登记它使用 ``locator`` 指向的对象，返回对象是否已登记且未删除。
+    """为引用方 ``project_name`` 的内容版本登记它使用 ``locator`` 指向的对象，返回对象是否已登记且未删除。
 
-    供跨项目复用同一对象的操作在写入目标版本记录前调用：对象有了引用才不会被补偿删除。
+    供跨项目复用同一对象的操作在写入目标版本记录前调用：对象有了引用才不会被补偿删除或回收。
+    引用方是项目时传项目名；不是项目的消费者（如全局资产库）用带冒号的引用方键（如 ``asset-library:<id>``），
+    它不会与项目名或已删除项目的墓碑名重名，项目的重算也不会碰它。
     """
     session_factory = session_factory or _default_session_factory()
     async with _key_lock(locator.key), session_factory() as session:
@@ -589,6 +719,91 @@ async def add_reference(
         await _ensure_active_ref(session, row.id, project_name, content_version_id)
         await session.commit()
         return True
+
+
+async def remove_reference(
+    locator: ObjectLocator,
+    holder: str,
+    content_version_id: str,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+) -> int:
+    """撤下引用方 ``holder`` 的内容版本对 ``locator`` 的 ``active`` 引用，并回收因此失去全部引用的对象；返回删除的数量。"""
+    session_factory = session_factory or _default_session_factory()
+    async with session_factory() as session:
+        row = await _object_row(session, locator.connection_id, locator.bucket, locator.key)
+        if row is None:
+            return 0
+        refs = (
+            await session.execute(
+                select(FormalObjectRef).where(
+                    FormalObjectRef.object_id == row.id,
+                    FormalObjectRef.project_name == holder,
+                    FormalObjectRef.content_version_id == content_version_id,
+                    FormalObjectRef.state == REF_ACTIVE,
+                )
+            )
+        ).scalars()
+        for ref in refs:
+            await session.delete(ref)
+        await session.commit()
+        object_id = row.id
+    return await collect_unreferenced_objects([object_id], session_factory)
+
+
+async def release_holder(holder: str, session_factory: async_sessionmaker[AsyncSession] | None = None) -> int:
+    """引用方 ``holder`` 不复存在（如已删除项目被彻底删除）：撤下它的全部引用并回收失去全部引用的对象；返回删除的数量。
+
+    进行中提交的占用不撤，由该提交结算。
+    """
+    session_factory = session_factory or _default_session_factory()
+    released = await _replace_holder_uses(session_factory, holder, {}, _HELD_STATES)
+    return await collect_unreferenced_objects(released, session_factory)
+
+
+#: 已删除项目超过保留期这么久、目录也已不在时，维护循环撤下仍挂在墓碑名下的引用（彻底删除后的显式撤下失败时兜底）。
+_TOMBSTONE_GRACE = timedelta(days=1)
+
+
+async def retain_formal_objects(
+    projects_dir: Path,
+    deleted_projects_dir: Path | None = None,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """维护循环的保留校正：逐个项目重算引用并回收，再撤下早已彻底删除的已删除项目的引用；返回删除的数量。
+
+    单个项目失败只记日志，不影响其余项目。
+    """
+    from lib.db.repositories.project_records import parse_deleted_project_name
+    from lib.infra.data_root_layout import list_project_dirs
+    from lib.project.project_trash import RETENTION
+
+    session_factory = session_factory or _default_session_factory()
+    deleted = 0
+    for project_dir in await asyncio.to_thread(list_project_dirs, Path(projects_dir)):
+        try:
+            deleted += await reconcile_and_collect(project_dir.name, project_dir, session_factory)
+        except Exception:
+            logger.warning("重算项目的正式对象引用失败 project=%s", project_dir.name, exc_info=True)
+    if deleted_projects_dir is None:
+        return deleted
+    cutoff = (now or utc_now()) - RETENTION - _TOMBSTONE_GRACE
+    async with session_factory() as session:
+        holders = (
+            await session.execute(
+                select(FormalObjectRef.project_name).where(FormalObjectRef.state.in_(_HELD_STATES)).distinct()
+            )
+        ).scalars()
+        expired = [
+            holder
+            for holder in holders
+            if (parsed := parse_deleted_project_name(holder)) is not None and parsed[1] <= cutoff
+        ]
+    for holder in expired:
+        if not await asyncio.to_thread((Path(deleted_projects_dir) / holder).exists):
+            deleted += await release_holder(holder, session_factory)
+    return deleted
 
 
 async def live_object_count(session: AsyncSession, connection_id: int) -> int:
@@ -689,19 +904,27 @@ __all__ = [
     "FORMAL_PREFIX",
     "LIVE_OBJECT_STATES",
     "MATERIAL_STORAGE_TARGET_SETTING",
+    "REF_ACTIVE",
+    "REF_PENDING",
+    "REF_TRASHED",
     "NewContentTarget",
     "ObjectContentStorage",
     "ObjectStorageRequiredError",
     "RemoteSaveFailedError",
     "add_reference",
+    "collect_unreferenced_objects",
     "formal_commit",
     "formal_commit_on",
     "formal_object_key",
     "iter_version_records",
     "live_object_count",
     "new_content_target",
+    "reconcile_and_collect",
     "reconcile_project_references",
     "recover_formal_commits",
+    "release_holder",
+    "remove_reference",
+    "retain_formal_objects",
     "same_connection",
     "stored_object_keys",
     "stores_remotely",

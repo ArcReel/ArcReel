@@ -8,6 +8,7 @@ import logging
 
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
+from lib.material.formal_objects import reconcile_and_collect, release_holder
 from lib.project import deleted_projects, project_trash
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,11 @@ async def _sweep_loop(layout: DataRootLayout) -> None:
         # 按项目各成一个事务：关停时只等正在清理的那个项目；单个项目失败不影响其余项目。
         for project_dir in project_dirs:
             try:
-                purged += await run_sync_transaction(project_trash.purge_expired, project_dir)
+                count = await run_sync_transaction(project_trash.purge_expired, project_dir)
+                purged += count
+                if count:
+                    # 清除的记录不再持有正式对象；失败时维护循环会再重算一次
+                    await reconcile_and_collect(project_dir.name, project_dir)
             except Exception:
                 logger.warning("清理项目回收站过期记录失败 project=%s", project_dir.name, exc_info=True)
         if purged:
@@ -38,8 +43,18 @@ async def _sweep_loop(layout: DataRootLayout) -> None:
             logger.warning("清理过期的已删除项目失败，等下一轮", exc_info=True)
         else:
             if purged_projects:
-                logger.info("清除过期的已删除项目 %d 个", purged_projects)
+                logger.info("清除过期的已删除项目 %d 个", len(purged_projects))
+            for tombstone in purged_projects:
+                await _release_deleted_project(tombstone)
         await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
+
+
+async def _release_deleted_project(tombstone: str) -> None:
+    """彻底删除的已删除项目不再持有正式对象；失败时维护循环在保留期过后兜底撤下。"""
+    try:
+        await release_holder(tombstone)
+    except Exception:
+        logger.warning("撤下已删除项目的正式对象引用失败 deleted=%s", tombstone, exc_info=True)
 
 
 def start_trash_expiry(layout: DataRootLayout) -> asyncio.Task[None]:

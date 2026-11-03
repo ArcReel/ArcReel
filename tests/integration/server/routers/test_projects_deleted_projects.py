@@ -217,5 +217,5 @@ def test_deleted_projects_expire_after_the_retention_period(tmp_path):
     deleted_projects.move_in(layout, manager.get_project_path("fresh"), "fresh#deleted-20261020T000000Z")
 
     now = datetime(2026, 11, 1, tzinfo=UTC)
-    assert deleted_projects.purge_expired(layout, now=now) == 1
+    assert deleted_projects.purge_expired(layout, now=now) == ["old#deleted-20261001T000000Z"]
     assert [entry.name for entry in deleted_projects.list_entries(layout)] == ["fresh"]
