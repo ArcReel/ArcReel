@@ -258,10 +258,10 @@ class TestCustomProviderBucketFiltering:
             # openai-video 系统判定 max_reference_images=1、first_frame=True
             await _seed_custom_models(
                 factory,
-                [{"model_id": "sora-2", "display_name": "Sora 2", "endpoint": "openai-video", "is_enabled": True}],
+                [{"model_id": "relay-sora", "display_name": "Sora 2", "endpoint": "openai-video", "is_enabled": True}],
             )
             body = client.get(CANDIDATES_URL).json()
-        option = _custom_option(body, "sora-2")
+        option = _custom_option(body, "relay-sora")
         assert option in body["video"]["buckets"]["r2v"]
         assert option in body["video"]["buckets"]["i2v"]
         assert option in body["video"]["default"]
@@ -273,7 +273,7 @@ class TestCustomProviderBucketFiltering:
                 factory,
                 [
                     {
-                        "model_id": "sora-2",
+                        "model_id": "relay-sora",
                         "display_name": "Sora 2",
                         "endpoint": "openai-video",
                         "is_enabled": True,
@@ -282,7 +282,7 @@ class TestCustomProviderBucketFiltering:
                 ],
             )
             body = client.get(CANDIDATES_URL).json()
-        option = _custom_option(body, "sora-2")
+        option = _custom_option(body, "relay-sora")
         assert option not in body["video"]["buckets"]["r2v"]
         # 覆盖只动了参考图维度，i2v 与默认层不受影响
         assert option in body["video"]["buckets"]["i2v"]
@@ -334,12 +334,56 @@ class TestCustomProviderBucketFiltering:
         assert {bucket for bucket in ("t2i", "i2i") if option in body["image"]["buckets"][bucket]} == buckets
         assert option in body["image"]["default"]
 
+    async def test_custom_model_leaves_every_candidate_list_once_its_entry_is_discontinued(
+        self, make_client, session_factory_and_engine, monkeypatch
+    ):
+        """自定义模型所绑定的条目跨过关停日期：默认层与各任务类型桶都不再列出它，同供应商其余模型不受影响。"""
+        factory, _engine = session_factory_and_engine
+        model_id = DS_R2V.split("/", 1)[1]
+        install_catalog(
+            monkeypatch,
+            with_entry_changes(factory_snapshot(), "dashscope", model_id, shutdown_date=date(2026, 11, 24)),
+        )
+        entry = catalog.provider_model_entry("dashscope", model_id, "video")
+        assert entry is not None
+        set_catalog_today(monkeypatch, date(2026, 11, 23))
+        with make_client([]) as client:
+            await _seed_custom_models(
+                factory,
+                [
+                    {
+                        "model_id": "relay-wan",
+                        "display_name": "Relay Wan",
+                        "endpoint": "openai-video",
+                        "is_enabled": True,
+                        "is_default": True,
+                        "entry_binding": entry.key.ref,
+                    },
+                    {
+                        "model_id": "relay-video",
+                        "display_name": "Relay",
+                        "endpoint": "openai-video",
+                        "is_enabled": True,
+                    },
+                ],
+            )
+            before = client.get(CANDIDATES_URL).json()
+            set_catalog_today(monkeypatch, date(2026, 11, 24))
+            after = client.get(CANDIDATES_URL).json()
+        retired, live = _custom_option(before, "relay-wan"), _custom_option(before, "relay-video")
+        assert retired in before["video"]["default"]
+        assert retired in before["video"]["buckets"]["i2v"]
+        assert retired not in after["video"]["default"]
+        assert all(retired not in options for options in after["video"]["buckets"].values())
+        assert live in after["video"]["default"]
+        assert live in after["video"]["buckets"]["i2v"]
+
     async def test_disabled_custom_models_absent(self, make_client, session_factory_and_engine):
         factory, _engine = session_factory_and_engine
         with make_client([]) as client:
             await _seed_custom_models(
                 factory,
-                [{"model_id": "sora-2", "display_name": "Sora 2", "endpoint": "openai-video", "is_enabled": False}],
+                [{"model_id": "relay-sora", "display_name": "Sora 2", "endpoint": "openai-video", "is_enabled": False}],
             )
             body = client.get(CANDIDATES_URL).json()
         assert body["video"]["default"] == []
@@ -383,10 +427,17 @@ class TestCatalogDisplayNames:
         with make_client([]) as client:
             await _seed_custom_models(
                 factory,
-                [{"model_id": "sora-2", "display_name": "我的 Sora", "endpoint": "openai-video", "is_enabled": True}],
+                [
+                    {
+                        "model_id": "relay-sora",
+                        "display_name": "我的 Sora",
+                        "endpoint": "openai-video",
+                        "is_enabled": True,
+                    }
+                ],
             )
             body = client.get(CANDIDATES_URL, headers={"Accept-Language": "en"}).json()
-        assert body["model_names"][_custom_option(body, "sora-2")] == "我的 Sora"
+        assert body["model_names"][_custom_option(body, "relay-sora")] == "我的 Sora"
 
     def test_unconfigured_provider_absent_from_names(self, make_client):
         with make_client(["ark"]) as client:

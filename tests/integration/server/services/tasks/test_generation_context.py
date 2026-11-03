@@ -150,6 +150,25 @@ async def _seed_custom_video_provider(patched_session_factory) -> str:
         return make_provider_id(provider.id)
 
 
+SEEDREAM_LITE = "doubao-seedream-5-0-lite-260128"
+
+
+async def _seed_custom_image_provider(patched_session_factory, models: list[dict]) -> str:
+    """种一个自定义供应商，模型行均已启用；按名字对应条目。"""
+    async with patched_session_factory() as session:
+        provider = CustomProvider(
+            display_name="Relay", discovery_format="openai", base_url="https://relay.test/v1", api_key="k"
+        )
+        session.add(provider)
+        await session.flush()
+        for model in models:
+            session.add(
+                CustomProviderModel(provider_id=provider.id, display_name=model["model_id"], is_enabled=True, **model)
+            )
+        await session.commit()
+        return make_provider_id(provider.id)
+
+
 class TestLaneDeclaration:
     async def test_only_declared_lanes_are_constructed(self, patched_session_factory, project_env, fake_assemble):
         """只声明 image lane：不解析、不构造 video/audio，视频供应商缺配置不影响图片任务。"""
@@ -608,12 +627,73 @@ class TestBackendCache:
         assert excinfo.value.code == "provider_unsupported_media"
         assert built == [default], "跨过关停日期后不再构造，也不取缓存"
 
-    async def test_image_buckets_do_not_share_a_cache_entry(self, monkeypatch):
+    async def test_cached_custom_backend_is_not_reused_once_its_entry_is_discontinued(
+        self, patched_session_factory, monkeypatch
+    ):
+        """自定义供应商同样在查缓存前检查：跨过关停日期后，显式引用报下线，默认模型也不再沿用缓存里的实例。"""
+        install_catalog(
+            monkeypatch,
+            with_entry_changes(
+                factory_snapshot(),
+                "ark",
+                SEEDREAM_LITE,
+                shutdown_date=date(2026, 11, 24),
+                successor="bytedance/doubao-seedream-5-0-pro",
+            ),
+        )
+        provider_id = await _seed_custom_image_provider(
+            patched_session_factory,
+            [
+                {"model_id": SEEDREAM_LITE, "endpoint": "openai-images", "is_default": True},
+                {"model_id": "relay-image", "endpoint": "openai-images"},
+            ],
+        )
+        built: list[str | None] = []
+
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+            built.append(model_id)
+            return _FakeBackend(name=provider_id, model=model_id or SEEDREAM_LITE)
+
+        use_backend_assembler(monkeypatch, _assemble)
+        resolver = ConfigResolver(patched_session_factory)
+
+        set_catalog_today(monkeypatch, date(2026, 11, 23))
+        explicit = await generation_context._get_or_create_image_backend(
+            provider_id, {"model": SEEDREAM_LITE}, resolver, generation_type="t2i"
+        )
+        implicit = await generation_context._get_or_create_image_backend(
+            provider_id, {}, resolver, generation_type="t2i"
+        )
+        assert (explicit.model, implicit.model, built) == (SEEDREAM_LITE, SEEDREAM_LITE, [SEEDREAM_LITE, None])
+
+        set_catalog_today(monkeypatch, date(2026, 11, 24))
+        with pytest.raises(ModelDiscontinuedError) as excinfo:
+            await generation_context._get_or_create_image_backend(
+                provider_id, {"model": SEEDREAM_LITE}, resolver, generation_type="t2i"
+            )
+        assert excinfo.value.params["successor"] == "bytedance/doubao-seedream-5-0-pro"
+        with pytest.raises(ValueError, match="没有默认 t2i image 模型"):
+            await generation_context._get_or_create_image_backend(provider_id, {}, resolver, generation_type="t2i")
+        live = await generation_context._get_or_create_image_backend(
+            provider_id, {"model": "relay-image"}, resolver, generation_type="t2i"
+        )
+        assert live.model == "relay-image"
+        assert built == [SEEDREAM_LITE, None, "relay-image"], "已下线的引用不再构造，也不取缓存"
+
+    async def test_image_buckets_do_not_share_a_cache_entry(self, patched_session_factory, monkeypatch):
         """同 (media_type, provider, model) 的 t2i 与 i2i 各自构造：桶参与构造，须各占一条缓存。
 
         自定义供应商回退默认模型时 model_id 为空，两个桶装载出的是两个不同模型的 backend；共用
         一条缓存会让先跑的那个桶把另一个桶的 backend 挤掉。
         """
+        provider_id = await _seed_custom_image_provider(
+            patched_session_factory,
+            [
+                # openai-images-generations 只声明 t2i，openai-images-edits 只声明 i2i
+                {"model_id": "t2i-m", "endpoint": "openai-images-generations", "is_default": True},
+                {"model_id": "i2i-m", "endpoint": "openai-images-edits", "is_default": True},
+            ],
+        )
         seen: list[str | None] = []
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
@@ -621,12 +701,12 @@ class TestBackendCache:
             return _FakeBackend(name=provider_id, model=f"{generation_type}-model")
 
         use_backend_assembler(monkeypatch, _assemble)
-        resolver = cast(ConfigResolver, None)
+        resolver = ConfigResolver(patched_session_factory)
 
-        t2i = await generation_context._get_or_create_image_backend("custom-1", {}, resolver, generation_type="t2i")
-        i2i = await generation_context._get_or_create_image_backend("custom-1", {}, resolver, generation_type="i2i")
+        t2i = await generation_context._get_or_create_image_backend(provider_id, {}, resolver, generation_type="t2i")
+        i2i = await generation_context._get_or_create_image_backend(provider_id, {}, resolver, generation_type="i2i")
         t2i_again = await generation_context._get_or_create_image_backend(
-            "custom-1", {}, resolver, generation_type="t2i"
+            provider_id, {}, resolver, generation_type="t2i"
         )
 
         assert seen == ["t2i", "i2i"], "换桶须重新构造，同桶重复请求须命中缓存"

@@ -171,7 +171,8 @@ async def _enumerate_candidates(
     """列出所有可选模型（内置 ready 供应商与自定义供应商下已启用的供应商模型），并附任务类型桶归属。
 
     候选只来自已启用、未下线的供应商模型，默认层与任务类型桶层同受此约束（能力过滤只加在桶层）。内置供应商的这两项
-    取自供应商状态的 ``disabled_models``（见 :func:`lib.catalog.builtin_models.disabled_builtin_models`）。
+    取自供应商状态的 ``disabled_models``（见 :func:`lib.catalog.builtin_models.disabled_builtin_models`）；自定义供应商
+    看模型行的启用状态与所对应条目的生命周期（:func:`lib.custom_provider.default_models.model_lifecycle`）。
 
     供应商名与模型名走 ``translate_or``，与 ``/providers`` 目录同一条路径：有译名表的按请求
     语言成文，没有的（纯品牌名、自定义供应商用户自填的名字）原样返回 registry / DB 里的原名。
@@ -199,6 +200,7 @@ async def _enumerate_candidates(
             )
 
     from lib.custom_provider import make_provider_id
+    from lib.custom_provider.default_models import model_lifecycle
     from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
     from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
     from lib.db.repositories.custom_provider_repo import CustomProviderRepository
@@ -211,6 +213,8 @@ async def _enumerate_candidates(
         endpoint_repo = CustomEndpointRepository(session)
         for model in enabled_models:
             endpoint_spec = await resolve_endpoint_spec(model.endpoint, endpoint_repo.get)
+            if model_lifecycle(model, endpoint_spec.media_type).discontinued:
+                continue
             pid = make_provider_id(model.provider_id)
             candidates.append(
                 _ModelCandidate(

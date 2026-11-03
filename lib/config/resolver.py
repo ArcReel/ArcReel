@@ -1321,7 +1321,7 @@ class ConfigResolver:
         判的是身份存在性而非能力声明：内置模型看模型目录，已下线时抛 ``ModelDiscontinuedError``（带下线日期与后继），
         不在该供应商的视频模型清单里（已改名，或所引模型不是视频模型）时抛 ``ModelNotInCatalogError``，与装配层、
         图片路径同一个「请重新选择模型」（``catalog.require_callable``）；自定义模型看 DB（供应商被删、模型被删或禁用、endpoint 改成其它媒体类型），
-        悬空抛 ``VideoBucketCapabilityError``。自定义模型命中时返回该行，供调用方就地合成能力、不重复
+        悬空抛 ``VideoBucketCapabilityError``，所对应的条目已下线同样抛 ``ModelDiscontinuedError``。自定义模型命中时返回该行，供调用方就地合成能力、不重复
         查库；内置返回 None。
 
         backend caps 函数不都校验 model 存在性、也不都校验 media_type（部分 provider 对任意 model id
@@ -1334,21 +1334,16 @@ class ConfigResolver:
 
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
         # 该符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
-        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
-        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+        from lib.custom_provider.default_models import requested_model
 
         try:
             db_pid = parse_provider_id(provider_id)
         except ValueError as exc:
             raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
-        model = await CustomProviderRepository(session).get_model_by_ids(db_pid, model_id)
-        if model is None or not model.is_enabled:
-            raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id)
-        try:
-            endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-        except ValueError as exc:
-            raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
-        if endpoint_spec.media_type != "video":
+        model = await requested_model(
+            session, provider_id=provider_id, db_id=db_pid, model_id=model_id, media_type="video"
+        )
+        if model is None:
             raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id)
         return model
 
@@ -1409,8 +1404,9 @@ class ConfigResolver:
     ) -> ProviderModel:
         """把选择身份收敛为 backend 构造时会实际使用的视频身份。
 
-        内置供应商的 registry 身份已是有效身份；自定义供应商需与 loader 共用同一规则：
-        model 不存在、禁用或 endpoint 已改成其它 media_type 时，回退到默认启用 video model。
+        内置供应商的 registry 身份已是有效身份；自定义供应商需与 loader 共用同一规则
+        （``lib.custom_provider.default_models.requested_model``）：model 不存在、禁用或 endpoint 已改成其它
+        media_type 时，回退到默认启用 video model；所对应的条目已下线时抛 ``ModelDiscontinuedError``，不回退。
 
         已物化的身份不走这条收敛（见 ``_resolve_video_provider_model``）：换 model 执行等于
         静默换模型。
@@ -1421,30 +1417,23 @@ class ConfigResolver:
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
         # 而该符号所在的装配层反过来依赖 lib.config，模块级导入会成环；内置分支不用它，
         # 也就不必为此拉起整个装配层。
-        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
-        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+        from lib.custom_provider.default_models import requested_model, resolve_default_model
 
         try:
             db_pid = parse_provider_id(selected.provider_id)
         except ValueError as exc:
             raise ValueError(f"invalid custom provider_id: {selected.provider_id}") from exc
-        repo = CustomProviderRepository(session)
-        model = await repo.get_model_by_ids(db_pid, selected.model_id)
-        if model is not None and model.is_enabled:
-            try:
-                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-            except ValueError:
-                endpoint_spec = None
-            if endpoint_spec is not None and endpoint_spec.media_type == "video":
-                return selected
+        model = await requested_model(
+            session, provider_id=selected.provider_id, db_id=db_pid, model_id=selected.model_id, media_type="video"
+        )
+        if model is not None:
+            return selected
 
         logger.warning(
             "自定义模型 %s/%s 已不存在 / 已禁用 / 媒体类型不符（期望 video），身份解析回退到默认模型",
             selected.provider_id,
             selected.model_id,
         )
-        from lib.custom_provider.default_models import resolve_default_model
-
         try:
             default_model = await resolve_default_model(
                 session, provider_id=selected.provider_id, db_id=db_pid, media_type="video"
@@ -1863,12 +1852,13 @@ class ConfigResolver:
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
         # 这些符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
         from lib.custom_provider import make_provider_id
-        from lib.custom_provider.default_models import filter_by_bucket
+        from lib.custom_provider.default_models import callable_models, filter_by_bucket
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
         repo = CustomProviderRepository(session)
         custom_models = await repo.list_enabled_models_by_media_type(media_type)
-        defaults = [model for model in custom_models if model.is_default]
+        # 自定义供应商的默认模型同样跳过所对应条目已下线的
+        defaults = callable_models([model for model in custom_models if model.is_default], media_type)
         candidates = await filter_by_bucket(session, defaults, generation_type)
         if candidates:
             return make_provider_id(candidates[0].provider_id), candidates[0].model_id

@@ -155,9 +155,10 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
         ("ark-seedance", "doubao-seedance-2-0", 9, "storyboard"),
         ("ark-seedance", "doubao-seedance-1-0", 0, "storyboard"),  # 非 seedance-2 → 0，证明纯函数仍按 model 分支
         ("vidu-video", "viduq3-turbo", 7, "storyboard"),
-        # MiniMax 声明式端点：S2V-01 单脸参考 → 1；海螺系列走首帧无参考 → 0。S2V-01 无首帧能力，
-        # 只能落 r2v 桶，项目须是参考生视频才解析得到它
-        ("minimax-s2v-01", "S2V-01", 1, "reference_video"),
+        # MiniMax 声明式端点：S2V-01 端点单脸参考 → 1；海螺系列走首帧无参考 → 0。S2V-01 端点无首帧能力，
+        # 只能落 r2v 桶，项目须是参考生视频才解析得到它。参考上限由端点声明；模型名不取 S2V-01，
+        # 它在目录里已下线，解析会报下线
+        ("minimax-s2v-01", "relay-s2v", 1, "reference_video"),
         ("minimax-hailuo-v1", "MiniMax-Hailuo-2.3", 0, "storyboard"),
     ],
 )

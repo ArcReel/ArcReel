@@ -24,11 +24,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from lib.backends.audio_backends.base import AudioCapability, VoiceOption
-from lib.backends.backend_assembly import assemble_backend
+from lib.backends.backend_assembly import assemble_backend, callable_model_key
 from lib.backends.gemini_shared import get_shared_rate_limiter
-from lib.catalog import query as catalog
-from lib.catalog.errors import ModelNotInCatalogError
-from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import (
     ConfigResolver,
     VideoGenerationType,
@@ -125,17 +122,16 @@ async def _get_or_create_backend(
 ) -> Any:
     """组 key + 提供 factory closure，缓存纪律统一委托 :class:`_BackendCache`。
 
-    内置供应商在查缓存之前先定下这次调用的模型并检查生命周期：缓存的实例可能构造于关停日期之前，
-    跨过关停日期后不能再经缓存调用已下线的模型，也不能沿用已下线的默认模型。没给模型时取目录现在的默认模型，
-    目录没有可用默认模型时报错（与 ``assemble_backend`` 同一口径）。
+    查缓存之前先定下这次调用的模型并按今天的生命周期检查（``callable_model_key``，内置与自定义供应商都查）：
+    缓存的实例可能构造于关停日期之前，跨过关停日期后不能再经缓存调用已下线的模型，也不能沿用已下线的默认模型。
     """
-    effective_model = provider_settings.get("model") or default_model or None
-    if provider_name in PROVIDER_REGISTRY:
-        if effective_model is None:
-            effective_model = catalog.default_model(provider_name, media_type)
-            if effective_model is None:
-                raise ModelNotInCatalogError(provider_id=provider_name, model_id="", media_type=media_type)
-        catalog.reject_discontinued(provider_name, effective_model, media_type)
+    effective_model = await callable_model_key(
+        provider_id=provider_name,
+        media_type=media_type,
+        model_id=provider_settings.get("model") or default_model or None,
+        resolver=resolver,
+        generation_type=generation_type,
+    )
 
     async def _factory() -> Any:
         return await assemble_backend(
