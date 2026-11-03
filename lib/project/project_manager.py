@@ -283,7 +283,7 @@ class ProjectOverview(BaseModel):
     # language 是 LLM 输出存档字段；唯一真相源是顶层 project["source_language"]，
     # 由 generate_overview 在落盘时同步写入。所有度量/切分调用方一律读顶层字段，
     # 不要直接读 overview.language。
-    language: Literal["zh", "en", "vi"] = Field(description="小说源语言代码")
+    language: Literal["zh", "en", "vi", "ru"] = Field(description="小说源语言代码")
 
 
 def _rename_agnostic_errors(

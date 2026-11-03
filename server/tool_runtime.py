@@ -2495,7 +2495,7 @@ PROJECT_SETTINGS = (
 PROJECT_OVERVIEW_FIELDS = ("synopsis", "genre", "theme", "world_setting")
 EPISODE_META_FIELDS = ("title",)
 
-_SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi")
+_SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi", "ru")
 _POSITIVE_INT_SETTINGS = (EPISODE_TARGET_UNITS_FIELD,)
 
 
