@@ -538,21 +538,26 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
 
     @staticmethod
     def metered_usage(
-        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         分辨率取实际下发的档位（未指定时下发 720P）；结算的输出秒数取 ``usage.duration``。音轨开关只对 wan3.0
-        下发，其余型号恒有声。参考图张数按执行闸门那份能力（缺省时型号档案）的上限截断后计。
+        下发，其余型号恒有声。参考图张数按执行闸门那份能力（缺省时型号档案）的上限截断后计。型号按模型对应的
+        条目认定（``entry``），与请求构造同一个。
         """
-        caps = request.video_capabilities or DashScopeVideoBackend.video_capabilities_for_model(model)
+        caps = request.video_capabilities or DashScopeVideoBackend.video_capabilities_for_model(model, entry)
         provided = [r for r in (request.reference_images or []) if r] if caps.max_reference_images > 0 else []
         return video_usage(
             request,
             result,
             seconds=request.duration_seconds,
             resolution=_sent_resolution(request),
-            audio=request.generate_audio if _is_wan3(model) else True,
+            audio=request.generate_audio if _is_wan3(model, entry) else True,
             reference_images=min(len(provided), caps.max_reference_images),
         )
 

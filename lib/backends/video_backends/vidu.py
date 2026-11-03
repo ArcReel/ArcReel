@@ -390,14 +390,19 @@ class ViduVideoBackend(EntryBoundCapabilities):
 
     @staticmethod
     def metered_usage(
-        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         时长与参考图张数取 ``_build_request`` 校正后的发送值，分辨率取请求原值；参考生视频按端点判定，Vidu 的
-        参考生视频与图生、文生视频单价不同。是否有声只对 q3 系列成立（只有它们发送 ``audio``）。
+        参考生视频与图生、文生视频单价不同。是否有声只对 q3 系列成立（只有它们发送 ``audio``）。型号按模型对应的
+        条目认定（``entry``），与请求构造同一个。
         """
-        known = _known_model(model)
+        known = _known_model(model, entry)
         endpoint = _endpoint_for(request)
         seconds = _coerce_duration(known or model, endpoint, request.duration_seconds)
         return video_usage(

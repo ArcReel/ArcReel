@@ -30,6 +30,7 @@ from lib.backends.image_backends.base import (
 )
 from lib.backends.provider_assets import InferenceCredentialRef, inference_credential, provider_asset_roles
 from lib.backends.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
+from lib.backends.video_backends.name_family import catalog_entry_of
 from lib.billing.metering import Usage
 from lib.custom_provider.metering import custom_video_usage, with_image_counts
 from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, endpoint_guard, replaying_base_url
@@ -312,14 +313,25 @@ class CustomVideoBackend:
             request = replace(request, execution_endpoint=self._endpoint)
         return await self._delegate.generate(request)
 
+    @property
+    def catalog_entry(self) -> CatalogEntry | None:
+        """被包装协议 backend 认定模型所按的条目（工厂经 :meth:`with_catalog_entry` 交给它）；没有交时为 ``None``。"""
+        return catalog_entry_of(self._delegate)
+
     def metered_usage(
-        self, model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        self,
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
         """这次请求的计量：被包装的调用通道有声明时取它，认不得这个模型或没有声明时按通用口径上报。
 
-        见 :mod:`lib.custom_provider.metering`；结算经 ``backend_metered_usage`` 调用。
+        ``entry`` 是模型对应的条目，结算经 ``backend_metered_usage`` 调用时取 :attr:`catalog_entry`，被包装的调用通道
+        按它认定模型。见 :mod:`lib.custom_provider.metering`。
         """
-        return custom_video_usage(getattr(self._delegate, "metered_usage", None), model, request, result)
+        return custom_video_usage(getattr(self._delegate, "metered_usage", None), model, request, result, entry=entry)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         # 透传到下游 backend；下游不支持 resume 时抛 NotImplementedError，
