@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 from catalog_factories import catalog
 
@@ -78,6 +80,25 @@ def test_entry_of_unknown_media_type_is_skipped():
     assert [entry.media_type for entry in parsed.entries] == ["text", "video", "image"]
 
 
+def test_lifecycle_fields_are_read_as_dates_and_entry_reference():
+    data = catalog()
+    data["entries"][1].update(release_date="2026-02-05", shutdown_date="2026-11-24", successor="kuaishou/kling-v4")
+
+    entry = parse_catalog(data).entries[1]
+
+    assert (entry.release_date, entry.shutdown_date, entry.successor) == (
+        date(2026, 2, 5),
+        date(2026, 11, 24),
+        "kuaishou/kling-v4",
+    )
+
+
+def test_entries_without_lifecycle_fields_have_none():
+    entry = parse_catalog(catalog()).entries[0]
+
+    assert (entry.release_date, entry.shutdown_date, entry.successor, entry.discontinued) == (None, None, None, False)
+
+
 @pytest.mark.parametrize(
     "corrupt",
     [
@@ -118,6 +139,10 @@ def test_entry_of_unknown_media_type_is_skipped():
             lambda data: data["entries"][1]["facts"].update(max_reference_audio_total_seconds=10**400),
             id="参考音频总时长超出浮点范围",
         ),
+        pytest.param(lambda data: data["entries"][0].update(shutdown_date="2026/12/11"), id="关停日期格式不对"),
+        pytest.param(lambda data: data["entries"][0].update(shutdown_date="2026-02-30"), id="关停日期不存在"),
+        pytest.param(lambda data: data["entries"][0].update(release_date="2026-12-11T00:00:00Z"), id="上线日期带时刻"),
+        pytest.param(lambda data: data["entries"][0].update(successor=""), id="后继模型为空"),
     ],
 )
 def test_unparseable_catalog_is_rejected(corrupt):
