@@ -84,12 +84,25 @@ def test_epub_with_package_document_at_archive_root(epub_factory):
 
 
 @pytest.mark.parametrize("opf_dir", ["Book#1", "Book%20Name"])
-def test_epub_package_path_in_container_is_literal(epub_factory, opf_dir):
-    """container.xml 的 full-path 是 zip 内字面路径，不按 URL 去锚点或解码。"""
+def test_epub_package_path_falls_back_to_literal_zip_path(epub_factory, opf_dir):
+    """EPUB 2 与部分打包工具把 full-path 写成字面路径，按 URL 找不到时按字面查找。"""
     src = epub_factory([("第一章", "字面路径正文。")], opf_dir=opf_dir)
     result = EpubExtractor().extract(src)
     assert "# 第一章" in result.text
     assert "字面路径正文" in result.text
+
+
+def test_epub_package_path_is_resolved_as_url(epub_factory, tmp_path):
+    """EPUB 3.3：full-path 是相对容器根目录的 URL，百分号编码需要解码后再查找 zip 条目。"""
+    src = epub_factory([("第一章", "编码路径正文。")], opf_dir="Book Name")
+    src = _rewrite_members(
+        src,
+        tmp_path / "encoded_full_path.epub",
+        replace={'full-path="Book Name/content.opf"': 'full-path="Book%20Name/content.opf"'},
+    )
+    result = EpubExtractor().extract(src)
+    assert "# 第一章" in result.text
+    assert "编码路径正文" in result.text
 
 
 def test_epub_resolves_percent_encoded_hrefs(epub_factory, tmp_path):
@@ -190,6 +203,21 @@ def test_epub_chapter_text_excludes_document_head(epub_factory):
     assert result.text.count("起点") == 2
 
 
+@pytest.mark.parametrize("encoding", ["gbk", "shift_jis"])
+def test_epub_reads_xml_declared_in_multibyte_encoding(epub_factory, tmp_path, encoding):
+    """整本按 GBK、Shift_JIS 等多字节编码写出并如实声明时，OPF、NCX 与章节都按声明解码。"""
+    src = epub_factory([("第一章 起点", "正文一。")], toc="ncx")
+    src = _rewrite_members(
+        src,
+        tmp_path / f"{encoding}.epub",
+        replace={'encoding="utf-8"': f'encoding="{encoding}"'},
+        encodings={name: encoding for name in ("OEBPS/content.opf", "OEBPS/toc.ncx", "OEBPS/chap_1.xhtml")},
+    )
+    result = EpubExtractor().extract(src)
+    assert "# 第一章 起点" in result.text
+    assert "正文一" in result.text
+
+
 def test_epub_package_with_unknown_xml_encoding_raises_corrupt(epub_factory, tmp_path):
     src = epub_factory([("第一章", "正文。")])
     src = _rewrite_members(
@@ -241,8 +269,9 @@ def _rewrite_members(
     *,
     rename: dict[str, str] | None = None,
     replace: dict[str, str] | None = None,
+    encodings: dict[str, str] | None = None,
 ) -> Path:
-    """复制 EPUB，按需重命名条目并对文本条目做字符串替换。"""
+    """复制 EPUB，按需重命名条目、对文本条目做字符串替换，并按 encodings 重新编码指定条目。"""
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(out, "w") as zout:
         for info in zin.infolist():
             data = zin.read(info.filename)
@@ -250,7 +279,7 @@ def _rewrite_members(
                 text = data.decode("utf-8")
                 for old, new in (replace or {}).items():
                     text = text.replace(old, new)
-                data = text.encode("utf-8")
+                data = text.encode((encodings or {}).get(info.filename, "utf-8"))
             zout.writestr((rename or {}).get(info.filename, info.filename), data)
     return out
 

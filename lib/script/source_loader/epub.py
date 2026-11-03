@@ -5,7 +5,9 @@ EPUB 是 zip 包（OCF）：``META-INF/container.xml`` 指向 OPF 包文档，OP
 这里用标准库 zipfile 与 xml.etree 解析这几份文件。
 """
 
+import codecs
 import posixpath
+import re
 import xml.etree.ElementTree as ET
 import zipfile
 import zlib
@@ -23,6 +25,9 @@ _DOCUMENT_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
 _DOCUMENT_EXTENSIONS = (".xhtml", ".html", ".htm")
 _NCX_MEDIA_TYPE = "application/x-dtbncx+xml"
 _OPS_NS = "http://www.idpf.org/2007/ops"
+# expat 原生支持的编码；其余编码（GBK、Big5、Shift_JIS 等）先用 Python 解码再交给解析器。
+_EXPAT_NATIVE_CODECS = frozenset({"utf-8", "utf-16", "utf-16-le", "utf-16-be", "iso8859-1", "ascii"})
+_XML_DECLARATION = re.compile(rb"""^\s*<\?xml[^>]*?\bencoding\s*=\s*["']([A-Za-z0-9._:-]+)["'][^>]*\?>""")
 # 读取条目时上传坏文件的常规结局：压缩数据损坏或 CRC 不符（zlib.error、BadZipFile）、
 # 条目截断（EOFError）、加密条目（RuntimeError）、不支持的压缩方式（NotImplementedError）、
 # 本地文件头偏移错乱（ValueError、OSError）。
@@ -56,6 +61,15 @@ def _text(el: ET.Element) -> str:
     return " ".join("".join(el.itertext()).split())
 
 
+def _parse_xml(data: bytes) -> ET.Element:
+    declaration = _XML_DECLARATION.match(data)
+    if declaration is not None:
+        codec = codecs.lookup(declaration.group(1).decode("ascii")).name
+        if codec not in _EXPAT_NATIVE_CODECS:
+            return ET.fromstring(data[declaration.end() :].decode(codec))
+    return ET.fromstring(data)
+
+
 def _resolve(base_file: str, href: str) -> str:
     """把相对 base_file 的 href 解析成 zip 内路径（去掉 #锚点、解码百分号编码）。"""
     href = unquote(href.split("#", 1)[0].strip())
@@ -66,6 +80,9 @@ class _Archive:
     def __init__(self, zf: zipfile.ZipFile):
         self._zf = zf
         self._names = set(zf.namelist())
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._names
 
     def read(self, name: str) -> bytes:
         if name not in self._names:
@@ -78,10 +95,10 @@ class _Archive:
     def xml(self, name: str) -> ET.Element:
         # EPUB 来自用户上传，按不可信输入处理：标准库解析器不加载外部 DTD 与外部实体，
         # 实体膨胀（billion laughs）由 expat ≥ 2.4.1 的放大保护拦截，均表现为 ParseError。
-        # 声明了未知编码（encoding="bogus"）时抛 LookupError。
+        # 声明了未知编码（encoding="bogus"）时抛 LookupError，按声明编码解码失败时抛 ValueError。
         try:
-            return ET.fromstring(self.read(name))
-        except (ET.ParseError, LookupError) as exc:
+            return _parse_xml(self.read(name))
+        except (ET.ParseError, LookupError, ValueError) as exc:
             raise _EpubFormatError(f"{name} 不是合法的 XML: {exc}") from exc
 
 
@@ -90,8 +107,11 @@ def _find_package_path(archive: _Archive) -> str:
     for rootfile in _descendants(container, "rootfile"):
         full_path = rootfile.get("full-path")
         if full_path:
-            # full-path 是 zip 内字面路径（OCF），不是 URL：不去锚点、不解码百分号。
-            return posixpath.normpath(full_path.strip()).lstrip("/")
+            # EPUB 3.3 规定 full-path 是相对容器根目录的 URL；EPUB 2 与部分打包工具写成
+            # zip 内字面路径（可含 #、%），按 URL 找不到时按字面查找。
+            as_url = _resolve("", full_path)
+            literal = posixpath.normpath(full_path.strip()).lstrip("/")
+            return as_url if as_url in archive or literal not in archive else literal
     raise _EpubFormatError("container.xml 未指定包文档")
 
 
