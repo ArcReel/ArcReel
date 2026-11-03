@@ -83,15 +83,6 @@ def test_epub_with_package_document_at_archive_root(epub_factory):
     assert "根目录正文" in result.text
 
 
-@pytest.mark.parametrize("opf_dir", ["Book#1", "Book%20Name"])
-def test_epub_package_path_falls_back_to_literal_zip_path(epub_factory, opf_dir):
-    """EPUB 2 与部分打包工具把 full-path 写成字面路径，按 URL 找不到时按字面查找。"""
-    src = epub_factory([("第一章", "字面路径正文。")], opf_dir=opf_dir)
-    result = EpubExtractor().extract(src)
-    assert "# 第一章" in result.text
-    assert "字面路径正文" in result.text
-
-
 def test_epub_package_path_is_resolved_as_url(epub_factory, tmp_path):
     """EPUB 3.3：full-path 是相对容器根目录的 URL，百分号编码需要解码后再查找 zip 条目。"""
     src = epub_factory([("第一章", "编码路径正文。")], opf_dir="Book Name")
@@ -254,21 +245,44 @@ def test_epub_toc_with_unknown_xml_encoding_degrades_to_index_titles(epub_factor
     assert "正文一" in result.text
 
 
-def test_epub_landmarks_nav_does_not_override_ncx_titles(epub_factory, tmp_path):
-    """nav 文档只有 landmarks 等非目录导航时，不拿它的链接文字当章节标题。"""
+@pytest.mark.parametrize(
+    ("nav_open", "link_text"),
+    [('<nav epub:type="landmarks">', "Start of Content"), ("<nav>", "1")],
+    ids=["landmarks", "untyped-page-list"],
+)
+def test_epub_non_toc_nav_does_not_supply_titles(epub_factory, tmp_path, nav_open, link_text):
+    """只有标了 toc 的 nav 提供章节标题；landmarks、未标类型的页码列表等不提供，NCX 标题生效。"""
     src = epub_factory([("第一章 起点", "正文一。")])
     src = _rewrite_members(
         src,
-        tmp_path / "landmarks_only.epub",
+        tmp_path / "non_toc_nav.epub",
         replace={
             '<nav epub:type="toc"><ol><li><a href="chap_1.xhtml">第一章 起点</a></li></ol></nav>': (
-                '<nav epub:type="landmarks"><ol><li><a href="chap_1.xhtml">Start of Content</a></li></ol></nav>'
+                f'{nav_open}<ol><li><a href="chap_1.xhtml">{link_text}</a></li></ol></nav>'
             )
         },
     )
     result = EpubExtractor().extract(src)
     assert "# 第一章 起点" in result.text
-    assert "Start of Content" not in result.text
+    assert f"# {link_text}" not in result.text
+
+
+def test_epub_with_corrupt_lzma_member_raises_corrupt(tmp_path):
+    """LZMA 压缩参数损坏的条目在解压时抛 lzma.LZMAError，同样按损坏文件处理。"""
+    src = tmp_path / "bad_lzma.epub"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        zf.writestr("META-INF/container.xml", "<container/>" * 50, compress_type=zipfile.ZIP_LZMA)
+    data = bytearray(src.read_bytes())
+    with zipfile.ZipFile(src) as zf:
+        info = zf.getinfo("META-INF/container.xml")
+    # LZMA 条目数据以 4 字节版本与长度头开头，其后是压缩属性，把属性改坏
+    payload_start = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
+    for offset in range(payload_start + 4, payload_start + 9):
+        data[offset] = 0xFF
+    src.write_bytes(bytes(data))
+    with pytest.raises(CorruptFileError):
+        EpubExtractor().extract(src)
 
 
 def test_epub_with_undecodable_utf8_filename_raises_corrupt(tmp_path):
@@ -282,29 +296,6 @@ def test_epub_with_undecodable_utf8_filename_raises_corrupt(tmp_path):
     src.write_bytes(src.read_bytes().replace(name, b"\xff" * len(name)))
     with pytest.raises(CorruptFileError):
         EpubExtractor().extract(src)
-
-
-def test_epub_untyped_nav_does_not_override_ncx_titles(epub_factory, tmp_path):
-    """未标类型的 nav 不一定是目录（可能是页码列表），NCX 存在时以 NCX 为准。"""
-    src = epub_factory([("第一章 起点", "正文一。")])
-    src = _rewrite_members(
-        src,
-        tmp_path / "untyped_page_list.epub",
-        replace={
-            '<nav epub:type="toc"><ol><li><a href="chap_1.xhtml">第一章 起点</a></li></ol></nav>': (
-                '<nav><ol><li><a href="chap_1.xhtml">1</a></li></ol></nav>'
-            )
-        },
-    )
-    result = EpubExtractor().extract(src)
-    assert "# 第一章 起点" in result.text
-
-
-def test_epub_untyped_nav_supplies_titles_without_ncx(epub_factory, tmp_path):
-    src = epub_factory([("第一章 起点", "正文一。")], toc="nav")
-    src = _rewrite_members(src, tmp_path / "untyped_nav_only.epub", replace={'<nav epub:type="toc">': "<nav>"})
-    result = EpubExtractor().extract(src)
-    assert "# 第一章 起点" in result.text
 
 
 @pytest.mark.parametrize("text", ["Déjà vu，", "第一章的正文内容，包含常见的中文字符。"])

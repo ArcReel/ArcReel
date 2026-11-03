@@ -10,7 +10,6 @@ import posixpath
 import re
 import xml.etree.ElementTree as ET
 import zipfile
-import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
@@ -29,14 +28,10 @@ _OPS_NS = "http://www.idpf.org/2007/ops"
 # expat 原生支持的编码；其余编码（GBK、Big5、Shift_JIS 等）先用 Python 解码再交给解析器。
 _EXPAT_NATIVE_CODECS = frozenset({"utf-8", "utf-16", "utf-16-le", "utf-16-be", "iso8859-1", "ascii"})
 _XML_DECLARATION = re.compile(rb"""^\s*<\?xml[^>]*?\bencoding\s*=\s*["']([A-Za-z0-9._:-]+)["'][^>]*\?>""")
-# 打开或读取上传的坏 zip 时的常规结局：压缩数据损坏或 CRC 不符（zlib.error、BadZipFile）、
-# 条目截断（EOFError）、加密条目（RuntimeError）、不支持的压缩方式（NotImplementedError）、
-# 本地文件头偏移错乱或文件名不是合法 UTF-8（ValueError，含 UnicodeDecodeError）、读盘失败（OSError）。
-_ZIP_ERRORS = (zipfile.BadZipFile, zlib.error, EOFError, RuntimeError, NotImplementedError, ValueError, OSError)
 
 
 class _EpubFormatError(Exception):
-    """EPUB 结构不符合规范；由 extract 统一转成 CorruptFileError。"""
+    """EPUB 结构不符合规范。"""
 
 
 @dataclass(frozen=True)
@@ -100,25 +95,15 @@ class _Archive:
         self._zf = zf
         self._names = set(zf.namelist())
 
-    def __contains__(self, name: str) -> bool:
-        return name in self._names
-
     def read(self, name: str) -> bytes:
         if name not in self._names:
             raise _EpubFormatError(f"缺少文件 {name}")
-        try:
-            return self._zf.read(name)
-        except _ZIP_ERRORS as exc:
-            raise _EpubFormatError(f"{name} 读取失败: {exc}") from exc
+        return self._zf.read(name)
 
     def xml(self, name: str) -> ET.Element:
         # EPUB 来自用户上传，按不可信输入处理：标准库解析器不加载外部 DTD 与外部实体，
-        # 实体膨胀（billion laughs）由 expat ≥ 2.4.1 的放大保护拦截，均表现为 ParseError。
-        # 声明了未知编码（encoding="bogus"）时抛 LookupError，按声明编码解码失败时抛 ValueError。
-        try:
-            return _parse_xml(self.read(name))
-        except (ET.ParseError, LookupError, ValueError) as exc:
-            raise _EpubFormatError(f"{name} 不是合法的 XML: {exc}") from exc
+        # 实体膨胀（billion laughs）由 expat ≥ 2.4.1 的放大保护拦截。
+        return _parse_xml(self.read(name))
 
 
 def _find_package_path(archive: _Archive) -> str:
@@ -129,12 +114,8 @@ def _find_package_path(archive: _Archive) -> str:
     candidates = packages or [r for r in rootfiles if not r.get("media-type")]
     if not candidates:
         raise _EpubFormatError("container.xml 未指定包文档")
-    full_path = candidates[0].get("full-path", "")
-    # EPUB 3.3 规定 full-path 是相对容器根目录的 URL；EPUB 2 与部分打包工具写成
-    # zip 内字面路径（可含 #、%），按 URL 找不到时按字面查找。
-    as_url = _resolve("", full_path)
-    literal = posixpath.normpath(full_path.strip()).lstrip("/")
-    return as_url if as_url in archive or literal not in archive else literal
+    # EPUB 3.3 规定 full-path 是相对容器根目录的 URL。
+    return _resolve("", candidates[0].get("full-path", ""))
 
 
 def _parse_manifest(package: ET.Element, package_path: str) -> dict[str, _ManifestItem]:
@@ -180,16 +161,6 @@ def _titles_from_nav_toc(archive: _Archive, toc_path: str, by_path: dict[str, st
             _collect_nav_links(nav, toc_path, by_path)
 
 
-def _titles_from_untyped_nav(archive: _Archive, toc_path: str, by_path: dict[str, str]) -> None:
-    """nav 文档没有标 toc 的目录时，取第一个未标类型的 nav；它可能只是页码列表，所以排在 NCX 之后。"""
-    navs = _descendants(archive.xml(toc_path), "nav")
-    if any("toc" in _nav_types(n) for n in navs):
-        return
-    untyped = [n for n in navs if not _nav_types(n)]
-    if untyped:
-        _collect_nav_links(untyped[0], toc_path, by_path)
-
-
 def _is_document(item: _ManifestItem) -> bool:
     if item.media_type in _DOCUMENT_MEDIA_TYPES:
         return True
@@ -209,19 +180,18 @@ def _read_book(archive: _Archive) -> list[tuple[str | None, bytes]]:
     ncx = manifest.get(spine.get("toc") or "") or next(
         (it for it in manifest.values() if it.media_type == _NCX_MEDIA_TYPE), None
     )
-    # 目录三级退化的前两级：标了 toc 的 nav（EPUB 3）优先，其次 NCX，未标类型的 nav 最后补缺；
-    # landmarks、page-list 等其他类型的 nav 不提供标题。同一文件取第一条（章节级）标题。
-    nav_paths = [it.path for it in manifest.values() if "nav" in it.properties]
-    sources = [(_titles_from_nav_toc, path) for path in nav_paths]
+    # 目录三级退化的前两级：标了 toc 的 nav（EPUB 3）优先，NCX 补缺；landmarks、page-list
+    # 等其他导航不提供标题。同一文件取第一条（章节级）标题。
+    sources = [(_titles_from_nav_toc, it.path) for it in manifest.values() if "nav" in it.properties]
     if ncx is not None:
         sources.append((_titles_from_ncx, ncx.path))
-    sources += [(_titles_from_untyped_nav, path) for path in nav_paths]
     by_path: dict[str, str] = {}
-    # 目录损坏只影响标题，退化到"第 N 章"，不让整本书解析失败。
     for parse_titles, toc_path in sources:
+        # 目录无法读取或解析时只影响标题，退化到"第 N 章"，不让整本书解析失败。
+        # 畸形输入下标准库可能抛出的异常是开放集合，在这一处整体兜住。
         try:
             parse_titles(archive, toc_path, by_path)
-        except _EpubFormatError:
+        except Exception:
             continue
 
     chapters: list[tuple[str | None, bytes]] = []
@@ -239,8 +209,9 @@ class EpubExtractor:
         try:
             with zipfile.ZipFile(path) as zf:
                 chapters = _read_book(_Archive(zf))
-        # 条目读取错误已在 _Archive 内转成 _EpubFormatError；打开 zip 本身的失败与读取共用同一组异常。
-        except (*_ZIP_ERRORS, _EpubFormatError) as exc:
+        # 上传文件的解析边界：zip、XML 与编解码器在畸形输入上可能抛出的异常是开放集合
+        # （压缩数据损坏、加密条目、未知编码、非法文件名等），在这一处整体转成 CorruptFileError。
+        except Exception as exc:
             raise CorruptFileError(filename=path.name, reason=f"EPUB 解析失败: {exc}") from exc
 
         if not chapters:
