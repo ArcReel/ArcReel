@@ -68,6 +68,7 @@ from lib.infra.async_thread import (
 )
 from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.json_io import domain_error_on_value_error
+from lib.material.formal_objects import formal_commit_on
 from lib.project import deleted_projects
 from lib.project.asset_fingerprints import compute_asset_fingerprints
 from lib.project.asset_types import asset_name_comparison_key
@@ -190,10 +191,12 @@ def _merge_episode_summaries(project: dict[str, Any], summary: ProjectSummary) -
 
 
 async def get_archive_service() -> ProjectArchiveService:
-    # 在事件循环上构造：覆盖导入跑在工作线程里，经捕获的事件循环收尾现有项目的记录。
+    # 在事件循环上构造：导入跑在工作线程里，经捕获的事件循环收尾覆盖掉的现有项目、把导入的图片按全局设置保存。
+    bridge = EventLoopBridge.capture()
     return ProjectArchiveService(
         get_project_manager(),
-        retire_project=retire_project_on(EventLoopBridge.capture(), async_session_factory),
+        retire_project=retire_project_on(bridge, async_session_factory),
+        formal_commit=formal_commit_on(bridge, async_session_factory),
     )
 
 
@@ -475,6 +478,9 @@ async def import_project_archive(
                 **exc.extra,
             },
         )
+    except ApiError:
+        # 导入的图片按全局设置保存到对象存储失败（502）或未配置连接（409）：带明确原因返回，项目没有安装。
+        raise
     except Exception:
         logger.exception("请求处理失败")
         return JSONResponse(
@@ -505,7 +511,8 @@ async def create_export_token(
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
             return archive_service.get_export_diagnostics(name, scope=scope, translate=_t)
 
-        diagnostics = await asyncio.to_thread(_sync)
+        async with archive_service.export_materials_held(name, scope=scope):
+            diagnostics = await asyncio.to_thread(_sync)
         username = current_user.sub
         download_token = create_download_token(username, name)
         return {
@@ -555,7 +562,9 @@ async def export_project_archive(
 
     handed_off = False
     try:
-        archive_path, download_name = await run_sync_transaction(_export)
+        # 归档带远端图片的真实内容：先取回被清理的工作文件，打包期间登记使用。
+        async with archive_service.export_materials_held(name, scope=scope):
+            archive_path, download_name = await run_sync_transaction(_export)
         response = FileResponse(
             archive_path,
             media_type="application/zip",

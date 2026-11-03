@@ -25,8 +25,8 @@ import tempfile
 import threading
 import time
 from collections import Counter
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, Generator, Iterable
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -179,6 +179,23 @@ def _locked_work_files(project_path: Path) -> list[_WorkFile]:
         return _work_files(data, project)
 
 
+#: 远端内容版本的一个工作文件（版本快照位置或选中时的正式文件），供需要成批确保工作文件在场的读取方使用。
+RemoteWorkFile = _WorkFile
+
+
+def remote_work_files(versions: object, project: dict[str, Any]) -> list[RemoteWorkFile]:
+    """``versions``（versions.json 内容）与 ``project``（project.json 内容）里所有远端内容版本的工作文件。
+
+    纯函数：不读盘、不取锁。读取正在使用的项目时用 :func:`locked_remote_work_files`。
+    """
+    return _work_files(versions, project)
+
+
+def locked_remote_work_files(project_path: Path) -> list[RemoteWorkFile]:
+    """在版本锁内读取项目所有远端内容版本的工作文件。同步磁盘操作，异步调用方在工作线程里调用。"""
+    return _locked_work_files(Path(project_path))
+
+
 def _same_work_file(project_path: Path, work_file: _WorkFile, data: object) -> bool:
     """``data`` 是版本锁内读取的版本历史：工作文件仍对应同一个内容版本（正式文件仍是它被选中时的位置）。"""
     return work_file in _work_files(data, _load_project_json(project_path))
@@ -286,6 +303,48 @@ async def ensure_content_version_file(
     return await asyncio.to_thread(LocalMaterialStorage(project_path).open, content_version)
 
 
+_HELD_FETCH_CONCURRENCY = 4
+
+
+@asynccontextmanager
+async def held_work_files(
+    project_path: Path,
+    relative_paths: Iterable[str],
+    *,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+) -> AsyncGenerator[None]:
+    """成批确保工作文件在场，并在这段上下文里登记使用，清理不会删除它们。
+
+    先登记再取回，取回与读取之间不会被清理插队。``relative_paths`` 里不是远端内容版本工作文件的路径照常登记、
+    不取回。任何一个取回失败都抛出，不进入上下文。
+
+    Raises:
+        MaterialConnectionUnavailableError, MaterialFetchFailedError: 同 :func:`ensure_work_file`。
+    """
+    project_path = Path(project_path)
+    paths = sorted(set(relative_paths))
+    session_factory = session_factory or _default_session_factory()
+    gate = asyncio.Semaphore(_HELD_FETCH_CONCURRENCY)
+
+    async def _ensure(relative_path: str) -> None:
+        async with gate:
+            await ensure_work_file(project_path, relative_path, session_factory=session_factory)
+
+    with contextlib.ExitStack() as stack:
+        for relative_path in paths:
+            stack.enter_context(hold_work_file(project_path / relative_path))
+        fetches = [asyncio.create_task(_ensure(relative_path)) for relative_path in paths]
+        try:
+            await asyncio.gather(*fetches)
+        except BaseException:
+            # 第一个失败原样抛出（调用方按它的状态码返回），其余取回随之取消；已安装的工作文件只是缓存。
+            for fetch in fetches:
+                fetch.cancel()
+            await asyncio.gather(*fetches, return_exceptions=True)
+            raise
+        yield
+
+
 # ---- 清理 -------------------------------------------------------------------------------------
 
 
@@ -351,8 +410,12 @@ __all__ = [
     "CacheCleanupResult",
     "MaterialConnectionUnavailableError",
     "MaterialFetchFailedError",
+    "RemoteWorkFile",
     "cleanup_work_cache",
     "ensure_content_version_file",
     "ensure_work_file",
+    "held_work_files",
     "hold_work_file",
+    "locked_remote_work_files",
+    "remote_work_files",
 ]

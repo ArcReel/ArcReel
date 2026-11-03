@@ -26,8 +26,8 @@ import asyncio
 import hashlib
 import logging
 import uuid
-from collections.abc import AsyncGenerator, Callable, Iterable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, Callable, Generator, Iterable
+from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -151,8 +151,9 @@ def same_connection(row: FormalObject, connection: ObjectStorageConnection | Non
 class ObjectContentStorage:
     """把一次正式提交里新写入的图片内容版本保存到对象存储。
 
-    :meth:`persist` 在版本管理器的工作线程里调用，经 :class:`EventLoopBridge` 在事件循环上登记对象与引用，
-    在当前线程里同步上传；:meth:`settle` 在提交结束后（无论成败）于事件循环上调用一次。
+    :meth:`persist` 在版本管理器的工作线程里调用，:meth:`store` 由不经版本管理器写记录的调用方（归档导入）直接调用；
+    两者经 :class:`EventLoopBridge` 在事件循环上登记对象与引用，在当前线程里同步上传。:meth:`settle` 在提交结束后
+    （无论成败）于事件循环上调用一次。
     """
 
     def __init__(
@@ -178,8 +179,19 @@ class ObjectContentStorage:
         digest = local.persist(source, slot)
         if not stores_remotely(resource_type):
             return PersistedContent(digest)
+        self.track(project_path)
+        return PersistedContent(digest, self.store(Path(project_path) / slot.path, digest))
+
+    def track(self, project_path: Path) -> None:
+        """结算时按 ``project_path`` 的版本历史判断这次提交的对象是否被引用；路径届时不存在时跳过。"""
         self._project_paths.add(Path(project_path))
-        work_file = Path(project_path) / slot.path
+
+    def store(self, work_file: Path, digest: str) -> ObjectLocator:
+        """把本地已有、摘要为 ``digest`` 的图片保存为正式对象，确认后返回持久定位。
+
+        不登记项目：调用方写好引用它的版本记录后，经 :meth:`track` 指明结算读取的项目。
+        归档导入用它把暂存目录里的图片保存到目标实例，再安装到项目目录。
+        """
         data = work_file.read_bytes()
         if hashlib.sha256(data).hexdigest() != digest:
             raise RemoteSaveFailedError("content_changed")
@@ -199,7 +211,7 @@ class ObjectContentStorage:
             raise RemoteSaveFailedError(exc.kind) from exc
         if needs_upload:
             self.bridge.run(self._confirm(key))
-        return PersistedContent(digest, ObjectLocator(self.connection.id, self.connection.bucket, key))
+        return ObjectLocator(self.connection.id, self.connection.bucket, key)
 
     # ---- 事件循环一侧 -------------------------------------------------------------------------
 
@@ -244,10 +256,19 @@ class ObjectContentStorage:
                 row.state = "stored"
                 await session.commit()
 
+    async def finish(self) -> None:
+        """提交结束时结算一次；结算失败只记日志，由下次启动补做，不掩盖提交本身的结果。"""
+        try:
+            await run_noninterruptible_async(self.settle())
+        except Exception:
+            logger.warning("正式提交结算失败，下次启动时补做 attempt=%s", self.attempt_id, exc_info=True)
+
     async def settle(self) -> None:
         """按版本历史结算本次提交：被内容版本使用的转为 ``active`` 引用，其余占用撤下，再补偿删除。"""
         referenced: dict[tuple[int, str, str], set[str]] = {}
         for project_path in self._project_paths:
+            if not await asyncio.to_thread(project_path.is_dir):
+                continue
             for locator, versions in (await asyncio.to_thread(_referenced_objects, project_path)).items():
                 referenced.setdefault(locator, set()).update(versions)
         await _settle_attempt(self.session_factory, self.attempt_id, referenced, connection=self.connection)
@@ -591,6 +612,28 @@ async def stored_object_keys(session: AsyncSession, locators: Iterable[ObjectLoc
     return {ObjectLocator(cid, bucket, key) for cid, bucket, key in (await session.execute(stmt)).all()} & wanted
 
 
+async def _open_formal_commit(
+    project_name: str,
+    *,
+    session_factory: async_sessionmaker[AsyncSession] | None,
+    target: NewContentTarget | None,
+) -> ObjectContentStorage | None:
+    session_factory = session_factory or _default_session_factory()
+    async with session_factory() as session:
+        resolved = target or await new_content_target(session)
+        connection = await ObjectStorageConnectionRepository(session).get() if resolved == "object_storage" else None
+    if resolved == "local":
+        return None
+    if connection is None:
+        raise ObjectStorageRequiredError()
+    return ObjectContentStorage(
+        project_name=project_name,
+        connection=_ConnectionSnapshot.of(connection),
+        session_factory=session_factory,
+        bridge=EventLoopBridge.capture(),
+    )
+
+
 @asynccontextmanager
 async def formal_commit(
     project_name: str,
@@ -607,29 +650,39 @@ async def formal_commit(
     Raises:
         ObjectStorageRequiredError: 目标是对象存储而实例没有配置连接。
     """
-    session_factory = session_factory or _default_session_factory()
-    async with session_factory() as session:
-        resolved = target or await new_content_target(session)
-        connection = await ObjectStorageConnectionRepository(session).get() if resolved == "object_storage" else None
-    if resolved == "local":
+    storage = await _open_formal_commit(project_name, session_factory=session_factory, target=target)
+    if storage is None:
         yield None
         return
-    if connection is None:
-        raise ObjectStorageRequiredError()
-    storage = ObjectContentStorage(
-        project_name=project_name,
-        connection=_ConnectionSnapshot.of(connection),
-        session_factory=session_factory,
-        bridge=EventLoopBridge.capture(),
-    )
     try:
         with use_new_content_storage(storage):
             yield storage
     finally:
+        await storage.finish()
+
+
+def formal_commit_on(
+    bridge: EventLoopBridge, session_factory: async_sessionmaker[AsyncSession] | None = None
+) -> Callable[[str], AbstractContextManager[ObjectContentStorage | None]]:
+    """给工作线程里的同步流程用的正式提交：进出 ``with`` 块时投回 ``bridge`` 的事件循环，块本身留在调用线程。
+
+    与 :func:`formal_commit` 同样按全局设置选择保存位置、退出时结算，但不设置新内容版本的上下文变量：
+    块内经产出的 :meth:`ObjectContentStorage.store` 显式保存，再用 :meth:`ObjectContentStorage.track`
+    指明结算读取的项目。归档导入在确定目标项目名之后使用。
+    """
+
+    @contextmanager
+    def _commit(project_name: str) -> Generator[ObjectContentStorage | None]:
+        storage = bridge.run(_open_formal_commit(project_name, session_factory=session_factory, target=None))
+        if storage is None:
+            yield None
+            return
         try:
-            await run_noninterruptible_async(storage.settle())
-        except Exception:
-            logger.warning("正式提交结算失败，下次启动时补做 attempt=%s", storage.attempt_id, exc_info=True)
+            yield storage
+        finally:
+            bridge.run(storage.finish())
+
+    return _commit
 
 
 __all__ = [
@@ -642,6 +695,7 @@ __all__ = [
     "RemoteSaveFailedError",
     "add_reference",
     "formal_commit",
+    "formal_commit_on",
     "formal_object_key",
     "iter_version_records",
     "live_object_count",

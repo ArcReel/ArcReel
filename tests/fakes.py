@@ -1183,6 +1183,15 @@ def bind_session_factory(monkeypatch, factory) -> None:
     monkeypatch.setattr("lib.db.async_session_factory", factory)
 
 
+def use_projects_session_factory(monkeypatch, factory) -> None:
+    """项目路由开数据库会话改用 *factory*。
+
+    ``server.routers.projects`` 在模块顶部绑定了 ``async_session_factory``（归档导入的收尾与正式提交、配置解析都经它），
+    :func:`bind_session_factory` 替换不到。
+    """
+    monkeypatch.setattr("server.routers.projects.async_session_factory", factory)
+
+
 def use_object_storage_sdk(monkeypatch, factory: Callable[..., Any]) -> None:
     """对象存储的网络边界：``create_sdk_client`` 改调 *factory*（收 ``ObjectStorageConfig``，返回 TOS SDK 客户端替身）。
 
