@@ -1,6 +1,10 @@
+import zipfile
+from pathlib import Path
+
 import pytest
 
 from lib.script.source_loader.epub import EpubExtractor
+from lib.script.source_loader.errors import CorruptFileError
 
 
 def test_epub_injects_chapter_markers_and_counts(epub_factory):
@@ -29,7 +33,7 @@ def test_epub_falls_back_to_index_when_no_toc(epub_factory):
             ("不会被使用的标题1", "正文1。"),
             ("不会被使用的标题2", "正文2。"),
         ],
-        with_toc=False,
+        toc=None,
     )
     result = EpubExtractor().extract(src)
     assert result.chapter_count == 2
@@ -38,33 +42,173 @@ def test_epub_falls_back_to_index_when_no_toc(epub_factory):
     assert "# 第 2 章" in result.text
 
 
-def test_epub_excludes_nav_with_nonstandard_id(tmp_path):
-    """Nav filter must work regardless of nav item id (some tools use 'navdoc' / 'toc')."""
-    pytest.importorskip("ebooklib")
-    from ebooklib import epub as ebook_epub
-
-    book = ebook_epub.EpubBook()
-    book.set_identifier("test-nav-id")
-    book.set_title("Nav ID Test")
-    book.set_language("zh")
-
-    ch = ebook_epub.EpubHtml(title="Ch1", file_name="c1.xhtml", lang="zh")
-    ch.content = "<html><body><p>真实正文。</p></body></html>"
-    book.add_item(ch)
-
-    # Nav with a non-standard id
-    nav = ebook_epub.EpubNav(uid="navdoc")
-    book.add_item(nav)
-    book.add_item(ebook_epub.EpubNcx())
-
-    book.toc = (ch,)
-    book.spine = [nav, ch]  # nav referenced in spine
-
-    out = tmp_path / "nav_id.epub"
-    ebook_epub.write_epub(out, book)
-
-    result = EpubExtractor().extract(out)
+def test_epub_excludes_nav_with_nonstandard_id(epub_factory):
+    """导航文档按 manifest 的 properties="nav" 识别，与 id 无关（Calibre/Sigil 常用 navdoc、toc 等 id）。"""
+    src = epub_factory([("Ch1", "真实正文。")], nav_id="navdoc")
+    result = EpubExtractor().extract(src)
     assert result.chapter_count == 1
     assert "真实正文" in result.text
-    # Nav document HTML must not appear
     assert "<nav" not in result.text
+
+
+def test_epub3_without_ncx_takes_titles_from_nav(epub_factory):
+    src = epub_factory([("序章", "正文一。"), ("终章", "正文二。")], toc="nav")
+    result = EpubExtractor().extract(src)
+    assert result.chapter_count == 2
+    assert "# 序章" in result.text
+    assert "# 终章" in result.text
+
+
+def test_epub_toc_first_entry_per_file_wins_over_fragment_entries(epub_factory):
+    """同一章节文件的多个目录条目（带 #锚点的小节）不覆盖章节标题。"""
+    src = epub_factory(
+        [("第一章", "正文一。"), ("第二章", "正文二。")],
+        toc_entries=[
+            ("第一章 起点", "chap_1.xhtml"),
+            ("第一节 小节", "chap_1.xhtml#s1"),
+            ("第二章 转折", "chap_2.xhtml#top"),
+        ],
+    )
+    result = EpubExtractor().extract(src)
+    assert "# 第一章 起点" in result.text
+    assert "# 第一节 小节" not in result.text
+    assert "# 第二章 转折" in result.text
+
+
+def test_epub_with_package_document_at_archive_root(epub_factory):
+    src = epub_factory([("第一章", "根目录正文。")], opf_dir="")
+    result = EpubExtractor().extract(src)
+    assert result.chapter_count == 1
+    assert "# 第一章" in result.text
+    assert "根目录正文" in result.text
+
+
+def test_epub_resolves_percent_encoded_hrefs(epub_factory, tmp_path):
+    src = epub_factory([("第一章", "空格文件名正文。")])
+    src = _rewrite_members(
+        src,
+        tmp_path / "encoded.epub",
+        rename={"OEBPS/chap_1.xhtml": "OEBPS/chap 1.xhtml"},
+        replace={"chap_1.xhtml": "chap%201.xhtml"},
+    )
+    result = EpubExtractor().extract(src)
+    assert "# 第一章" in result.text
+    assert "空格文件名正文" in result.text
+
+
+def test_epub_does_not_expand_external_entities(epub_factory, tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP-SECRET", encoding="utf-8")
+    src = epub_factory([("第一章", "正文。")], toc="ncx")
+    src = _rewrite_members(
+        src,
+        tmp_path / "xxe.epub",
+        replace={
+            '<?xml version="1.0" encoding="utf-8"?><ncx': (
+                f'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE ncx [<!ENTITY xxe SYSTEM "{secret.as_uri()}">]><ncx'
+            ),
+            "<text>第一章</text>": "<text>&xxe;</text>",
+        },
+    )
+    result = EpubExtractor().extract(src)
+    assert "TOP-SECRET" not in result.text
+    # 外部实体不被加载，NCX 视为损坏，标题退化为序号，正文照常抽取
+    assert "# 第 1 章" in result.text
+    assert "正文。" in result.text
+
+
+def test_epub_nav_titles_take_precedence_over_ncx(epub_factory, tmp_path):
+    src = epub_factory([("目录标题", "正文一。")])
+    src = _rewrite_members(
+        src, tmp_path / "ncx_differs.epub", replace={"<text>目录标题</text>": "<text>NCX 标题</text>"}
+    )
+    result = EpubExtractor().extract(src)
+    assert "# 目录标题" in result.text
+    assert "# NCX 标题" not in result.text
+
+
+def test_epub_chapter_with_wrong_media_type_is_still_body(epub_factory, tmp_path):
+    src = epub_factory([("第一章", "错标类型的正文。")])
+    src = _rewrite_members(
+        src,
+        tmp_path / "wrong_media_type.epub",
+        replace={
+            'href="chap_1.xhtml" media-type="application/xhtml+xml"': 'href="chap_1.xhtml" media-type="application/xml"'
+        },
+    )
+    result = EpubExtractor().extract(src)
+    assert result.chapter_count == 1
+    assert "错标类型的正文" in result.text
+
+
+def test_epub_corrupted_compressed_data_raises_corrupt(epub_factory, tmp_path):
+    src = epub_factory([("第一章", "正文。" * 200)])
+    data = bytearray(src.read_bytes())
+    with zipfile.ZipFile(src) as zf:
+        info = zf.getinfo("OEBPS/chap_1.xhtml")
+    # 本地文件头固定 30 字节，其后是文件名与扩展字段，再往后才是压缩数据
+    payload_start = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
+    for offset in range(payload_start + 4, payload_start + 24):
+        data[offset] ^= 0xFF
+    broken = tmp_path / "bad_deflate.epub"
+    broken.write_bytes(bytes(data))
+    with pytest.raises(CorruptFileError):
+        EpubExtractor().extract(broken)
+
+
+def test_epub_broken_ncx_falls_back_to_nav_titles(epub_factory, tmp_path):
+    src = epub_factory([("第一章 起点", "正文一。")])
+    src = _rewrite_members(src, tmp_path / "broken_ncx.epub", replace={"</navMap></ncx>": "</navMap>"})
+    result = EpubExtractor().extract(src)
+    assert "# 第一章 起点" in result.text
+    assert "正文一" in result.text
+
+
+def test_epub_broken_toc_degrades_to_index_titles(epub_factory, tmp_path):
+    src = epub_factory([("第一章 起点", "正文一。")], toc="ncx")
+    src = _rewrite_members(src, tmp_path / "broken_toc.epub", replace={"</navMap></ncx>": "</navMap>"})
+    result = EpubExtractor().extract(src)
+    assert "# 第 1 章" in result.text
+    assert "正文一" in result.text
+
+
+def test_epub_not_a_zip_raises_corrupt(tmp_path):
+    src = tmp_path / "broken.epub"
+    src.write_bytes(b"not a zip archive")
+    with pytest.raises(CorruptFileError):
+        EpubExtractor().extract(src)
+
+
+def test_epub_without_container_raises_corrupt(tmp_path):
+    src = tmp_path / "no_container.epub"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("chap.xhtml", "<html><body><p>孤立正文</p></body></html>")
+    with pytest.raises(CorruptFileError):
+        EpubExtractor().extract(src)
+
+
+def test_epub_without_body_documents_raises_corrupt(epub_factory):
+    src = epub_factory([], toc="nav")
+    with pytest.raises(CorruptFileError):
+        EpubExtractor().extract(src)
+
+
+def _rewrite_members(
+    src: Path,
+    out: Path,
+    *,
+    rename: dict[str, str] | None = None,
+    replace: dict[str, str] | None = None,
+) -> Path:
+    """复制 EPUB，按需重命名条目并对文本条目做字符串替换。"""
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(out, "w") as zout:
+        for info in zin.infolist():
+            data = zin.read(info.filename)
+            if info.filename != "mimetype":
+                text = data.decode("utf-8")
+                for old, new in (replace or {}).items():
+                    text = text.replace(old, new)
+                data = text.encode("utf-8")
+            zout.writestr((rename or {}).get(info.filename, info.filename), data)
+    return out
