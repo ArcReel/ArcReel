@@ -81,8 +81,23 @@ _ENTRY_FIELDS = frozenset(
 )
 _FACT_FIELDS: Mapping[MediaType, frozenset[str]] = {
     "text": frozenset({"image_input", "structured_output", "max_output_tokens"}),
-    "image": frozenset({"text_to_image", "image_to_image", "resolutions"}),
-    "video": frozenset({"durations", "resolutions", "duration_constraints"}),
+    "image": frozenset(
+        {"text_to_image", "image_to_image", "resolutions", "max_reference_images", "output_token_bases"}
+    ),
+    "video": frozenset(
+        {
+            "durations",
+            "resolutions",
+            "duration_constraints",
+            "max_reference_images",
+            "text_to_video",
+            "first_frame",
+            "last_frame",
+            "reference_audio",
+            "max_reference_audio_count",
+            "max_reference_audio_total_seconds",
+        }
+    ),
     "audio": frozenset(),
 }
 _CONSTRAINT_FIELDS = frozenset({"by_resolution", "with_reference_images"})
@@ -154,6 +169,18 @@ class CatalogReader:
         if type(value) is int and value > 0:
             return value
         self.reject(_at(path, key), "invalid_positive_int", "应为正整数")
+        return None
+
+    def optional_flag(self, raw: Mapping[str, object], key: str, path: str) -> bool | None:
+        return None if raw.get(key) is None else self.flag_value(raw, key, path)
+
+    def nonnegative_int(self, raw: Mapping[str, object], key: str, path: str) -> int | None:
+        value = raw.get(key)
+        if value is None:
+            return None
+        if type(value) is int and value >= 0:
+            return value
+        self.reject(_at(path, key), "invalid_nonnegative_int", "应为非负整数")
         return None
 
     def number(self, value: object, path: str) -> float:
@@ -279,6 +306,10 @@ class CatalogReader:
                 return ImageFacts(
                     text_to_image=self.flag_value(data, "text_to_image", path),
                     image_to_image=self.flag_value(data, "image_to_image", path),
+                    max_reference_images=self.nonnegative_int(data, "max_reference_images", path),
+                    output_token_bases=self.output_token_bases(
+                        data.get("output_token_bases"), _at(path, "output_token_bases")
+                    ),
                     resolutions=self.texts(data.get("resolutions"), _at(path, "resolutions")),
                 )
             case "video":
@@ -289,9 +320,39 @@ class CatalogReader:
                 constraints = self.duration_constraints(
                     data.get("duration_constraints"), durations, resolutions, _at(path, "duration_constraints")
                 )
-                return VideoFacts(durations=durations, resolutions=resolutions, duration_constraints=constraints)
+                return VideoFacts(
+                    durations=durations,
+                    resolutions=resolutions,
+                    duration_constraints=constraints,
+                    max_reference_images=self.nonnegative_int(data, "max_reference_images", path),
+                    text_to_video=self.optional_flag(data, "text_to_video", path),
+                    first_frame=self.optional_flag(data, "first_frame", path),
+                    last_frame=self.optional_flag(data, "last_frame", path),
+                    reference_audio=self.optional_flag(data, "reference_audio", path),
+                    max_reference_audio_count=self.nonnegative_int(data, "max_reference_audio_count", path),
+                    max_reference_audio_total_seconds=(
+                        None
+                        if data.get("max_reference_audio_total_seconds") is None
+                        else self.number(
+                            data["max_reference_audio_total_seconds"], _at(path, "max_reference_audio_total_seconds")
+                        )
+                    ),
+                )
             case "audio":
                 return AudioFacts()
+
+    def output_token_bases(self, raw: object, path: str) -> Mapping[str, int]:
+        data = {} if raw is None else self.obj(raw, path)
+        result: dict[str, int] = {}
+        for quality in data:
+            if not quality:
+                self.reject(path, "invalid_text", "质量档应为非空字符串")
+            base = self.positive_int(data, quality, path)
+            if base is not None:
+                result[quality] = base
+            elif data[quality] is None:
+                self.reject(_at(path, quality), "invalid_positive_int", "应为正整数")
+        return result
 
     def duration_constraints(
         self, raw: object, durations: tuple[int, ...], resolutions: tuple[str, ...], path: str

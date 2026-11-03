@@ -25,6 +25,8 @@ class ImageFacts:
     text_to_image: bool = False
     image_to_image: bool = False
     resolutions: tuple[str, ...] = ()
+    max_reference_images: int | None = None
+    output_token_bases: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,13 @@ class VideoFacts:
     durations: tuple[int, ...] = ()
     resolutions: tuple[str, ...] = ()
     duration_constraints: DurationConstraints = field(default_factory=DurationConstraints)
+    max_reference_images: int | None = None
+    text_to_video: bool | None = None
+    first_frame: bool | None = None
+    last_frame: bool | None = None
+    reference_audio: bool | None = None
+    max_reference_audio_count: int | None = None
+    max_reference_audio_total_seconds: float | None = None
 
 
 @dataclass(frozen=True)
