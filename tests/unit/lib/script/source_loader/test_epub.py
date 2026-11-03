@@ -284,6 +284,79 @@ def test_epub_with_undecodable_utf8_filename_raises_corrupt(tmp_path):
         EpubExtractor().extract(src)
 
 
+def test_epub_untyped_nav_does_not_override_ncx_titles(epub_factory, tmp_path):
+    """未标类型的 nav 不一定是目录（可能是页码列表），NCX 存在时以 NCX 为准。"""
+    src = epub_factory([("第一章 起点", "正文一。")])
+    src = _rewrite_members(
+        src,
+        tmp_path / "untyped_page_list.epub",
+        replace={
+            '<nav epub:type="toc"><ol><li><a href="chap_1.xhtml">第一章 起点</a></li></ol></nav>': (
+                '<nav><ol><li><a href="chap_1.xhtml">1</a></li></ol></nav>'
+            )
+        },
+    )
+    result = EpubExtractor().extract(src)
+    assert "# 第一章 起点" in result.text
+
+
+def test_epub_untyped_nav_supplies_titles_without_ncx(epub_factory, tmp_path):
+    src = epub_factory([("第一章 起点", "正文一。")], toc="nav")
+    src = _rewrite_members(src, tmp_path / "untyped_nav_only.epub", replace={'<nav epub:type="toc">': "<nav>"})
+    result = EpubExtractor().extract(src)
+    assert "# 第一章 起点" in result.text
+
+
+@pytest.mark.parametrize("text", ["Déjà vu，", "第一章的正文内容，包含常见的中文字符。"])
+def test_epub_chapter_without_declaration_defaults_to_utf8(epub_factory, tmp_path, text):
+    """章节没有 XML 声明与 charset 时按 XML 默认的 UTF-8 解码，不交给编码探测。"""
+    src = epub_factory([("第一章", text)])
+    src = _rewrite_members(
+        src,
+        tmp_path / "no_declaration.epub",
+        replace={
+            '<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head>': (
+                '<html xmlns="http://www.w3.org/1999/xhtml"><head>'
+            )
+        },
+    )
+    result = EpubExtractor().extract(src)
+    assert text in result.text
+
+
+def test_epub_chapter_in_declared_legacy_encoding(epub_factory, tmp_path):
+    src = epub_factory([("第一章", "旧编码正文。")])
+    src = _rewrite_members(
+        src,
+        tmp_path / "gbk_chapter.epub",
+        replace={
+            '<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head>': (
+                '<?xml version="1.0" encoding="gbk"?><html xmlns="http://www.w3.org/1999/xhtml"><head>'
+            )
+        },
+        encodings={"OEBPS/chap_1.xhtml": "gbk"},
+    )
+    result = EpubExtractor().extract(src)
+    assert "旧编码正文" in result.text
+
+
+def test_epub_chapter_with_meta_charset_only(epub_factory, tmp_path):
+    """没有 XML 声明、只在 <meta charset> 里声明 GBK 的章节按 meta 解码。"""
+    src = epub_factory([("第一章", "元信息声明的正文。")])
+    src = _rewrite_members(
+        src,
+        tmp_path / "meta_charset.epub",
+        replace={
+            '<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head>': (
+                '<html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="gbk"/>'
+            )
+        },
+        encodings={"OEBPS/chap_1.xhtml": "gbk"},
+    )
+    result = EpubExtractor().extract(src)
+    assert "元信息声明的正文" in result.text
+
+
 def test_epub_not_a_zip_raises_corrupt(tmp_path):
     src = tmp_path / "broken.epub"
     src.write_bytes(b"not a zip archive")

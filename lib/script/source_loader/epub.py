@@ -71,6 +71,24 @@ def _parse_xml(data: bytes) -> ET.Element:
     return ET.fromstring(data)
 
 
+def _decode_chapter(data: bytes) -> str | bytes:
+    """按 XML 规则解码章节：编码声明优先，无声明时默认 UTF-8。
+
+    带 BOM、声明的编码无法解码、或不是 UTF-8 也没有声明（如只在 <meta charset> 里声明）时
+    返回原始字节，交给 BeautifulSoup 按 BOM 与 HTML 元信息识别。
+    """
+    if data.startswith((codecs.BOM_UTF8, codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return data
+    declaration = _XML_DECLARATION.match(data)
+    try:
+        if declaration is None:
+            return data.decode("utf-8")
+        codec = codecs.lookup(declaration.group(1).decode("ascii")).name
+        return data[declaration.end() :].decode(codec)
+    except (LookupError, ValueError):
+        return data
+
+
 def _resolve(base_file: str, href: str) -> str:
     """把相对 base_file 的 href 解析成 zip 内路径（去掉 #锚点、解码百分号编码）。"""
     href = unquote(href.split("#", 1)[0].strip())
@@ -145,16 +163,31 @@ def _titles_from_ncx(archive: _Archive, toc_path: str, by_path: dict[str, str]) 
             by_path.setdefault(_resolve(toc_path, contents[0].get("src", "")), title)
 
 
-def _titles_from_nav(archive: _Archive, toc_path: str, by_path: dict[str, str]) -> None:
+def _collect_nav_links(nav: ET.Element, toc_path: str, by_path: dict[str, str]) -> None:
+    for link in _descendants(nav, "a"):
+        href, title = link.get("href"), _text(link)
+        if href and title:
+            by_path.setdefault(_resolve(toc_path, href), title)
+
+
+def _nav_types(nav: ET.Element) -> list[str]:
+    return (nav.get(f"{{{_OPS_NS}}}type") or "").split()
+
+
+def _titles_from_nav_toc(archive: _Archive, toc_path: str, by_path: dict[str, str]) -> None:
+    for nav in _descendants(archive.xml(toc_path), "nav"):
+        if "toc" in _nav_types(nav):
+            _collect_nav_links(nav, toc_path, by_path)
+
+
+def _titles_from_untyped_nav(archive: _Archive, toc_path: str, by_path: dict[str, str]) -> None:
+    """nav 文档没有标 toc 的目录时，取第一个未标类型的 nav；它可能只是页码列表，所以排在 NCX 之后。"""
     navs = _descendants(archive.xml(toc_path), "nav")
-    toc_navs = [n for n in navs if "toc" in (n.get(f"{{{_OPS_NS}}}type") or "").split()]
-    # 没有标 toc 的目录时只回退到未标类型的 nav；landmarks、page-list 等的链接文字不是章节标题。
-    untyped_navs = [n for n in navs if not n.get(f"{{{_OPS_NS}}}type")]
-    for nav in toc_navs or untyped_navs[:1]:
-        for link in _descendants(nav, "a"):
-            href, title = link.get("href"), _text(link)
-            if href and title:
-                by_path.setdefault(_resolve(toc_path, href), title)
+    if any("toc" in _nav_types(n) for n in navs):
+        return
+    untyped = [n for n in navs if not _nav_types(n)]
+    if untyped:
+        _collect_nav_links(untyped[0], toc_path, by_path)
 
 
 def _is_document(item: _ManifestItem) -> bool:
@@ -176,10 +209,13 @@ def _read_book(archive: _Archive) -> list[tuple[str | None, bytes]]:
     ncx = manifest.get(spine.get("toc") or "") or next(
         (it for it in manifest.values() if it.media_type == _NCX_MEDIA_TYPE), None
     )
-    # 目录三级退化的前两级：nav（EPUB 3）优先，NCX 补缺；同一文件取第一条（章节级）标题。
-    sources = [(_titles_from_nav, it.path) for it in manifest.values() if "nav" in it.properties]
+    # 目录三级退化的前两级：标了 toc 的 nav（EPUB 3）优先，其次 NCX，未标类型的 nav 最后补缺；
+    # landmarks、page-list 等其他类型的 nav 不提供标题。同一文件取第一条（章节级）标题。
+    nav_paths = [it.path for it in manifest.values() if "nav" in it.properties]
+    sources = [(_titles_from_nav_toc, path) for path in nav_paths]
     if ncx is not None:
         sources.append((_titles_from_ncx, ncx.path))
+    sources += [(_titles_from_untyped_nav, path) for path in nav_paths]
     by_path: dict[str, str] = {}
     # 目录损坏只影响标题，退化到"第 N 章"，不让整本书解析失败。
     for parse_titles, toc_path in sources:
@@ -212,7 +248,7 @@ class EpubExtractor:
 
         parts: list[str] = []
         for idx, (title, content) in enumerate(chapters, start=1):
-            soup = BeautifulSoup(content, "lxml")
+            soup = BeautifulSoup(_decode_chapter(content), "lxml")
             # 只取 <body>：<head> 里的 <title> 等元数据不是正文。
             body_text = (soup.body or soup).get_text("\n").strip()
             parts.append(f"\n\n# {title or f'第 {idx} 章'}\n\n{body_text}")
