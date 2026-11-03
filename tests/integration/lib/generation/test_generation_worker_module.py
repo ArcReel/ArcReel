@@ -982,6 +982,140 @@ class TestGenerationWorker:
         assert queue.released
 
     @pytest.mark.asyncio
+    async def test_cycle_error_after_claim_rescans_orphans_and_settles_claimed_task(self):
+        """认领之后、登记进槽位之前抛错：这条 running 行由下一次持有 lease 时的孤儿重扫收口。"""
+
+        class _ClaimOnceQueue(FakeWorkerQueue):
+            def __init__(self):
+                super().__init__()
+                self.orphan_scans = 0
+                self.settled = asyncio.Event()
+                self._pending = [{"task_id": "img-stuck", "task_type": "gen_image", "media_type": "image"}]
+
+            async def claim_next_task(self, media_type, **_kwargs):
+                if not self._pending:
+                    return None
+                task = self._pending.pop()
+                # 认领即把行改成 running：之后的孤儿扫描会在库里看到它。
+                self._orphans.append({**task, "status": "running"})
+                return task
+
+            async def list_orphan_tasks_on_start(self):
+                self.orphan_scans += 1
+                return [t for t in self._orphans if t["task_id"] not in {tid for tid, _ in self.failed}]
+
+            async def mark_task_failed(self, task_id, error):
+                result = await super().mark_task_failed(task_id, error)
+                self.settled.set()
+                return result
+
+        projections = 0
+
+        async def _flaky_projection(_task) -> str:
+            nonlocal projections
+            projections += 1
+            if projections == 1:
+                raise TimeoutError("QueuePool limit reached")
+            return "test"
+
+        async def _settle(*, taskless_started_before: datetime | None) -> int:
+            return 0
+
+        queue = _ClaimOnceQueue()
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"test": {"image": 1}}),
+            provider_projection=_flaky_projection,
+            lanes=("image",),
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+            settle_interrupted_calls=_settle,
+        )
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
+
+        await worker.start()
+        try:
+            await asyncio.wait_for(queue.settled.wait(), timeout=2.0)
+        finally:
+            await worker.stop()
+
+        assert queue.orphan_scans >= 2, "出错后下一次持有 lease 时应重扫孤儿"
+        assert [tid for tid, _ in queue.failed] == ["img-stuck"]
+        assert "[restart_lost_image]" in queue.failed[0][1]
+
+    @pytest.mark.asyncio
+    async def test_orphan_rescan_after_cycle_error_skips_tasks_still_active_in_slots(self):
+        """出错后的重扫排除本进程槽位里仍在执行的任务：不标失败，也不重复接续。"""
+
+        class _FlakyLeaseQueue(FakeWorkerQueue):
+            def __init__(self):
+                super().__init__()
+                self.renewals = 0
+                self.orphan_scans = 0
+                self.rescanned = asyncio.Event()
+
+            async def acquire_or_renew_worker_lease(self, name, owner_id, ttl_seconds):
+                self.renewals += 1
+                if self.renewals == 2:
+                    raise TimeoutError("QueuePool limit reached")
+                return True
+
+            async def list_orphan_tasks_on_start(self):
+                self.orphan_scans += 1
+                if self.orphan_scans >= 2:
+                    self.rescanned.set()
+                return self._orphans
+
+        async def _settle(*, taskless_started_before: datetime | None) -> int:
+            return 0
+
+        queue = _FlakyLeaseQueue()
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"test": {"image": 1, "video": 1}}),
+            provider_projection=_fixed_projection,
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+            settle_interrupted_calls=_settle,
+        )
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
+
+        dispatched: list[Any] = []
+
+        async def _spy_dispatch(resumable_by_provider):
+            dispatched.append(resumable_by_provider)
+
+        worker._recovery.dispatch_resumable = _spy_dispatch
+
+        # 本进程正在执行的两条任务：库里同样是 running。
+        busy = asyncio.get_running_loop().create_future()
+        worker._slots.register("test", "image", "img-busy", busy)
+        worker._slots.register("test", "video", "vid-busy", busy)
+        queue._orphans = [
+            {"task_id": "img-busy", "status": "running", "task_type": "gen_image", "media_type": "image"},
+            {
+                "task_id": "vid-busy",
+                "status": "running",
+                "task_type": "video",
+                "media_type": "video",
+                "provider_id": "test",
+                "provider_job_id": "job-1",
+            },
+        ]
+
+        await worker.start()
+        try:
+            await asyncio.wait_for(queue.rescanned.wait(), timeout=2.0)
+        finally:
+            busy.set_result(None)
+            await worker.stop()
+
+        assert queue.failed == []
+        assert dispatched == []
+
+    @pytest.mark.asyncio
     async def test_claim_tasks_dispatches_to_correct_pool(self, monkeypatch):
         """Tasks are dispatched to the correct provider slot."""
 

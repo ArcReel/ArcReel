@@ -575,6 +575,11 @@ class GenerationWorker:
                     # 释放 lease，进程里再没有 worker，所有入队请求都报 worker offline，直到重启进程。
                     # 典型来源是负载高峰时连接池取连接超时，等一个心跳间隔重试即可恢复。
                     logger.exception("worker 主循环本轮出错，%.1fs 后重试", self.heartbeat_interval)
+                    # 出错那一轮可能留下 running 行：认领后、登记进槽位前抛错的任务不在本进程槽位里；
+                    # 续约连续出错期间另一进程可能接过 lease 后崩溃。下一次持有 lease 时重扫孤儿收口它们，
+                    # 本进程槽位里的任务由 handle_orphans 排除。_startup_settled 不动：进程存活期间的
+                    # 重扫只收口绑定了任务的调用行。
+                    self._orphan_handled_once = False
                     await self._wait_for_wake(self.heartbeat_interval)
 
             await self._wait_inflight_completion()
