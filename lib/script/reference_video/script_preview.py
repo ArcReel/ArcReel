@@ -193,7 +193,7 @@ def derive_voice_bindings(
                     warnings.append(_warning(WARN_SPEAKER_WITHOUT_AUDIO, name=speaker))
             elif settings.requires_reference_image and speaker not in image_names:
                 warnings.append(_warning(WARN_SPEAKER_AUDIO_NEEDS_IMAGE, name=speaker))
-            elif len(audio_speakers) >= settings.max_reference_audio:
+            elif settings.max_reference_audio is not None and len(audio_speakers) >= settings.max_reference_audio:
                 warnings.append(
                     _warning(WARN_REFERENCE_AUDIO_OVERFLOW, limit=settings.max_reference_audio, name=speaker)
                 )

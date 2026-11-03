@@ -162,10 +162,10 @@ async def _callable_builtin_model(
 
 
 def _with_model_entry(backend: Any, provider_id: str, model_id: str) -> Any:
-    """让视频调用通道按模型对应的条目认定通道能力，与读侧 ``builtin_video_capabilities_for_model`` 同一个条目。
+    """让视频调用通道按模型对应的条目的名字认定请求形态，与读侧 ``builtin_video_capabilities_for_model`` 同一个条目。
 
-    官方收录的模型取清单所引的条目，用户添加的取条目绑定或按名字现查的结果（docs/adr/0104、0105）。调用通道
-    不按条目认定能力时（声明式定义与模型无关）原样返回。
+    官方收录的模型取清单所引的条目，用户添加的取条目绑定或按名字现查的结果（docs/adr/0104、0105）。输入能力
+    不在这里认定：执行闸门把通道声明与同一个条目两侧求值。调用通道不读条目时（声明式定义与模型无关）原样返回。
     """
     rebind = getattr(backend, "with_catalog_entry", None)
     if not callable(rebind):

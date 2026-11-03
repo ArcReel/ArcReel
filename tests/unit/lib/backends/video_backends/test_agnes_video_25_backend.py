@@ -249,12 +249,22 @@ class TestV25PreSubmitValidation:
         ("model", "count"),
         [("agnes-video-2.5-flash", 6), ("agnes-video-2.5", 9)],
     )
-    async def test_reference_image_limit_is_model_specific(self, tmp_path: Path, model: str, count: int):
+    def test_reference_image_limit_is_model_specific(self, tmp_path: Path, model: str, count: int):
+        """各型号的参考图上限来自条目，执行闸门在提交前按两侧求值的结果拒绝。"""
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+        from lib.backends.video_frame_slots import gate_video_request
+
         refs = [_write_image(tmp_path / f"r{i}.png", str(i).encode()) for i in range(count)]
 
-        with _agnes_api() as routes, pytest.raises(VideoCapabilityError) as exc:
-            await _backend(model).generate(_request(tmp_path, reference_images=refs))
+        with pytest.raises(VideoCapabilityError) as exc:
+            gate_video_request(
+                caps=builtin_video_capabilities_for_model("agnes", model),
+                provider="agnes",
+                model=model,
+                prompt="p",
+                has_image=True,
+                reference_images=refs,
+            )
 
         assert exc.value.code == "video_reference_images_exceeded"
         assert exc.value.params["limit"] == (5 if model.endswith("flash") else 8)
-        assert routes.submit.call_count == 0

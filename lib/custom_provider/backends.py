@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import cast
 
-from arcreel_catalog_core import CatalogEntry
+from arcreel_catalog_core import CatalogEntry, VideoFacts
 from arcreel_market_core.video_backend_contract import (
     VideoBackend,
     VideoCapabilities,
@@ -164,9 +164,9 @@ class CustomAudioBackend:
 class CustomVideoBackend:
     """自定义供应商视频生成后端包装类。
 
-    ``video_capabilities`` 可被工厂注入生效能力（系统判定 ⊕ 用户覆盖），此时不再转发被包装
-    backend 的声明——后者只是系统判定的一个来源，用户覆盖必须能翻转执行层看到的能力。未注入
-    时（endpoint 闭包直接构造）回落到转发。
+    ``video_capabilities`` 可被工厂注入生效能力（系统判定与模型条目两侧求值 ⊕ 用户覆盖），此时不再转发
+    被包装 backend 的声明——后者只是通道一侧的来源，模型条目与用户覆盖都要能收窄或翻转执行层看到的能力。
+    未注入时（endpoint 闭包直接构造）回落到转发。
     """
 
     def __init__(
@@ -177,6 +177,7 @@ class CustomVideoBackend:
         model: str,
         video_capabilities: VideoCapabilities | None = None,
         capability_overrides: dict[str, object] | None = None,
+        entry_facts: VideoFacts | None = None,
         endpoint: str | None = None,
         path_overrides: PathOverrides = NO_PATH_OVERRIDES,
     ) -> None:
@@ -185,6 +186,7 @@ class CustomVideoBackend:
         self._model = model
         self._video_capabilities = video_capabilities
         self._capability_overrides = capability_overrides or {}
+        self._entry_facts = entry_facts
         self._endpoint = endpoint
         self._path_overrides = path_overrides
 
@@ -207,14 +209,19 @@ class CustomVideoBackend:
         return None if self._endpoint is None else endpoint_guard(self._endpoint, self._path_overrides)
 
     def with_video_capabilities(
-        self, capabilities: VideoCapabilities, *, overrides: dict[str, object] | None = None
+        self,
+        capabilities: VideoCapabilities,
+        *,
+        overrides: dict[str, object] | None = None,
+        entry_facts: VideoFacts | None = None,
     ) -> CustomVideoBackend:
         """返回注入生效能力的新实例（不就地改写，包装器保持构造后不可变）。
 
-        ``overrides`` 是过滤后的稀疏用户覆盖（`filter_valid_overrides` 的返回值），供
-        `video_capabilities_for_tier` 叠加到档位感知基底上；与 ``capabilities``（系统判定 ⊕
-        覆盖的完整合成结果，供 context-free 的 `video_capabilities` 属性使用）分开传递——
-        两者不能合一，否则档位查询会短路回完整合成结果，见 `video_capabilities_for_tier`。
+        ``overrides`` 是过滤后的稀疏用户覆盖（`filter_valid_overrides` 的返回值），``entry_facts`` 是模型对应条目
+        上的视频事实（ComfyUI 端点不读条目，为 ``None``），两者供 `video_capabilities_for_tier` 在档位感知基底上
+        按同一规则求值；与 ``capabilities``（两侧求值 ⊕ 覆盖的完整合成结果，供 context-free 的
+        `video_capabilities` 属性使用）分开传递——两者不能合一，否则档位查询会短路回完整合成结果，见
+        `video_capabilities_for_tier`。
         """
         return CustomVideoBackend(
             provider_id=self._provider_id,
@@ -222,6 +229,7 @@ class CustomVideoBackend:
             model=self._model,
             video_capabilities=capabilities,
             capability_overrides=overrides,
+            entry_facts=entry_facts,
             endpoint=self._endpoint,
             path_overrides=self._path_overrides,
         )
@@ -234,6 +242,7 @@ class CustomVideoBackend:
             model=self._model,
             video_capabilities=self._video_capabilities,
             capability_overrides=self._capability_overrides,
+            entry_facts=self._entry_facts,
             endpoint=endpoint,
             path_overrides=path_overrides,
         )
@@ -256,6 +265,7 @@ class CustomVideoBackend:
             model=self._model,
             video_capabilities=self._video_capabilities,
             capability_overrides=self._capability_overrides,
+            entry_facts=self._entry_facts,
             endpoint=self._endpoint,
             path_overrides=self._path_overrides,
         )
@@ -291,7 +301,8 @@ class CustomVideoBackend:
     def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None) -> VideoCapabilities:
         """按请求档位收窄能力：以被包装 backend（如 Kling）的档位感知查询为基底——
         `getattr` 探测是否实现（与 `media_generator` 的探测方式一致），未实现则回落其
-        context-free `video_capabilities`——再叠加稀疏用户覆盖（未覆盖字段跟随基底）。
+        context-free `video_capabilities`——与工厂注入的条目事实两侧求值，再叠加稀疏用户覆盖
+        （未覆盖字段跟随求值结果）。没有注入条目事实（ComfyUI 端点、绕过工厂直接构造）时不与条目求值。
 
         不能直接短路返回工厂注入的完整合成结果（`self._video_capabilities`）：那是用
         context-free 的系统判定算出的（对 Kling 等档位敏感 backend 而言是保守声明），工厂
@@ -304,6 +315,10 @@ class CustomVideoBackend:
             if tier_aware is not None
             else self._delegate.video_capabilities
         )
+        if self._entry_facts is not None:
+            from lib.backends.video_capabilities import effective_video_capabilities
+
+            base = effective_video_capabilities(base, self._entry_facts)
         if self._capability_overrides:
             # 合并后不变式与 synthesize 同口径：本路径也是一次「基底 ⊕ 稀疏覆盖」合并，
             # 漏掉就会让档位查询产出 direct ⊕ 上限 0 这种合成侧已挡住的组合。

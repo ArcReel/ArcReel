@@ -433,69 +433,54 @@ class TestArkRetryBehavior:
 
 
 class TestArkModelCapabilities:
-    """测试不同模型的能力映射。"""
+    """方舟通道的声明与按名字对应条目后的生效能力（两侧求值，docs/adr/0104）。
 
-    def test_seedance_1_5_pro_default_model_supports_last_frame(self):
-        """DEFAULT_MODEL：能力表标首尾帧，generate() 下发 role=last_frame。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-251215")
-        assert caps.last_frame is True
+    通道声明与型号名无关；首尾帧、参考图与参考音频按型号的差异来自条目。对应不上条目的型号（未上条目的
+    1.0 系列、上游未来新增、未知后缀）按保守回落取：首帧跟随通道，尾帧与参考音频不开，参考图上限只受通道约束。
+    """
 
-    def test_seedance_1_0_pro_fast_no_last_frame(self):
-        """能力表「图生视频-首尾帧」列该型号标 "-"，但「图生视频-首帧」列仍是 ✅。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-pro-fast-251015")
+    @staticmethod
+    def _effective(model: str):
+        from lib.custom_provider.capabilities import two_sided_video_capabilities
+
+        return two_sided_video_capabilities(endpoint="ark-seedance", model_id=model)
+
+    @pytest.mark.parametrize("model", ["doubao-seedance-1-5-pro-251215", "doubao-seedance-9-9-ultra-future"])
+    def test_channel_declares_every_input_path_regardless_of_model(self, model: str):
+        caps = ArkVideoBackend.video_capabilities_for_model(model)
+        assert caps.text_to_video is True
         assert caps.first_frame is True
-        assert caps.last_frame is False
-
-    def test_seedance_1_0_pro_fast_dot_naming_no_last_frame(self):
-        """上游命名不统一：费用文档用点号 "1.0" 而非连字符 "1-0"，判定须同时兼容两种写法。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1.0-pro-fast")
-        assert caps.last_frame is False
-
-    def test_seedance_1_0_pro_non_fast_supports_last_frame(self):
-        """能力表标首尾帧 ✅；型号名含 "seedance-1-0-pro" 是 "seedance-1-0-pro-fast" 的前缀子串，
-        验证白名单与黑名单的先后顺序不会把非 fast 型号误判为不支持。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-pro-250528")
         assert caps.last_frame is True
+        assert caps.max_reference_images is None
+        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
+        assert caps.max_reference_audio_count is None
 
-    def test_unknown_model_defaults_to_no_last_frame(self):
-        """白名单而非黑名单：能力表之外的未知型号（自定义供应商新配置、上游未来新增）一律保守
-        判定为不支持尾帧，避免错误声明支持而绕过硬拒绝、产生真实供应商调用与扣费。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-9-9-ultra-future")
-        assert caps.last_frame is False
-
-    def test_unknown_suffix_on_known_prefix_does_not_inherit_last_frame(self):
-        """白名单命中要求边界匹配：型号名包含已验证前缀 "seedance-1-5-pro" 但带未知后缀
-        （非纯数字日期戳）时，不能因子串包含关系继承该前缀型号的尾帧能力。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-future")
-        assert caps.last_frame is False
+    @pytest.mark.parametrize("model", ["doubao-seedance-1-5-pro-251215", "doubao-seedance-1.5-pro"])
+    def test_seedance_1_5_pro_entry_opens_last_frame_and_rejects_references(self, model: str):
+        """1.5 Pro 的条目记录首尾帧可用、参考图不接受（显式 0），参考生视频不再是候选，带参考图在执行时被拒。"""
+        caps = self._effective(model)
+        assert caps.last_frame is True
+        assert caps.max_reference_images == 0
+        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
 
     @pytest.mark.parametrize(
-        "model", ["doubao-seedance-1-5-pro-251215", "doubao-seedance-1.5-pro", "dreamina-seedance-1-5-pro"]
+        "model",
+        [
+            "doubao-seedance-1-0-pro-fast-251015",
+            "doubao-seedance-1-0-lite-t2v-250428",
+            "doubao-seedance-9-9-ultra-future",
+            "doubao-seedance-1-5-pro-future",
+            "doubao-seedance-2-0-future",
+        ],
     )
-    def test_seedance_1_5_pro_declares_reference_images(self, model: str):
-        """1.5 pro 是既有的参考生视频可用路径：_create_task 对任何 model 都序列化 role=reference_image，
-        编排层按 registry 的 9 张派图。此处声明 0 会让 gate_video_request 把这些请求整批拒掉。"""
-        caps = ArkVideoBackend.video_capabilities_for_model(model)
-        assert caps.max_reference_images == 9
-
-    def test_unknown_model_declares_no_reference_images(self):
-        """未上表型号保守判 0：与尾帧同口径，不为未知型号假设参考图容量。"""
-        assert (
-            ArkVideoBackend.video_capabilities_for_model("doubao-seedance-9-9-ultra-future").max_reference_images == 0
-        )
-        assert ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-future").max_reference_images == 0
-
-    def test_seedance_1_0_lite_t2v_no_last_frame(self):
-        """纯文生视频型号，能力表「图生视频-首帧」「图生视频-首尾帧」均标 "-"，不接受任何图片输入。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-lite-t2v-250428")
-        assert caps.first_frame is False
-        assert caps.last_frame is False
-
-    def test_seedance_1_0_lite_i2v_supports_last_frame(self):
-        """能力表标首尾帧 ✅，且型号名含 "lite-t2v" 判定串的邻近变体，验证不误命中。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-lite-i2v-250428")
+    def test_model_without_entry_falls_back_conservatively(self, model: str):
+        """对应不上条目：首帧跟随通道，尾帧与参考音频不开，参考图上限只受通道约束（通道不设上限，为未收录）。"""
+        caps = self._effective(model)
         assert caps.first_frame is True
-        assert caps.last_frame is True
+        assert caps.last_frame is False
+        assert caps.max_reference_images is None
+        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+        assert caps.max_reference_audio_count == 0
 
     @pytest.mark.parametrize(
         "model",
@@ -509,13 +494,15 @@ class TestArkModelCapabilities:
         ],
     )
     def test_seedance_2_known_variants_support_last_frame(self, model: str):
-        caps = ArkVideoBackend.video_capabilities_for_model(model)
+        caps = self._effective(model)
         assert caps.last_frame is True
+        assert caps.max_reference_images == 9
+        assert caps.max_reference_audio_count == 3
 
-    @pytest.mark.parametrize("model", ["doubao-seedance-2-5-260628", "doubao-seedance-2.5", "dreamina-seedance-2-5"])
+    @pytest.mark.parametrize("model", ["doubao-seedance-2-5-260628", "doubao-seedance-2.5"])
     def test_seedance_2_5_declares_own_material_limits(self, model: str):
-        """2.5 的素材上限比 2.0 宽（参考图 30 / 音频 10 段 30 秒），不得沿用 2.0 的一档。"""
-        caps = ArkVideoBackend.video_capabilities_for_model(model)
+        """2.5 的素材上限比 2.0 宽（参考图 30 / 音频 10 段 30 秒），来自 2.5 自己的条目。"""
+        caps = self._effective(model)
         assert caps.last_frame is True
         assert caps.max_reference_images == 30
         assert caps.reference_audio_mode == ReferenceAudioMode.DIRECT
@@ -523,7 +510,7 @@ class TestArkModelCapabilities:
         assert caps.max_reference_audio_total_seconds == 30.0
 
     def test_seedance_2_5_requires_adaptive_first_frame_ratio(self):
-        """有首帧时比例交给上游按首帧自适应：下发固定 ratio 会与首帧尺寸冲突。"""
+        """有首帧时比例交给上游按首帧自适应：下发固定 ratio 会与首帧尺寸冲突。这是请求形态，仍由通道按名字声明。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-5-260628")
         assert caps.first_frame_ratio_adaptive_only is True
 
@@ -544,25 +531,11 @@ class TestArkModelCapabilities:
         )
 
     def test_seedance_2_0_keeps_passthrough_first_frame_ratio(self):
-        """2.0 未声明 adaptive：比例语义与素材上限按 2.0 自己的档位，不随 2.5 分支走。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-260128")
-        assert caps.first_frame_ratio_adaptive_only is False
-        assert caps.max_reference_images == 9
-        assert caps.max_reference_audio_count == 3
-
-    def test_seedance_2_5_unknown_suffix_does_not_inherit_verified_caps(self):
-        """未验证的 2.5 变体只保留族群级的参考图容量，尾帧与参考音频不继承。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-5-future")
-        assert caps.last_frame is False
-        assert caps.reference_audio_mode == ReferenceAudioMode.NONE
-        assert caps.max_reference_audio_count == 0
-        assert caps.max_reference_audio_total_seconds is None
-
-    def test_seedance_2_unknown_suffix_does_not_inherit_last_frame(self):
-        """白名单命中要求边界匹配：型号名包含已验证前缀 "seedance-2-0" 但带未知后缀
-        （非已验证的 fast/mini/日期戳形态）时，不能因子串包含关系继承 2.0 系列的尾帧能力。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-future")
-        assert caps.last_frame is False
+        """2.0 未声明 adaptive：比例语义不随 2.5 分支走。"""
+        assert (
+            ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-260128").first_frame_ratio_adaptive_only
+            is False
+        )
 
 
 class TestArkPollBudget:
@@ -655,7 +628,8 @@ class TestArkServiceTierParam:
 
         assert captured["model"] == "ep-20261103-opaque"
         assert ("service_tier" in captured) is sends_tier
-        assert backend.video_capabilities.max_reference_images == (9 if bound else 0)
+        # 通道声明与绑定无关：输入能力由条目与通道两侧求值，不在 backend 上按名字或绑定改写
+        assert backend.video_capabilities.max_reference_images is None
 
     async def test_seedance_1_5_sends_service_tier(self, ark_backend, tmp_path):
         output = tmp_path / "out.mp4"
@@ -817,27 +791,29 @@ class TestArkReferenceAudio:
         assert view["content"] == "<1 audio_url, 1 image_url, 1 text>"
         assert view["prompt"] == "两人对话"
 
+    @staticmethod
+    def _effective(model: str):
+        from lib.custom_provider.capabilities import two_sided_video_capabilities
+
+        return two_sided_video_capabilities(endpoint="ark-seedance", model_id=model)
+
     def test_seedance_2_declares_audio_capability(self):
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-260128")
+        caps = self._effective("doubao-seedance-2-0-260128")
         assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
         assert caps.max_reference_audio_count == 3
 
-    @pytest.mark.parametrize(
-        "model",
-        ["doubao-seedance-2.0-fast", "doubao-seedance-2-0-mini-260615", "dreamina-seedance-2-0-260128"],
-    )
+    @pytest.mark.parametrize("model", ["doubao-seedance-2.0-fast", "doubao-seedance-2-0-mini-260615"])
     def test_seedance_2_variants_declare_audio_capability(self, model):
-        assert ArkVideoBackend.video_capabilities_for_model(model).reference_audio_mode is ReferenceAudioMode.DIRECT
+        assert self._effective(model).reference_audio_mode is ReferenceAudioMode.DIRECT
 
     def test_unverified_seedance_2_variant_does_not_inherit_audio(self):
-        """未上表的 2.0 变体不得因子串包含关系继承音频参考能力（与尾帧同一白名单口径）。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-future")
+        """对应不上条目的 2.0 变体不开参考音频：条目未收录参考音频时不开。"""
+        caps = self._effective("doubao-seedance-2-0-future")
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
         assert caps.max_reference_audio_count == 0
 
     def test_seedance_1_5_declares_no_audio_capability(self):
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-251215")
-        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+        assert self._effective("doubao-seedance-1-5-pro-251215").reference_audio_mode is ReferenceAudioMode.NONE
 
     async def test_reference_audio_sent_as_audio_url_entries(self, tmp_path):
         """每段音频发一条 type=audio_url + role=reference_audio，且顺序与请求字段一致。"""

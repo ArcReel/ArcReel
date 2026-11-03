@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -47,9 +46,7 @@ from lib.backends.image_backends.base import image_to_base64_data_uri
 from lib.backends.providers import PROVIDER_AGNES
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import (
-    UNRECOGNIZED_MODEL_CAPABILITIES,
     EntryBoundCapabilities,
-    capabilities_by_names,
     match_by_names,
 )
 from lib.billing.metering import Usage
@@ -81,9 +78,8 @@ _V25_MODEL = "agnes-video-2.5"
 _V25_ASPECT_RATIOS = frozenset({"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"})
 _V25_RESOLUTIONS = {"720P": "720P", "1080P": "1080P", "2K": "2K"}
 _V25_FLASH_RESOLUTIONS = {"720P": "720P"}
-_V25_REFERENCE_LIMITS = {_V25_FLASH_MODEL: 5, _V25_MODEL: 8}
-
-# v2.0 参考图（多图主体）上限；2.5 的 flash / 完整版上限见 _V25_REFERENCE_LIMITS。
+# v2.0 契约的参考图（多图主体）上限，是这份请求结构一次能承载的张数（通道事实）。2.5 契约不在通道一侧限张数，
+# flash 与完整版各接受几张记在模型条目上（docs/adr/0104）。
 _MAX_REFERENCE_IMAGES = 4
 
 # 尺寸约束：长宽被 8 整除、长边收口 1920（保守值，覆盖上游 480p/720p/1080p 三档标准化）。
@@ -192,24 +188,7 @@ def _image_to_data_uri(image_path: Path) -> str:
     return image_to_base64_data_uri(image_path)
 
 
-def _match_video_capabilities(name: str) -> VideoCapabilities | None:
-    """按名字认定的能力；不是已知型号时为 ``None``。"""
-    if name in _V25_REFERENCE_LIMITS:
-        return VideoCapabilities(
-            last_frame=True,
-            max_reference_images=_V25_REFERENCE_LIMITS[name],
-            audio_track=VideoAudioMode.ALWAYS_ON,
-        )
-    if name == _V20_MODEL:
-        return VideoCapabilities(
-            last_frame=True,
-            max_reference_images=_MAX_REFERENCE_IMAGES,
-            audio_track=VideoAudioMode.ALWAYS_OFF,
-        )
-    return None
-
-
-_KNOWN_MODELS = frozenset({_V20_MODEL, *_V25_REFERENCE_LIMITS})
+_KNOWN_MODELS = frozenset({_V20_MODEL, _V25_FLASH_MODEL, _V25_MODEL})
 
 
 def _uses_v25_contract(model: str | None) -> bool:
@@ -329,19 +308,19 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     @staticmethod
     def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """按模型名纯计算 caps —— 不构造 SDK client（无需 api_key）。
+        """Agnes 调用通道的声明（通道事实）—— 纯计算，不构造 SDK client（无需 api_key）。
 
-        首帧 + 尾帧（首尾关键帧）+ 多图主体参考；参考图不与首帧叠加（单通道 + mode 不可叠加）。
-        2.5 系列固定产出音频，flash 与完整版参考图上限分别为 5 / 8；v2.0 保持无声与 4 图上限。
-        这三个型号之外的名字取 name_family 的统一回落，按 v2.0 契约提交、成片无声。
+        两份请求契约都发得出首帧、首尾帧（首尾关键帧）与多图主体参考；参考图不与首帧叠加（单通道 + mode 不可叠加），
+        不收参考音频。v2.0 契约一次最多承载 4 张参考图，2.5 契约不在通道一侧限张数。各型号接受哪些输入、能接受几张
+        参考图记在模型条目上，与本声明两侧求值（``lib.backends.video_capabilities``，docs/adr/0104）。
 
-        instance property 委托至此，保持 backend 为单一真相源。
+        请求契约按名字认定（待按代际拆成调用端点）：2.5 系列固定产出音频，v2.0 与认不得的型号按 v2.0 契约提交、
+        成片无声。instance property 委托至此，保持 backend 为单一真相源。
         """
-        return capabilities_by_names(
-            model,
-            _match_video_capabilities,
-            fallback=replace(UNRECOGNIZED_MODEL_CAPABILITIES, audio_track=VideoAudioMode.ALWAYS_OFF),
-            entry=entry,
+        if _uses_v25_contract(_known_model(model, entry)):
+            return VideoCapabilities(last_frame=True, max_reference_images=None, audio_track=VideoAudioMode.ALWAYS_ON)
+        return VideoCapabilities(
+            last_frame=True, max_reference_images=_MAX_REFERENCE_IMAGES, audio_track=VideoAudioMode.ALWAYS_OFF
         )
 
     @property
@@ -404,7 +383,7 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     def _build_payload(self, request: VideoGenerationRequest) -> dict:
         """按 model 分派旧 v2.0 或 2.5 请求契约。"""
         contract = self._contract_model
-        if contract in _V25_REFERENCE_LIMITS:
+        if contract is not None and _uses_v25_contract(contract):
             return self._build_v25_payload(request, contract)
         return self._build_v20_payload(request)
 
@@ -475,14 +454,7 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
 
         if reference_images:
-            limit = _V25_REFERENCE_LIMITS[contract]
-            if len(reference_images) > limit:
-                raise VideoCapabilityError(
-                    "video_reference_images_exceeded",
-                    model=self._model,
-                    count=len(reference_images),
-                    limit=limit,
-                )
+            # 张数上限是模型事实（flash 5、完整版 8，记在模型条目上），由 gate_video_request 按生效能力在付费前校验。
             payload["mode"] = _V25_REFERENCE_MODE
             payload["images"] = [self._encode_reference(p, data_uri=True) for p in reference_images]
         elif start_image is not None:

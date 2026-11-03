@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 from pathlib import Path
 
 from arcreel_catalog_core import CatalogEntry
@@ -32,7 +31,6 @@ from lib.backends.providers import PROVIDER_VIDU
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import (
-    UNRECOGNIZED_MODEL_CAPABILITIES,
     EntryBoundCapabilities,
     match_by_names,
 )
@@ -106,7 +104,8 @@ _DURATION_RULES: dict[tuple[str, str], list[int]] = {
     ("vidu2.0", "/reference2video"): [4],
 }
 
-# 端点支持的模型集合 —— 用于早期失败提示（依据 docs/api-docs/providers/vidu.md 所列官方文档）
+# 端点支持的模型集合（依据 docs/api-docs/providers/vidu.md 所列官方文档）。型号接受哪些输入以模型条目为准
+# （docs/adr/0104），这里只用来认型号与判定只服务 /reference2video 的型号的 prompt 上限。
 _ENDPOINT_MODELS: dict[str, frozenset[str]] = {
     "/text2video": frozenset({"viduq3-turbo", "viduq3-pro", "viduq2", "viduq1"}),
     "/img2video": frozenset(
@@ -196,45 +195,31 @@ class ViduVideoBackend(EntryBoundCapabilities):
 
     @staticmethod
     def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """按模型名纯计算 caps —— 不构造 client。认不得的型号（见 ``_known_model``）取 name_family 的
-        统一回落，音轨按恒无声声明（只有 q3 系列下发音轨开关），prompt 上限取宽值。
+        """Vidu 调用通道的声明（通道事实）—— 纯计算，不构造 client。
 
-        认得的型号 first_frame/last_frame/reference_images
-        直接查 `_ENDPOINT_MODELS` 的端点白名单，与 `_select_endpoint`/`_build_request` 实际能否
-        派发到 /img2video、/start-end2video、/reference2video 同源：例如 `viduq3` 不在
-        /img2video、/start-end2video 白名单内（只支持 /reference2video），若恒为 True，
-        调用方按声明提交首帧/尾帧会在 `_build_request` 抛 RuntimeError。`max_reference_images`
-        随 `reference_images` 联动归零（与 `kling.py` 同一实现约定一致）：不在 /reference2video
-        白名单的 model 不可能提交参考图，声明非零容量会误导展示层（如自定义供应商的
-        `/video-capabilities`）。
+        通道按请求字段分派到 /text2video、/img2video、/start-end2video、/reference2video 四个端点，对任何型号都
+        发得出文生、首帧、首尾帧与参考图，参考图一次最多 7 张（端点上限，``_build_request`` 同读）；不收参考音频。
+        各型号接受哪些输入记在模型条目上，与本声明两侧求值（``lib.backends.video_capabilities``，docs/adr/0104）。
+        参考图与首尾帧在 Vidu 上是互斥模式：_select_endpoint 见参考图即切 /reference2video，该端点不收首尾帧，
+        _build_request 拒绝两者同带的请求。
+
+        仍按名字认定的只有请求形态（待移进调用端点）：prompt 上限按端点分档（/reference2video 更窄），本函数无
+        端点上下文，只能声明「该 model 无论走哪条端点都成立」的值，只服务 /reference2video 的型号取窄值；音轨开关
+        ``body["audio"]`` 只对 q3 系列下发（_build_request），其余系列默认静音且无开关可下发，故恒无声——与
+        ``generate_audio=... if self._known_model in _Q3_MODELS else False`` 的结算口径同源。认不得的型号取宽 prompt
+        上限、恒无声。
         """
         known = _known_model(model, entry)
-        if known is None:
-            return replace(
-                UNRECOGNIZED_MODEL_CAPABILITIES,
-                max_prompt_chars=_PROMPT_MAX_TEXT2VIDEO,
-                audio_track=VideoAudioMode.ALWAYS_OFF,
-            )
-        reference_images = known in _ENDPOINT_MODELS["/reference2video"]
-        first_frame = known in _ENDPOINT_MODELS["/img2video"]
-        last_frame = known in _ENDPOINT_MODELS["/start-end2video"]
         return VideoCapabilities(
-            text_to_video=known in _ENDPOINT_MODELS["/text2video"],
-            first_frame=first_frame,
-            last_frame=last_frame,
-            max_reference_images=_MAX_REFERENCE_IMAGES if reference_images else 0,
-            # 参考图与首尾帧在 Vidu 上是互斥模式：_select_endpoint 见参考图即切 /reference2video，
-            # 该端点不收首尾帧，_build_request 拒绝两者同带的请求。
-            #
-            # prompt 上限按端点分档（/reference2video 更窄），而本函数无端点上下文，只能声明
-            # 「该 model 无论走哪条端点都成立」的值，不在此处按最窄值误拒多端点 model 合法的
-            # t2v/i2v 请求。
+            text_to_video=True,
+            first_frame=True,
+            last_frame=True,
+            max_reference_images=_MAX_REFERENCE_IMAGES,
             max_prompt_chars=(
-                _PROMPT_MAX_REFERENCE2VIDEO if _serves_only_reference2video(known) else _PROMPT_MAX_TEXT2VIDEO
+                _PROMPT_MAX_REFERENCE2VIDEO
+                if known is not None and _serves_only_reference2video(known)
+                else _PROMPT_MAX_TEXT2VIDEO
             ),
-            # 音轨开关 body["audio"] 只对 q3 系列下发（_build_request），其余系列默认静音且无
-            # 开关可下发，故恒无声——与 `generate_audio=... if self._known_model in _Q3_MODELS else False`
-            # 的结算口径同源。
             audio_track=(VideoAudioMode.CONTROLLABLE if known in _Q3_MODELS else VideoAudioMode.ALWAYS_OFF),
         )
 
@@ -317,10 +302,8 @@ class ViduVideoBackend(EntryBoundCapabilities):
         if endpoint == "/text2video" and request.end_image is not None:
             raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
 
-        # 1) 校验认得的型号 × 端点（提前失败比 400 含义更清晰）；认不得的模型由上游判定
-        endpoint_models = _ENDPOINT_MODELS.get(endpoint, frozenset())
-        if self._known_model is not None and endpoint_models and self._known_model not in endpoint_models:
-            raise RuntimeError(f"Vidu 模型 {self._model} 不支持 {endpoint} 端点；该端点支持: {sorted(endpoint_models)}")
+        # 1) 型号接不接受这条端点的输入由模型条目与通道两侧求值后在 gate_video_request 处判定（docs/adr/0104），
+        #    这里不再按型号白名单拒绝；条目未收录的输入由上游判定。
 
         # 2) duration 在合法集合内取最近值
         duration = _coerce_duration(self._known_model or self._model, endpoint, request.duration_seconds)

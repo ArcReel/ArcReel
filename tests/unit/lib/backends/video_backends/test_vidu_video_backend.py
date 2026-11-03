@@ -38,21 +38,21 @@ class TestBackendBasics:
         backend = ViduVideoBackend(api_key="test-key")
         assert backend.video_capabilities.max_reference_images == 7
 
-    def test_max_reference_images_zero_for_non_reference2video_model(self):
-        # viduq3-pro-fast 支持 /img2video，但不在 /start-end2video、/reference2video 白名单内——
-        # last_frame/reference_images 应为 False，max_reference_images 随 reference_images 归零，
-        # 避免展示层声称支持尾帧/参考图但生成期必然 RuntimeError。
-        backend = ViduVideoBackend(api_key="test-key", model="viduq3-pro-fast")
-        caps = backend.video_capabilities
+    def test_entry_narrows_the_channel_for_non_reference2video_model(self):
+        # 通道实现了四个端点；viduq3-pro 的条目记录不接受参考图（显式 0），两侧求值后参考生视频不开，
+        # 展示层不声称支持参考图，执行时带参考图被拒。
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+
+        assert ViduVideoBackend(api_key="test-key", model="viduq3-pro").video_capabilities.max_reference_images == 7
+        caps = builtin_video_capabilities_for_model("vidu", "viduq3-pro")
         assert caps.first_frame is True
-        assert caps.last_frame is False
-        assert caps.max_reference_images == 0
+        assert caps.last_frame is True
         assert caps.max_reference_images == 0
 
     def test_last_frame_true_for_start_end2video_model(self):
-        # viduq3-turbo 在 /start-end2video 白名单内，last_frame 应为 True。
-        backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
-        assert backend.video_capabilities.last_frame is True
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+
+        assert builtin_video_capabilities_for_model("vidu", "viduq3-turbo").last_frame is True
 
     async def test_marks_resubmit_unsafe_after_task_creation(self, video_output_path: Path):
         backend = ViduVideoBackend(api_key="test-key")
@@ -260,30 +260,13 @@ class TestBuildRequest:
         # range 3..16，5 透传
         assert body["duration"] == 5
 
-    def test_reference2video_with_q3_pro_raises_model_mismatch(self, tmp_path: Path, video_output_path: Path):
-        ref = tmp_path / "r.png"
-        ref.write_bytes(b"x")
-
-        backend = ViduVideoBackend(api_key="test-key", model="viduq3-pro")
-        req = VideoGenerationRequest(
-            prompt="x",
-            output_path=video_output_path,
-            reference_images=[ref],
-            duration_seconds=5,
-        )
-        with pytest.raises(RuntimeError, match="不支持"):
-            backend._build_request(req)
-
     def test_non_q3_model_does_not_send_audio(self, video_output_path: Path):
+        # 型号接不接受文生视频由执行闸门按两侧求值判定；请求构造只管形态：非 q3 型号不带音轨开关
         backend = ViduVideoBackend(api_key="test-key", model="vidu2.0")
-        # vidu2.0 走 img2video，不能 text2video
-        # 这里直接用 reference2video 路径需 ref；走 start-image 演示
-        # 用 monkeypatch 跳过 image_to_data_uri
-        # 简化：直接构造一个 text2video 请求验证 audio 不写入
-        # —— 但 vidu2.0 不在 text2video 集合里，应该 raise
         req = VideoGenerationRequest(prompt="x", output_path=video_output_path, duration_seconds=4)
-        with pytest.raises(RuntimeError, match="不支持"):
-            backend._build_request(req)
+        endpoint, body = backend._build_request(req)
+        assert endpoint == "/text2video"
+        assert "audio" not in body
 
 
 class TestUnsendableInputsRejected:

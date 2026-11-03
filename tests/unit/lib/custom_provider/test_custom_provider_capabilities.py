@@ -15,6 +15,7 @@ from lib.custom_provider.capabilities import (
     synthesize_video_capabilities,
     synthesize_video_capabilities_with_overrides,
     system_video_capabilities,
+    two_sided_video_capabilities,
     video_capabilities_from_definition,
 )
 from lib.custom_provider.endpoints import EndpointSpec, comfyui_endpoint_spec
@@ -232,8 +233,9 @@ class TestSynthesize:
             endpoint="ark-seedance", model_id="doubao-seedance-1-0-pro-fast-251015", overrides={"first_frame": False}
         )
         assert caps.first_frame is False
+        # 对应不上条目：尾帧按保守回落不开，参考图上限只受通道约束（Ark 通道不设上限，为未收录）
         assert caps.last_frame is False
-        assert caps.max_reference_images == 0
+        assert caps.max_reference_images is None
 
     def test_force_on(self):
         caps = synthesize_video_capabilities(
@@ -255,10 +257,10 @@ class TestSynthesize:
     def test_force_off_on_last_frame(self):
         """last_frame 是首批开放的覆盖维度，单独验一遍「系统判定 True → 强制关」。
 
-        用 viduq3-turbo 而非 viduq3：后者不在 /start-end2video、/img2video 白名单内
-        （只支持 /reference2video），系统判定本身就是 False，验不出"强制关"的效果。
+        用 viduq3-turbo 而非 viduq3：后者的条目记录不接受尾帧（只做参考生视频），两侧求值本身就是 False，
+        验不出"强制关"的效果。
         """
-        assert system_video_capabilities(endpoint="vidu-video", model_id="viduq3-turbo").last_frame is True
+        assert two_sided_video_capabilities(endpoint="vidu-video", model_id="viduq3-turbo").last_frame is True
         caps = synthesize_video_capabilities(
             endpoint="vidu-video", model_id="viduq3-turbo", overrides={"last_frame": False}
         )
@@ -276,7 +278,7 @@ class TestSynthesize:
         first = synthesize_video_capabilities(
             endpoint="ark-seedance", model_id="doubao-seedance-1-0-pro-fast-251015", overrides={"last_frame": True}
         )
-        second = system_video_capabilities(endpoint="ark-seedance", model_id="doubao-seedance-1-0-pro-fast-251015")
+        second = two_sided_video_capabilities(endpoint="ark-seedance", model_id="doubao-seedance-1-0-pro-fast-251015")
         assert first.last_frame is True
         assert second.last_frame is False
 
@@ -296,7 +298,7 @@ class TestTolerance:
                 overrides={"last_frame": True, "audio_track": True},
             )
         assert caps.last_frame is True
-        assert caps == VideoCapabilities(first_frame=True, last_frame=True, max_reference_images=0)
+        assert caps == VideoCapabilities(first_frame=True, last_frame=True, max_reference_images=None)
         assert "audio_track" in caplog.text
 
     def test_last_frame_override_ignored_when_endpoint_lacks_end_image_support(self, caplog: pytest.LogCaptureFixture):

@@ -42,3 +42,15 @@ def test_each_state_reads_the_same_way_everywhere(
 
 def test_seconds_limits_take_the_same_rules():
     assert effective_input_limit(path_supported=True, declared=(15.0, 12.5)) == InputLimit.at_most(12.5)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(None, InputLimit.unrecorded()), (0, InputLimit.at_most(0)), (4, InputLimit.at_most(4))],
+)
+def test_from_json_reads_back_the_interface_shape(value: int | None, expected: InputLimit[int]):
+    """存成接口形状的生效值读回后判定不变：不支持与上限为 0 同为 ``0``，都不接受、不裁剪。"""
+    limit = InputLimit.from_json(value)
+    assert limit == expected
+    assert limit.to_json() == value
+    assert InputLimit.from_json(InputLimit.unsupported().to_json()).accepts_input is False

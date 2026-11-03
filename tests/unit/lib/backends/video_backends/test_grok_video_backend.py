@@ -48,7 +48,8 @@ class TestGrokVideoBackend:
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         backend = GrokVideoBackend(api_key="test-key")
-        assert backend.video_capabilities.max_reference_images == 7
+        # 通道实现了参考图且不设上限；各型号的上限来自条目
+        assert backend.video_capabilities.max_reference_images is None
 
     @patch("lib.backends.video_backends.grok.create_grok_client")
     def test_custom_model(self, mock_create):
@@ -306,22 +307,25 @@ class TestGrokVideo15Models:
         assert exc.value.code == "video_reference_audio_unsupported"
         generate.assert_not_awaited()
 
-    def test_1_5_declares_last_frame_and_reference_images(self):
-        from lib.backends.video_backends.grok import GrokVideoBackend
+    @staticmethod
+    def _effective(model: str):
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 
-        caps = GrokVideoBackend.video_capabilities_for_model("grok-imagine-video-1.5")
+        return builtin_video_capabilities_for_model("grok", model)
+
+    def test_1_5_declares_last_frame_and_reference_images(self):
+        caps = self._effective("grok-imagine-video-1.5")
         assert caps.text_to_video is True
         assert caps.first_frame is True
         assert caps.last_frame is True
-        assert caps.max_reference_images == 7
+        # 官方参考生视频页给 1.5 的上限是 14（经典版 7），来自条目
+        assert caps.max_reference_images == 14
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
         assert caps.audio_track is VideoAudioMode.CONTROLLABLE
 
     def test_1_5_lite_declares_neither_reference_images_nor_last_frame(self):
         """官方只写了 lite 的文生与图生视频；真实调用带参考图返回 INVALID_ARGUMENT。"""
-        from lib.backends.video_backends.grok import GrokVideoBackend
-
-        caps = GrokVideoBackend.video_capabilities_for_model("grok-imagine-video-1.5-lite")
+        caps = self._effective("grok-imagine-video-1.5-lite")
         assert caps.text_to_video is True
         assert caps.first_frame is True
         assert caps.last_frame is False
@@ -329,9 +333,7 @@ class TestGrokVideo15Models:
         assert caps.audio_track is VideoAudioMode.CONTROLLABLE
 
     def test_classic_model_keeps_rejecting_last_frame(self):
-        from lib.backends.video_backends.grok import GrokVideoBackend
-
-        caps = GrokVideoBackend.video_capabilities_for_model("grok-imagine-video")
+        caps = self._effective("grok-imagine-video")
         assert caps.last_frame is False
         assert caps.max_reference_images == 7
 

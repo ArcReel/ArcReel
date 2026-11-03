@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import replace
 from pathlib import Path
 
 from openai import AsyncOpenAI
@@ -34,9 +33,7 @@ from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import (
-    UNRECOGNIZED_MODEL_CAPABILITIES,
     EntryBoundCapabilities,
-    capabilities_by_names,
     match_by_names,
 )
 from lib.billing.metering import Usage
@@ -178,25 +175,17 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     @staticmethod
     def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
+        """Sora 调用通道的声明（通道事实）—— 纯计算，不构造 SDK client（无需 api_key）。
 
-        Sora input_reference 为单张首帧图，参考图上限为 1；首帧与参考共享该单槽位。
-        Sora 2 系列能力一致，按名字族认定；其余名字取 name_family 的统一回落。instance property
-        委托至此，保持 backend 为单一真相源。
+        input_reference 为单张首帧图，参考图与首帧共享这一个槽位，通道一次只能承载 1 张；不收尾帧与参考音频。
+        各型号接受哪些输入记在模型条目上，与本声明两侧求值（``lib.backends.video_capabilities``，docs/adr/0104）。
+        instance property 委托至此，保持 backend 为单一真相源。
 
         音轨恒有声：Sora 成片自带音轨，``generate`` 组装的 kwargs 里没有音轨开关字段，用户的
         关闭意图无处可下发。
         """
-        return capabilities_by_names(
-            model,
-            lambda name: (
-                VideoCapabilities(max_reference_images=_INPUT_REFERENCE_SLOTS, audio_track=VideoAudioMode.ALWAYS_ON)
-                if name.startswith("sora-2")
-                else None
-            ),
-            fallback=replace(UNRECOGNIZED_MODEL_CAPABILITIES, audio_track=VideoAudioMode.ALWAYS_ON),
-            entry=entry,
-        )
+        del model, entry
+        return VideoCapabilities(max_reference_images=_INPUT_REFERENCE_SLOTS, audio_track=VideoAudioMode.ALWAYS_ON)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

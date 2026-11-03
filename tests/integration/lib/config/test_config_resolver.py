@@ -872,7 +872,8 @@ class TestUnmatchedCustomVideoModelOverrides:
 
         assert caps["supported_durations"] == [5, 10]
         assert (caps["text_to_video"], caps["first_frame"], caps["last_frame"]) == (True, True, False)
-        assert caps["max_reference_images"] == 0
+        # 对应不上条目：参考图上限只受通道约束，方舟通道不设上限，为未收录
+        assert caps["max_reference_images"] is None
 
     @pytest.mark.parametrize(
         ("model_id", "durations"),
