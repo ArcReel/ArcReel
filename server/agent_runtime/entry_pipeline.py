@@ -18,6 +18,7 @@ from typing import Any, TypeVar
 
 from server.agent_runtime.event_log import (
     ENTRY_SUBTYPE_AGENT_TURN_FAILURE,
+    ENTRY_SUBTYPE_PROVIDER_RETRY,
     ENTRY_TYPE_ASSISTANT,
     REPLAYED_USER_ECHO_ENTRY_UUID_KEY,
     REPLAYED_USER_ECHO_KEY,
@@ -338,6 +339,19 @@ class SessionEntryPipeline:
                 failure = entry.get("failure")
                 if isinstance(failure, dict):
                     logger.warning("agent turn failure failure_observation=%s", failure_observation_json(failure))
+            elif entry.get("type") == "system" and entry.get("subtype") == ENTRY_SUBTYPE_PROVIDER_RETRY:
+                # CLI 子进程的退避/限流原本在 ArcReel 侧零观测：卡顿期后端日志看不到
+                # 任何 backoff/retry/429/529 痕迹。在此打 WARNING，让同类卡顿可直接
+                # 从后端日志定位（退避预算在 CLI/上游一侧，ArcReel 只能观测不能缩短）。
+                logger.warning(
+                    "CLI provider 退避/限流 kind=%s attempt=%s/%s status=%s resets_at=%s session_id=%s",
+                    entry.get("kind"),
+                    entry.get("attempt"),
+                    entry.get("max_retries"),
+                    entry.get("status"),
+                    entry.get("resets_at"),
+                    self._session_id_provider(),
+                )
         if len(entries) == 1 and is_interrupt_entry(entries[0]):
             appended = await self._append_interrupt_deduped(session_id, entries[0])
         else:

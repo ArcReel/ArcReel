@@ -44,6 +44,11 @@ ENTRY_SUBTYPE_QUESTION_ANSWER = "question_answer"
 ENTRY_SUBTYPE_AGENT_TURN_FAILURE = "agent_turn_failure"
 ENTRY_SUBTYPE_COMPACT_SUMMARY = "compact_summary"
 ENTRY_SUBTYPE_SUBAGENT_OUTCOME = "subagent_outcome"
+# CLI 子进程自带的退避/限流观测条目。Agent 的 LLM 对话跑在 CLI 子进程里，
+# 上游瞬态失败/限流时 CLI 以 system/api_retry 帧上报重试尝试、以
+# rate_limit_event 帧上报限流状态；这两类帧过去在 normalize 里被静默丢弃，
+# 卡顿期后端日志看不到任何退避痕迹。定型为该子类型后可落 transcript、可打日志。
+ENTRY_SUBTYPE_PROVIDER_RETRY = "provider_retry"
 
 SYSTEM_SUBTYPE_SKILL_INVOCATION = "skill_invocation"
 
@@ -354,6 +359,43 @@ class SdkMessageNormalizer:
             }
             _copy_parent(message, sys_entry)
             return [sys_entry]
+
+        if msg_type == "system" and message.get("subtype") == "api_retry":
+            # api_retry 的 attempt/max_retries 落在 SystemMessage.data 子字典里
+            # （序列化后形如 {subtype, type:"system", data:{...}}）；live 与
+            # transcript 两路都兼容：优先取 data 子字典，缺失时回退顶层。
+            raw_data = message.get("data")
+            data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else message
+            retry_entry: dict[str, Any] = {
+                "type": ENTRY_TYPE_SYSTEM,
+                "subtype": ENTRY_SUBTYPE_PROVIDER_RETRY,
+                "kind": "api_retry",
+                "attempt": data.get("attempt"),
+                "max_retries": data.get("max_retries"),
+                "uuid": message.get("uuid") or f"provider-retry-{uuid4().hex}",
+                "timestamp": message.get("timestamp") or utc_now_iso(),
+            }
+            _copy_parent(message, retry_entry)
+            return [retry_entry]
+
+        if msg_type == "rate_limit_event":
+            # RateLimitInfo 经 serialize_value 后键为 snake_case（status /
+            # resets_at / rate_limit_type）；camelCase 仅保留在 raw 里，这里读
+            # snake_case。
+            raw_info = message.get("rate_limit_info")
+            info: dict[str, Any] = raw_info if isinstance(raw_info, dict) else {}
+            rate_limit_entry: dict[str, Any] = {
+                "type": ENTRY_TYPE_SYSTEM,
+                "subtype": ENTRY_SUBTYPE_PROVIDER_RETRY,
+                "kind": "rate_limit",
+                "status": info.get("status"),
+                "resets_at": info.get("resets_at"),
+                "rate_limit_type": info.get("rate_limit_type"),
+                "uuid": message.get("uuid") or f"provider-retry-{uuid4().hex}",
+                "timestamp": message.get("timestamp") or utc_now_iso(),
+            }
+            _copy_parent(message, rate_limit_entry)
+            return [rate_limit_entry]
 
         return []
 

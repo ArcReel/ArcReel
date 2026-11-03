@@ -157,6 +157,23 @@ class TestMessageToDict:
         result = message_to_dict({"type": "custom", "value": 1})
         assert result == {"type": "custom", "value": 1}
 
+    def test_rate_limit_event_gets_type_and_serialized_info(self):
+        """RateLimitEvent 须经 message_to_dict 带上 type=rate_limit_event，
+        否则 normalize 认不出它（rate_limit_info 序列化为含 status 的 dict）。"""
+        from claude_agent_sdk.types import RateLimitEvent, RateLimitInfo
+
+        event = RateLimitEvent(
+            rate_limit_info=RateLimitInfo(status="allowed_warning", resets_at=123456, rate_limit_type="five_hour"),
+            uuid="u1",
+            session_id="s1",
+        )
+        result = message_to_dict(event)
+        assert result["type"] == "rate_limit_event"
+        assert isinstance(result["rate_limit_info"], dict)
+        assert result["rate_limit_info"]["status"] == "allowed_warning"
+        assert result["rate_limit_info"]["resets_at"] == 123456
+        assert result["rate_limit_info"]["rate_limit_type"] == "five_hour"
+
 
 class TestBuildRuntimeStatusMessage:
     def test_error_status(self):

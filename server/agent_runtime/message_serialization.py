@@ -22,6 +22,7 @@ MESSAGE_TYPE_MAP = {
     "TaskProgressMessage": "system",
     "TaskNotificationMessage": "system",
     "ConversationResetMessage": "conversation_reset",
+    "RateLimitEvent": "rate_limit_event",
 }
 
 # Typed task message subtypes for precise classification

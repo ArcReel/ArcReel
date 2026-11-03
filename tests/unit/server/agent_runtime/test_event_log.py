@@ -172,6 +172,95 @@ class TestNormalize:
 
 
 # ---------------------------------------------------------------------------
+# 写入点定型 — CLI 退避/限流（api_retry / rate_limit_event）可观测条目
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeProviderRetry:
+    def test_api_retry_with_data_subdict_becomes_provider_retry_entry(self):
+        """CLI 的 api_retry system 帧（attempt/max_retries 在 data 子字典里）定型为
+        provider_retry 条目，不再被静默丢弃。"""
+        entries = normalize_sdk_message_to_entries(
+            {
+                "type": "system",
+                "subtype": "api_retry",
+                "data": {"attempt": 2, "max_retries": 10},
+                "uuid": "r-1",
+                "timestamp": "2026-01-01T00:00:00Z",
+            }
+        )
+        assert entries == [
+            {
+                "type": "system",
+                "subtype": "provider_retry",
+                "kind": "api_retry",
+                "attempt": 2,
+                "max_retries": 10,
+                "uuid": "r-1",
+                "timestamp": "2026-01-01T00:00:00Z",
+            }
+        ]
+
+    def test_api_retry_without_data_wrapper_reads_top_level(self):
+        """字段直接落在顶层（无 data 包裹）时也能取到 attempt/max_retries。"""
+        entries = normalize_sdk_message_to_entries(
+            {"type": "system", "subtype": "api_retry", "attempt": 1, "max_retries": 5}
+        )
+        assert len(entries) == 1
+        assert entries[0]["subtype"] == "provider_retry"
+        assert entries[0]["kind"] == "api_retry"
+        assert entries[0]["attempt"] == 1
+        assert entries[0]["max_retries"] == 5
+        assert entries[0]["uuid"].startswith("provider-retry-")
+        assert entries[0]["timestamp"]
+
+    def test_rate_limit_event_becomes_provider_retry_entry(self):
+        """rate_limit_event（经 MESSAGE_TYPE_MAP 带上 type）定型为 provider_retry，
+        status/resets_at/rate_limit_type 透传（snake_case）。"""
+        entries = normalize_sdk_message_to_entries(
+            {
+                "type": "rate_limit_event",
+                "rate_limit_info": {
+                    "status": "allowed_warning",
+                    "resets_at": 123456,
+                    "rate_limit_type": "five_hour",
+                },
+                "uuid": "rl-1",
+            }
+        )
+        assert len(entries) == 1
+        assert entries[0]["type"] == "system"
+        assert entries[0]["subtype"] == "provider_retry"
+        assert entries[0]["kind"] == "rate_limit"
+        assert entries[0]["status"] == "allowed_warning"
+        assert entries[0]["resets_at"] == 123456
+        assert entries[0]["rate_limit_type"] == "five_hour"
+        assert entries[0]["uuid"] == "rl-1"
+
+    def test_rate_limit_event_missing_info_still_typed(self):
+        entries = normalize_sdk_message_to_entries({"type": "rate_limit_event"})
+        assert len(entries) == 1
+        assert entries[0]["subtype"] == "provider_retry"
+        assert entries[0]["kind"] == "rate_limit"
+        assert entries[0]["status"] is None
+
+    def test_provider_retry_carries_parent_tool_use_id(self):
+        entries = normalize_sdk_message_to_entries(
+            {
+                "type": "system",
+                "subtype": "api_retry",
+                "data": {"attempt": 1, "max_retries": 3},
+                "parent_tool_use_id": "tu-parent",
+            }
+        )
+        assert entries[0]["parent_tool_use_id"] == "tu-parent"
+
+    def test_unknown_system_subtype_still_ignored(self):
+        """回归：无关的未知 system subtype 仍返回空（只认 api_retry）。"""
+        assert normalize_sdk_message_to_entries({"type": "system", "subtype": "status"}) == []
+
+
+# ---------------------------------------------------------------------------
 # 写入点定型 — interrupt / task 通知 XML / AskUserQuestion 答复
 # ---------------------------------------------------------------------------
 

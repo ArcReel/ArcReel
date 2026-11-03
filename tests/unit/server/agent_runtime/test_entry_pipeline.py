@@ -371,6 +371,49 @@ class TestSessionEntryPipeline:
         assert store.entries[1]["subtype"] == "question_answer"
         assert store.entries[1]["answers"] == {"继续吗?": "继续"}
 
+    async def test_api_retry_appends_provider_retry_entry_and_logs_warning(self, caplog):
+        """CLI 的 api_retry 帧落库为 provider_retry 条目并打 WARNING，
+        使卡住期的退避从后端日志可直接定位。"""
+        import logging
+
+        pipeline, store, broadcasts = _make_pipeline()
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.entry_pipeline"):
+            await pipeline.handle_message(
+                {"type": "system", "subtype": "api_retry", "data": {"attempt": 3, "max_retries": 10}}
+            )
+
+        assert len(store.entries) == 1
+        assert store.entries[0]["type"] == "system"
+        assert store.entries[0]["subtype"] == "provider_retry"
+        assert store.entries[0]["kind"] == "api_retry"
+        assert store.entries[0]["attempt"] == 3
+        assert [b["type"] for b in broadcasts] == ["log_entry"]
+        warnings = [r for r in caplog.records if "退避/限流" in r.getMessage()]
+        assert len(warnings) == 1
+        assert "kind=api_retry" in warnings[0].getMessage()
+        assert "s1" in warnings[0].getMessage()
+
+    async def test_rate_limit_event_appends_provider_retry_entry_and_logs_warning(self, caplog):
+        import logging
+
+        pipeline, store, _broadcasts = _make_pipeline()
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.entry_pipeline"):
+            await pipeline.handle_message(
+                {
+                    "type": "rate_limit_event",
+                    "rate_limit_info": {"status": "rejected", "resets_at": 999, "rate_limit_type": "five_hour"},
+                }
+            )
+
+        assert len(store.entries) == 1
+        assert store.entries[0]["subtype"] == "provider_retry"
+        assert store.entries[0]["kind"] == "rate_limit"
+        assert store.entries[0]["status"] == "rejected"
+        warnings = [r for r in caplog.records if "退避/限流" in r.getMessage()]
+        assert len(warnings) == 1
+        assert "kind=rate_limit" in warnings[0].getMessage()
+        assert "status=rejected" in warnings[0].getMessage()
+
     async def test_transient_store_failure_retried(self):
         """瞬时落库失败（SQLite busy 等）有界重试，避免时间线永久空洞。"""
 

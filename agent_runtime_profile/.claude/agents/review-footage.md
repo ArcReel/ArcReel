@@ -12,6 +12,8 @@ tools: Read, Glob, Grep, mcp__arcreel__inspect_video_units
 
 ## 输入
 
+你每次只负责一组（不超过 4 个视频单元）：用一次 `inspect_video_units` 看完本组，必要时按版本号分批（见下）。不要在一组里塞过多单元——联系表图片都进你的上下文，一组太大会让单次上游请求负载过大。
+
 派发消息给出：
 
 - 剧本文件（如 `scripts/episode_1.json`）与本组的视频单元 ID；
