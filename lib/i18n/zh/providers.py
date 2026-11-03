@@ -16,18 +16,19 @@ MESSAGES: dict[str, str] = {
     # 失败文案里目录查不到的供应商（已被删除）的泛称
     "deleted_provider_display_name": "已删除的供应商",
     "deleted_agent_provider_display_name": "已删除的 Agent 供应商",
-    # Provider descriptions
-    "provider_desc_gemini-aistudio": "Google AI Studio 提供 Gemini 系列模型，支持图片、视频和语音生成，适合快速原型和个人项目。",
-    "provider_desc_gemini-vertex": "Google Cloud Vertex AI 企业级平台，支持 Gemini 和 Imagen 模型，提供更高配额和音频生成能力。",
-    "provider_desc_ark": "字节跳动火山方舟 AI 平台，支持 Seedance 视频生成和 Seedream 图片生成，具备音频生成和种子控制能力。",
-    "provider_desc_ark-agent-plan": "火山方舟 Agent Plan 套餐，聚合豆包及多家主流大模型，覆盖文本、图片与视频生成。",
-    "provider_desc_grok": "xAI Grok 模型，支持视频和图片生成。",
-    "provider_desc_openai": "OpenAI 官方平台，支持 GPT-5.4 文本与 GPT Image 图片生成。",
-    "provider_desc_vidu": "生数科技 Vidu 视频生成平台，支持文生视频、图生视频、首尾帧、参考生视频与参考生图，仅图片与视频能力。",
-    "provider_desc_dashscope": "阿里云百炼（Model Studio）全模态平台，支持 Qwen 文本、Qwen-Image / 万相图像与 HappyHorse / 万相视频（含参考生视频）。",
-    "provider_desc_minimax": "MiniMax（海螺）多模态平台，提供文本、图片、视频与语音生成。默认连接国内站，海外可将 base_url 切换到国际站。",
-    "provider_desc_kling": "快手可灵 Kling 视频与图像生成平台。API Key 鉴权适用于全部模型；Access Key + Secret Key（JWT）仅适用于 3.0 及更早模型，二者二选一，同时填写时 API Key 优先。",
-    "provider_desc_agnes": "Agnes 多模态平台（OpenAI 风格），使用 Bearer API Key 鉴权；当前支持图像 / 文本 / 视频生成。",
+    # Provider descriptions：只写平台是什么，取自 docs/api-docs/providers/<id>.md 记录的来源；
+    # 不写模型版本与能力清单，能力标签由模型目录实时得出，写进描述必然过时。
+    "provider_desc_gemini-aistudio": "Google 开发的网页端集成开发环境，用于基于生成式 AI 模型设计应用原型。",
+    "provider_desc_gemini-vertex": "Google Cloud 提供的机器学习服务，已更名为 Gemini Enterprise Agent Platform。",
+    "provider_desc_ark": "字节跳动旗下火山引擎的大模型服务平台（MaaS），面向企业提供模型精调、评测与推理等服务。",
+    "provider_desc_ark-agent-plan": "火山方舟面向个人用户推出的订阅式大模型服务套餐，按积分计费。",
+    "provider_desc_grok": "SpaceX Super Intelligence（原 xAI）的 Grok API，提供其 Grok 系列生成式 AI 模型。",
+    "provider_desc_openai": "美国人工智能公司 OpenAI 的 API 平台，提供其 GPT 系列等生成式 AI 模型。",
+    "provider_desc_vidu": "生数科技的 Vidu API 平台，提供 AI 视频生成能力。",
+    "provider_desc_dashscope": "阿里云的大模型服务平台，提供通义千问（Qwen）等模型的 API 调用、精调与部署。",
+    "provider_desc_minimax": "上海人工智能公司 MiniMax（稀宇科技）的开放平台，提供其多模态模型与海螺视频生成服务。默认连接国内站，海外可将 base_url 切换到国际站。",
+    "provider_desc_kling": "快手推出的生成式 AI 服务可灵的开放平台，用于 AI 视频与图像生成。API Key 鉴权适用于全部模型；Access Key + Secret Key（JWT）仅适用于 3.0 及更早模型，二者二选一，同时填写时 API Key 优先。",
+    "provider_desc_agnes": "Agnes AI 的多模态 AI 平台，通过统一的 API 提供文本、图像与视频生成。",
     # Agent preset notes (lib/agent/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek 官方 Anthropic 兼容端点，需 sk- 开头的 API Key",
     "preset_notes_xiaomi_mimo": "小米 MiMo 仅支持已知模型名，未公开模型列表",

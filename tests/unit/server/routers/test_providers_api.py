@@ -59,7 +59,6 @@ class TestListProviders:
                 ProviderStatus(
                     name="gemini-aistudio",
                     display_name="AI Studio",
-                    description="Google AI Studio",
                     status="ready",
                     media_types=["video", "image"],
                     capabilities=["text_to_video", "image_to_video"],
@@ -69,7 +68,6 @@ class TestListProviders:
                 ProviderStatus(
                     name="ark",
                     display_name="火山方舟",
-                    description="Ark video and image",
                     status="unconfigured",
                     media_types=["video", "image"],
                     capabilities=["text_to_video"],
@@ -113,7 +111,6 @@ class TestListProviders:
                 ProviderStatus(
                     name="untranslated-provider",
                     display_name="Original Provider Name",
-                    description="",
                     status="ready",
                     media_types=[],
                     capabilities=[],
@@ -142,7 +139,6 @@ class TestListProviders:
                 ProviderStatus(
                     name="gemini-aistudio",
                     display_name="AI Studio",
-                    description="Google AI Studio",
                     status="ready",
                     media_types=["video", "image"],
                     capabilities=["text_to_video", "image_to_video"],
@@ -226,7 +222,6 @@ class TestListProviders:
                 ProviderStatus(
                     name="kling",
                     display_name="可灵 Kling",
-                    description="Kling",
                     status="ready",
                     media_types=["video"],
                     capabilities=["text_to_video"],
@@ -284,7 +279,6 @@ class TestListProviders:
                 ProviderStatus(
                     name="ark",
                     display_name="火山方舟",
-                    description="Ark",
                     status="ready",
                     media_types=["video"],
                     capabilities=["text_to_video"],

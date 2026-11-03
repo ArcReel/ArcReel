@@ -79,14 +79,13 @@ class TestCredentialGroups:
     """凭证「二选一」分组声明的 fail-fast 校验。"""
 
     def test_default_empty(self):
-        meta = ProviderMeta(display_name="t", description="t", required_keys=["api_key"], secret_keys=["api_key"])
+        meta = ProviderMeta(display_name="t", required_keys=["api_key"], secret_keys=["api_key"])
         assert meta.credential_groups == []
 
     def test_group_keys_must_be_subset_of_required_and_secret(self):
         with pytest.raises(ValueError, match="credential_groups"):
             ProviderMeta(
                 display_name="t",
-                description="t",
                 required_keys=["api_key"],
                 secret_keys=["api_key"],
                 credential_groups=[["api_key"], ["access_key"]],
@@ -95,7 +94,6 @@ class TestCredentialGroups:
     def test_valid_groups_accepted(self):
         meta = ProviderMeta(
             display_name="t",
-            description="t",
             required_keys=["api_key", "access_key", "secret_key"],
             secret_keys=["api_key", "access_key", "secret_key"],
             credential_groups=[["api_key"], ["access_key", "secret_key"]],
@@ -106,7 +104,6 @@ class TestCredentialGroups:
         with pytest.raises(ValueError, match="空分组"):
             ProviderMeta(
                 display_name="t",
-                description="t",
                 required_keys=["api_key", "access_key", "secret_key"],
                 secret_keys=["api_key", "access_key", "secret_key"],
                 credential_groups=[["api_key"], []],
@@ -116,7 +113,6 @@ class TestCredentialGroups:
         with pytest.raises(ValueError, match="未覆盖"):
             ProviderMeta(
                 display_name="t",
-                description="t",
                 required_keys=["api_key", "access_key", "secret_key"],
                 secret_keys=["api_key", "access_key", "secret_key"],
                 credential_groups=[["api_key"]],
@@ -129,14 +125,13 @@ class TestFullyCoveredCredentialGroups:
     def _kling_meta(self) -> ProviderMeta:
         return ProviderMeta(
             display_name="t",
-            description="t",
             required_keys=["api_key", "access_key", "secret_key"],
             secret_keys=["api_key", "access_key", "secret_key"],
             credential_groups=[["api_key"], ["access_key", "secret_key"]],
         )
 
     def test_no_groups_declared_always_empty(self):
-        meta = ProviderMeta(display_name="t", description="t", required_keys=["api_key"], secret_keys=["api_key"])
+        meta = ProviderMeta(display_name="t", required_keys=["api_key"], secret_keys=["api_key"])
         assert meta.fully_covered_credential_groups({"api_key": "k"}) == []
 
     def test_single_group_fully_submitted(self):
@@ -179,7 +174,6 @@ class TestDefaultConcurrency:
     def test_valid_declaration(self):
         meta = ProviderMeta(
             display_name="T",
-            description="T",
             required_keys=[],
             default_concurrency={"video": 1, "image": 5},
         )
@@ -187,14 +181,13 @@ class TestDefaultConcurrency:
 
     def test_lane_the_provider_does_not_cover_is_allowed(self):
         # 声明合法 lane 名即便该 provider 的模型不覆盖该 media_type 也无害（投影期再归零），不报错
-        meta = ProviderMeta(display_name="T", description="T", required_keys=[], default_concurrency={"image": 2})
+        meta = ProviderMeta(display_name="T", required_keys=[], default_concurrency={"image": 2})
         assert meta.default_concurrency == {"image": 2}
 
     def test_unknown_lane_raises(self):
         with pytest.raises(ValueError, match="未知 lane"):
             ProviderMeta(
                 display_name="T",
-                description="T",
                 required_keys=[],
                 default_concurrency={"vidoe": 1},
             )
@@ -206,7 +199,6 @@ class TestDefaultConcurrency:
         with pytest.raises(ValueError, match=">=1 的整数"):
             ProviderMeta(
                 display_name="T",
-                description="T",
                 required_keys=[],
                 default_concurrency={"video": bad_limit},
             )
