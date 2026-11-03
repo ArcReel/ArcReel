@@ -24,6 +24,7 @@ _DOCUMENT_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
 # 媒体类型声明错误（如写成 application/xml）的章节按扩展名兜底识别。
 _DOCUMENT_EXTENSIONS = (".xhtml", ".html", ".htm")
 _NCX_MEDIA_TYPE = "application/x-dtbncx+xml"
+_PACKAGE_MEDIA_TYPE = "application/oebps-package+xml"
 _OPS_NS = "http://www.idpf.org/2007/ops"
 # expat 原生支持的编码；其余编码（GBK、Big5、Shift_JIS 等）先用 Python 解码再交给解析器。
 _EXPAT_NATIVE_CODECS = frozenset({"utf-8", "utf-16", "utf-16-le", "utf-16-be", "iso8859-1", "ascii"})
@@ -104,15 +105,18 @@ class _Archive:
 
 def _find_package_path(archive: _Archive) -> str:
     container = archive.xml("META-INF/container.xml")
-    for rootfile in _descendants(container, "rootfile"):
-        full_path = rootfile.get("full-path")
-        if full_path:
-            # EPUB 3.3 规定 full-path 是相对容器根目录的 URL；EPUB 2 与部分打包工具写成
-            # zip 内字面路径（可含 #、%），按 URL 找不到时按字面查找。
-            as_url = _resolve("", full_path)
-            literal = posixpath.normpath(full_path.strip()).lstrip("/")
-            return as_url if as_url in archive or literal not in archive else literal
-    raise _EpubFormatError("container.xml 未指定包文档")
+    rootfiles = [r for r in _descendants(container, "rootfile") if r.get("full-path")]
+    # 可同时列出 PDF 等替代格式，按媒体类型选包文档；不规范、未声明媒体类型的条目兜底。
+    packages = [r for r in rootfiles if (r.get("media-type") or "").strip().lower() == _PACKAGE_MEDIA_TYPE]
+    candidates = packages or [r for r in rootfiles if not r.get("media-type")]
+    if not candidates:
+        raise _EpubFormatError("container.xml 未指定包文档")
+    full_path = candidates[0].get("full-path", "")
+    # EPUB 3.3 规定 full-path 是相对容器根目录的 URL；EPUB 2 与部分打包工具写成
+    # zip 内字面路径（可含 #、%），按 URL 找不到时按字面查找。
+    as_url = _resolve("", full_path)
+    literal = posixpath.normpath(full_path.strip()).lstrip("/")
+    return as_url if as_url in archive or literal not in archive else literal
 
 
 def _parse_manifest(package: ET.Element, package_path: str) -> dict[str, _ManifestItem]:

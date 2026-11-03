@@ -105,6 +105,19 @@ def test_epub_package_path_is_resolved_as_url(epub_factory, tmp_path):
     assert "编码路径正文" in result.text
 
 
+def test_epub_selects_package_rootfile_by_media_type(epub_factory, tmp_path):
+    """container.xml 可列多个 rootfile（如替代格式的 PDF），按 OPF 媒体类型选取包文档。"""
+    src = epub_factory([("第一章", "正文。")])
+    src = _rewrite_members(
+        src,
+        tmp_path / "multi_rootfile.epub",
+        replace={"<rootfiles>": '<rootfiles><rootfile full-path="preview.pdf" media-type="application/pdf"/>'},
+    )
+    result = EpubExtractor().extract(src)
+    assert "# 第一章" in result.text
+    assert "正文。" in result.text
+
+
 def test_epub_resolves_percent_encoded_hrefs(epub_factory, tmp_path):
     src = epub_factory([("第一章", "空格文件名正文。")])
     src = _rewrite_members(
