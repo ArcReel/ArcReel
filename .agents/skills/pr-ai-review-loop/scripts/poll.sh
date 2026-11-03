@@ -165,7 +165,7 @@
 #    CodeRabbit's old inline comments get their commit_id advanced when it re-reviews a new HEAD
 #    (in-place edit or thread re-link — exact mechanism unconfirmed). created_at is per-comment-stable.
 #
-# 3. Snapshot author.login omits the [bot] suffix for compatibility; REST user.login
+# 3. Snapshot author.login omits the [bot] suffix; REST user.login
 #    retains it. Consumers must use the right form for each datum.
 #
 # 4. Trigger-command dedup matches comments that START with the command (case-insensitive,
@@ -271,7 +271,7 @@ OWNER_REPO=$(gh api 'repos/{owner}/{repo}' --jq .full_name 2>"$WORKDIR/gh_repo_v
 
 SNAPSHOT_FILE=$(snapshot_file_for "$OWNER_REPO" "$PR")
 
-# REST PR metadata; list endpoints below are reused to assemble the legacy schema.
+# REST PR metadata; with the list endpoints below it is reshaped into main.json.
 gh api "repos/${OWNER_REPO}/pulls/${PR}" > "$WORKDIR/pr.json" 2>"$WORKDIR/gh_pr.err" || {
   echo "POLL_ERROR: REST PR $PR fetch failed" >&2
   cat "$WORKDIR/gh_pr.err" >&2
@@ -365,7 +365,8 @@ if ! rest_pages "repos/${OWNER_REPO}/code-scanning/alerts?state=open" > "$WORKDI
   echo '[]' > "$WORKDIR/sub_e_base.json"
 fi
 
-# Preserve GraphQL-era node IDs, timestamps, and unsuffixed author logins in snapshots.
+# main.json: node_id as id, camelCase timestamps, author.login without [bot]. Snapshot and
+# seen-ledger IDs are node IDs, so the shape must stay stable across poll runs.
 jq -n --slurpfile pr "$WORKDIR/pr.json" --slurpfile reviews "$WORKDIR/sub_c2.json" \
   --slurpfile comments "$WORKDIR/sub_a.json" --slurpfile commits "$WORKDIR/commits.json" '
   {number: $pr[0].number, createdAt: $pr[0].created_at, headRefOid: $pr[0].head.sha,

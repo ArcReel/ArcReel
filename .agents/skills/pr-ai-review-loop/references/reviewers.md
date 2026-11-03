@@ -4,7 +4,7 @@
 
 ## 身份与触发
 
-| Reviewer | GraphQL login | REST login | 自动审查 | 手动触发 |
+| Reviewer | 快照 login | REST login | 自动审查 | 手动触发 |
 |---|---|---|---|---|
 | CodeRabbit | `coderabbitai` | `coderabbitai[bot]` | PR opened、后续 push | `@coderabbitai resume` / `@coderabbitai review` |
 | Codex | `chatgpt-codex-connector` | `chatgpt-codex-connector[bot]` | PR opened、修复 push 后续审 | `@codex review`，仅首次未启动时兜底 |
@@ -20,7 +20,7 @@ CodeRabbit、Codex 自动跟随 push，核对其当前 HEAD 的完成信号。�
 
 从 `is_new` 定位新正文，经 `query.sh ... details <id>...` 批量读取。严重度用于排序，实际内容决定处置；致谢、已确认的撤回与纯风格建议不构成阻塞。flags 与预览或正文冲突时读全文。
 
-`query.sh ... history` / `unacked` 用于查漏，不是“未 ack 就必须修改”的队列。快照不含非 bot 的 inline 回复；核实在案处置时，用 `gh api --paginate repos/<owner>/<repo>/pulls/<pr>/comments` 按 `in_reply_to_id` 关联。顶层处置说明从 `repos/<owner>/<repo>/issues/<pr>/comments` 读取。
+`query.sh ... history` / `unacked` 用于查漏，不是“未 ack 就必须修改”的队列。快照不含非 bot 的 inline 回复；核实在案处置时，用 `gh api 'repos/<owner>/<repo>/pulls/<pr>/comments?per_page=100&page=<N>'` 从第 1 页逐页读到不满 100 条，按 `in_reply_to_id` 关联。不用 `--paginate`：它跟随的下一页链接是数字 ID 路径，只放行 REST 的会话会拒绝。顶层处置说明从 `repos/<owner>/<repo>/issues/<pr>/comments` 读取。
 
 ## CodeRabbit
 
