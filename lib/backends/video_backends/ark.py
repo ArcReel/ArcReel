@@ -38,7 +38,7 @@ from lib.backends.provider_assets import (
 from lib.backends.providers import PROVIDER_ARK
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import EntryBoundCapabilities, capabilities_by_names
+from lib.backends.video_backends.name_family import EntryBoundCapabilities, capabilities_by_names, match_by_names
 from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -279,16 +279,25 @@ class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         return not (ArkVideoBackend._is_seedance_2(model) or ArkVideoBackend._is_seedance_2_5(model))
 
     @staticmethod
-    def estimate_video_tokens(model: str, *, resolution: str | None, ratio: str, seconds: int) -> float | None:
+    def _seedance_pixels(name: str) -> dict[tuple[str, str], tuple[int, int]] | None:
+        """名字所属世代的输出像素表；不是 Seedance 2.0 / 2.5 时为 ``None``。"""
+        if ArkVideoBackend._is_seedance_2_5(name):
+            return _SEEDANCE_2_5_PIXELS
+        if ArkVideoBackend._is_seedance_2(name):
+            return _SEEDANCE_2_PIXELS
+        return None
+
+    @staticmethod
+    def estimate_video_tokens(
+        model: str, *, resolution: str | None, ratio: str, seconds: int, entry: CatalogEntry | None = None
+    ) -> float | None:
         """按官方公式估算一次 Seedance 2.x 请求的视频 token；宽高比为 ``adaptive``、档位或型号不在像素表里时为 ``None``。
 
-        内置调用通道不发送输入视频，输入视频时长恒为 0。
+        世代按模型对应条目的名字认定（``entry`` 是对应的条目，见 name_family），与能力声明同一套名字：不透明的
+        API 模型名绑定了 2.x 条目时按该条目的像素表估算。内置调用通道不发送输入视频，输入视频时长恒为 0。
         """
-        if ArkVideoBackend._is_seedance_2_5(model):
-            pixels = _SEEDANCE_2_5_PIXELS
-        elif ArkVideoBackend._is_seedance_2(model):
-            pixels = _SEEDANCE_2_PIXELS
-        else:
+        pixels = match_by_names(model, ArkVideoBackend._seedance_pixels, entry=entry)
+        if pixels is None:
             return None
         size = pixels.get(((resolution or _SEEDANCE_DEFAULT_RESOLUTION).lower(), ratio))
         if size is None:
@@ -298,18 +307,27 @@ class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     @staticmethod
     def metered_usage(
-        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         视频 token 结算取供应商回报的 ``completion_tokens``（``result.usage_tokens``），预估按
-        :meth:`estimate_video_tokens` 换算。服务档只在请求体带它的型号上上报。
+        :meth:`estimate_video_tokens` 换算。服务档只在请求体带它的型号上上报，与请求构造同一判定。``entry`` 是
+        模型对应的条目，两项都按它认定世代。
         """
         tokens = (
             result.usage_tokens
             if result is not None
             else ArkVideoBackend.estimate_video_tokens(
-                model, resolution=request.resolution, ratio=request.aspect_ratio, seconds=request.duration_seconds
+                model,
+                resolution=request.resolution,
+                ratio=request.aspect_ratio,
+                seconds=request.duration_seconds,
+                entry=entry,
             )
         )
         tier = request.service_tier
@@ -322,7 +340,7 @@ class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             video_tokens=tokens,
             dimensions=(
                 {"service_tier": _CATALOG_SERVICE_TIERS.get(tier, tier)}
-                if ArkVideoBackend._accepts_service_tier(model)
+                if ArkVideoBackend._accepts_service_tier_for(model, entry)
                 else None
             ),
         )

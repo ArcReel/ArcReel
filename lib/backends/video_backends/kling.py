@@ -299,15 +299,16 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
         )
 
     @staticmethod
-    def effective_generate_audio_for_model(model: str) -> bool:
+    def effective_generate_audio_for_model(model: str, entry: CatalogEntry | None = None) -> bool:
         """无逐请求档位上下文时，返回默认执行档真正生效的音频计价参数。
 
         有声受 1080P 约束的 model（v2-6）无从得知调用方将选哪档质量档，保守返回
         False；无约束的有声 model（v3 / v3-omni）只要请求要人声就产出，返回 True。执行期仍由
         ``_effective_audio`` 按请求实际质量档与子路径决定——v3-omni 走多图主体子路径时实际无声，
-        本接口无从得知是否带参考图而返回 True，方向是高估成本（预估偏保守），不会低报。
+        本接口无从得知是否带参考图而返回 True，方向是高估成本（预估偏保守），不会低报。``entry`` 是模型对应的
+        条目，与能力声明同一套名字。
         """
-        caps = _lookup_video_caps(model)
+        caps = _lookup_video_caps(model, entry)
         return caps.generate_audio and not caps.audio_requires_1080p
 
     @property
@@ -359,13 +360,17 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
 
     @staticmethod
     def metered_usage(
-        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         可灵请求体没有分辨率字段，输出档位由 ``mode`` 决定：分辨率维度取 mode 对应的档位（std 720p、pro 1080p、
-        4k 4k）。是否有声按实际发出的 ``sound`` 判定；结算取 ``result`` 上同一口径的有声标志（续跑时由 job_id
-        复原，请求里已没有图片字段可推断子路径）。
+        4k 4k）。是否有声按实际发出的 ``sound`` 判定（``entry`` 是模型对应的条目，与请求构造同一个）；结算取
+        ``result`` 上同一口径的有声标志（续跑时由 job_id 复原，请求里已没有图片字段可推断子路径）。
         """
         return video_usage(
             request,
@@ -374,7 +379,7 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             resolution=_MODE_RESOLUTIONS[
                 KlingVideoBackend._resolve_mode_from(request.resolution, request.service_tier)
             ],
-            audio=KlingVideoBackend._effective_audio_for(model, request, subpath=_subpath_for(request)),
+            audio=KlingVideoBackend._effective_audio_for(model, request, subpath=_subpath_for(request), entry=entry),
         )
 
     def _effective_audio(self, request: VideoGenerationRequest, *, subpath: str) -> bool:
