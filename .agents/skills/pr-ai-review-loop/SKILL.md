@@ -58,4 +58,4 @@ bash scripts/round.sh --repo-root <repo-root> <PR_NUMBER> mark --implemented <n>
 
 达到硬停后，只等待最后一批的必要复审并终核；满足完成条件即可退出，否则停止并交接未决事项。预算耗尽不等于质量通过。
 
-按 escalation.md 需要找用户的事项及时交委派方裁决；reviewer 冲突与其余分歧先核验证据，再自行判断。退出时报告最终 HEAD、轮数、验证结果、关键修复、不修改的依据和未决事项。超出现有记录或范围的线索附依据并区分事实与猜测：委派方是 team-lead 时作为后续事项交给它；否则自行按 escalation.md「不找用户的事项怎么处理」分流。已有记录覆盖的不重复提出。退出前按 [lessons.md](../../../docs/agents/lessons.md)「收尾自查」自查，候选以 `lesson-candidate` 评论发在本 PR。
+按 escalation.md 需要找用户的事项及时交委派方裁决；reviewer 冲突与其余分歧先核验证据，再自行判断。退出时报告最终 HEAD、轮数、验证结果、关键修复、不修改的依据和未决事项。超出现有记录或范围的线索附依据并区分事实与猜测：委派方是 team-lead 时作为 follow-up 交给它；否则自行按 escalation.md「不找用户的事项怎么处理」分流。已有记录覆盖的不重复提出。退出前按 [lessons.md](../../../docs/agents/lessons.md)「收尾自查」自查，候选以 `lesson-candidate` 评论发在本 PR。

@@ -56,7 +56,7 @@ disable-model-invocation: true
 3. 用户决定继续时：已有 issue 恢复标签；Spec gap 先创建并挂为 sub-issue，再重新编排。
 4. 用户决定保留暂停时：仅当相关 commit 已进入 stage branch 才重建 stage，排除该 issue 及其下游；已有 PR 同步更新 `Closes` 清单。重建后重新运行集成审查、验收与审查循环。
 
-可吸收的运行故障、reviewer 重复噪声与无需找用户的裁决由你处理并记账；阻断 **green HEAD** 且无法自行恢复的故障按上文暂停。review-looper 硬停汇报后，由你裁决未决事项并交给新 looper 接力：给出延长的 `rounds`，裁定驳回的意见随委派交它回复。
+可吸收的运行故障、reviewer 重复噪声与无需找用户的裁决由你处理并记账；阻断 **green HEAD** 且无法自行恢复的故障按上文暂停。review-looper 硬停汇报后，由你裁决未决事项并交给新 looper 接力：给出延长的 `rounds`，裁定驳回的发现随委派交它回复。
 
 ## 4. 收尾
 
