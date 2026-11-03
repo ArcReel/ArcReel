@@ -17,7 +17,8 @@ MESSAGES: dict[str, str] = {
     "deleted_provider_display_name": "Deleted provider",
     "deleted_agent_provider_display_name": "Deleted Agent provider",
     # Provider descriptions：只写平台是什么，取自 docs/api-docs/providers/<id>.md 记录的来源；
-    # 不写模型版本与能力清单，能力标签由模型目录实时得出，写进描述必然过时。
+    # 不写模型版本与生成模态清单，能力标签由模型目录实时得出，写进描述必然过时；
+    # 模型家族名（GPT、Qwen 等）属于平台身份，可以写。
     "provider_desc_gemini-aistudio": "Web-based IDE developed by Google for prototyping applications with generative AI models.",
     "provider_desc_gemini-vertex": "Machine learning service offered by Google Cloud, now renamed Gemini Enterprise Agent Platform.",
     "provider_desc_ark": "Large-model service platform (MaaS) from Volcengine, ByteDance's cloud, offering model fine-tuning, evaluation and inference for businesses.",
@@ -27,8 +28,8 @@ MESSAGES: dict[str, str] = {
     "provider_desc_vidu": "ShengShu Technology's Vidu API platform for AI video generation.",
     "provider_desc_dashscope": "Alibaba Cloud's model service platform, offering Qwen and other models with API access, fine-tuning and deployment.",
     "provider_desc_minimax": "Open platform of MiniMax, a Shanghai-based AI company, serving its multimodal models and Hailuo video generation. Connects to the domestic site by default; set base_url to the international site for overseas access.",
-    "provider_desc_kling": "Open platform of Kling AI, Kuaishou's generative AI service for video and image generation. API Key authentication works with all models; Access Key + Secret Key (JWT) only supports 3.0-and-earlier models. Choose either — when both are set, API Key takes priority.",
-    "provider_desc_agnes": "Agnes AI's multimodal AI platform, providing text, image and video generation through one unified API.",
+    "provider_desc_kling": "Open platform of Kling AI, Kuaishou's generative AI service. API Key authentication works with all models; Access Key + Secret Key (JWT) only supports 3.0-and-earlier models. Choose either — when both are set, API Key takes priority.",
+    "provider_desc_agnes": "Agnes AI's multimodal AI platform, serving its generative AI models through one unified API.",
     # Agent preset notes (lib/agent/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek official Anthropic-compat endpoint; needs sk- prefixed key.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo only accepts known model names; no public model list.",
