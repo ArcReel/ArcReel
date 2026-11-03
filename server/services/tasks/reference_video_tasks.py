@@ -40,6 +40,7 @@ from lib.generation.video_request_facts import (
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
+from lib.material.work_files import local_work_files
 from lib.project.project_manager import get_project_manager
 from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.script.reference_video.execution_checkpoint import (
@@ -701,30 +702,34 @@ async def execute_reference_video_task(
         )
         # MediaGenerator compresses only transient derivatives of the immutable staged images. A 413 retry keeps
         # the same high-level media identities and cannot rewrite the once-only checkpoint.
-        output_path, version, _, video_uri = await _named_rejection(
-            constrained_entries,
-            generator.generate_video_async(
-                prompt=rendered_prompt,
-                resource_type="reference_videos",
-                resource_id=resource_id,
-                reference_images=provider_refs,
-                reference_image_asset_uris=_asset_uris(asset_choices),
-                reference_audio_files=provider_audio,
-                reference_audio_targets=reference_audio_targets,
-                aspect_ratio=aspect_ratio,
-                duration_seconds=effective_duration,
-                resolution=resolution,
-                task_id=task_id,
-                before_submit=checkpoint_hook,
-                formal_output=task_id is not None,
-                before_formal_commit=artifact_committer.prepare_selection if artifact_committer is not None else None,
-                commit_formal_output=artifact_committer,
-                visual_basis_digest=visual_basis_digest,
-                generate_audio=request_facts.requested_generate_audio,
-                poll_timeout_seconds=poll_timeout_seconds,
-                warnings=warnings,
-            ),
-        )
+        # 直接调用把项目里的参考图交给供应商：缓存已清理的远端内容版本先取回，调用期间登记使用
+        async with local_work_files(project_path, provider_refs if task_id is None else []):
+            output_path, version, _, video_uri = await _named_rejection(
+                constrained_entries,
+                generator.generate_video_async(
+                    prompt=rendered_prompt,
+                    resource_type="reference_videos",
+                    resource_id=resource_id,
+                    reference_images=provider_refs,
+                    reference_image_asset_uris=_asset_uris(asset_choices),
+                    reference_audio_files=provider_audio,
+                    reference_audio_targets=reference_audio_targets,
+                    aspect_ratio=aspect_ratio,
+                    duration_seconds=effective_duration,
+                    resolution=resolution,
+                    task_id=task_id,
+                    before_submit=checkpoint_hook,
+                    formal_output=task_id is not None,
+                    before_formal_commit=artifact_committer.prepare_selection
+                    if artifact_committer is not None
+                    else None,
+                    commit_formal_output=artifact_committer,
+                    visual_basis_digest=visual_basis_digest,
+                    generate_audio=request_facts.requested_generate_audio,
+                    poll_timeout_seconds=poll_timeout_seconds,
+                    warnings=warnings,
+                ),
+            )
 
         async def _finalize() -> dict[str, Any]:
             return await finalize_reference_video_unit(

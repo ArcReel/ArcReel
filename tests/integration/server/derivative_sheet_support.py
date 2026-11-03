@@ -160,6 +160,16 @@ def build_generator(project_path: Path, backend: Any, *, provider_id: str = "das
     return generator
 
 
+def wire_derivative_generation(monkeypatch: Any, pm: ProjectManager, generator: MediaGenerator) -> None:
+    """把衍生资产图任务的项目管理器与生成上下文接到用例自己的真实项目与生成器上。"""
+    from server.services.tasks import derivative_sheet_tasks
+    from tests.integration.server.services.tasks.generation_tasks_support import fake_resolve_ctx
+
+    monkeypatch.setattr(derivative_sheet_tasks, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(derivative_sheet_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator))
+
+
 def run_derivative_generation(
     pm: ProjectManager,
     project_path: Path,
@@ -173,13 +183,10 @@ def run_derivative_generation(
     from lib.backends.image_backends.dashscope import DashScopeImageBackend
     from server.services.tasks import derivative_sheet_tasks
     from tests.http_capture import capture_http
-    from tests.integration.server.services.tasks.generation_tasks_support import fake_resolve_ctx
 
     generator = build_generator(project_path, DashScopeImageBackend(api_key="sk", model="qwen-image-2.0"))
-    monkeypatch.setattr(derivative_sheet_tasks, "get_project_manager", lambda: pm)
     use_project_manager(monkeypatch, pm)
-    use_generation_context(monkeypatch, fake_resolve_ctx(generator))
-    monkeypatch.setattr(derivative_sheet_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
+    wire_derivative_generation(monkeypatch, pm, generator)
 
     result_bytes = solid_png_bytes(result_rgb)
     with capture_http() as router:

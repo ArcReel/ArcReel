@@ -25,11 +25,11 @@ import tempfile
 import threading
 import time
 from collections import Counter
-from collections.abc import AsyncGenerator, Generator, Iterable
+from collections.abc import AsyncGenerator, Generator, Iterable, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -169,6 +169,102 @@ def _work_files(data: object, project: dict[str, Any]) -> list[_WorkFile]:
             if formal is not None:
                 result.append(_WorkFile(formal, resource_type, resource_id, content_version_id, digest, stored, True))
     return result
+
+
+_INDEX_GUARD = threading.Lock()
+_INDEX_CACHE: dict[str, tuple[tuple[object, ...], dict[str, str]]] = {}
+
+
+def _file_version(path: Path) -> tuple[object, ...] | None:
+    try:
+        stat_result = path.stat()
+    except OSError:
+        return None
+    return (stat_result.st_dev, stat_result.st_ino, stat_result.st_size, stat_result.st_mtime_ns)
+
+
+def remote_work_file_digests(project_path: Path) -> Mapping[str, str]:
+    """项目中远端内容版本的全部工作文件（项目内相对路径 → 记录的内容摘要），不论本地是否在场。
+
+    不取版本锁：版本历史与 project.json 都经原子替换写入，各自读到的是完整的一版；两者任一被替换
+    （stat 标识变化）就重新解析。读取方以此把缓存缺失与正式素材缺失分开，结论在提交前仍由各自的
+    稳定性复核把关。
+    """
+    project_path = Path(project_path)
+    versions_file = project_path / "versions" / "versions.json"
+    version = (_file_version(versions_file), _file_version(project_path / "project.json"))
+    if version[0] is None:
+        return {}
+    key = os.path.abspath(project_path)
+    with _INDEX_GUARD:
+        cached = _INDEX_CACHE.get(key)
+    if cached is not None and cached[0] == version:
+        return cached[1]
+    try:
+        raw = versions_file.read_bytes()
+    except OSError:
+        return {}
+    index: dict[str, str] = {}
+    if b'"storage"' in raw:
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            data = None
+        for item in _work_files(data, _load_project_json(project_path)):
+            index[item.path] = item.digest
+    with _INDEX_GUARD:
+        _INDEX_CACHE[key] = (version, index)
+    return index
+
+
+def absent_work_file_digest(project_path: Path, relative_path: str) -> str | None:
+    """``relative_path`` 是远端内容版本的工作文件、而本地缓存不在时，返回记录的内容摘要。
+
+    文件在本地（应照常读取并校验内容）或它不是远端内容版本的工作文件时返回 ``None``。
+    """
+    digest = remote_work_file_digests(project_path).get(PurePosixPath(relative_path).as_posix())
+    if digest is None or (Path(project_path) / relative_path).exists():
+        return None
+    return digest
+
+
+def _owning_project(path: Path) -> Path | None:
+    for parent in path.parents:
+        if (parent / "project.json").is_file():
+            return parent
+    return None
+
+
+def _absent_digest_at(path: Path) -> str | None:
+    absolute = Path(os.path.abspath(path))
+    project_path = _owning_project(absolute)
+    if project_path is None:
+        return None
+    return absent_work_file_digest(project_path, absolute.relative_to(project_path).as_posix())
+
+
+def material_file_present(path: Path) -> bool:
+    """图片文件是否在场：本地有普通文件，或它是缓存已清理的远端内容版本工作文件（正式素材仍在对象存储）。
+
+    只回答在场；要读字节的调用方先经 :func:`local_work_files` 取回。
+    """
+    return path.is_file() or _absent_digest_at(path) is not None
+
+
+def material_file_digest(path: Path) -> str:
+    """图片文件的内容摘要：文件在本地时按字节计算（照常校验）；它是缓存已清理的远端内容版本工作文件时
+    取版本记录里的摘要，不因缓存缺失而视为正式素材缺失。
+
+    Raises:
+        FileNotFoundError: 文件不在本地，且不是远端内容版本的工作文件。
+    """
+    try:
+        return sha256_file(path)
+    except FileNotFoundError:
+        digest = _absent_digest_at(path)
+        if digest is None:
+            raise
+        return digest
 
 
 def _locked_work_files(project_path: Path) -> list[_WorkFile]:
@@ -345,6 +441,45 @@ async def held_work_files(
         yield
 
 
+def _project_relative_paths(project_path: Path, paths: Iterable[Path | str]) -> tuple[Path, list[str]]:
+    """项目目录的真实路径，以及目录下的路径按真实路径换成的项目内相对路径（去重保序，目录外的不在其列）。"""
+    root = os.path.realpath(project_path)
+    relative: list[str] = []
+    for path in paths:
+        absolute = os.path.realpath(project_path / path)
+        if absolute == root or os.path.commonpath([root, absolute]) != root:
+            continue
+        rel = Path(absolute).relative_to(root).as_posix()
+        if rel not in relative:
+            relative.append(rel)
+    return Path(root), relative
+
+
+@asynccontextmanager
+async def local_work_files(
+    project_path: Path,
+    paths: Iterable[Path | str],
+    *,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+) -> AsyncGenerator[None]:
+    """要实际读取字节的一批项目文件：期间登记使用，缓存已清理的远端内容版本工作文件先取回并校验摘要。
+
+    ``paths`` 是项目内相对路径或项目目录下的绝对路径；不是远端内容版本工作文件的路径原样放行，
+    由调用方照原有逻辑读取。先登记使用再取回，取回后到读取前不会被清理。
+
+    Raises:
+        MaterialConnectionUnavailableError, MaterialFetchFailedError: 远端取回失败。
+    """
+    project_path = Path(project_path)
+    real_root, relative = await asyncio.to_thread(_project_relative_paths, project_path, paths)
+    with contextlib.ExitStack() as stack:
+        # 清理方按它枚举到的项目路径比对登记：调用方的路径写法之外，真实路径写法也登记
+        for rel in relative:
+            stack.enter_context(hold_work_file(real_root / rel))
+        async with held_work_files(project_path, relative, session_factory=session_factory):
+            yield
+
+
 # ---- 清理 -------------------------------------------------------------------------------------
 
 
@@ -411,11 +546,16 @@ __all__ = [
     "MaterialConnectionUnavailableError",
     "MaterialFetchFailedError",
     "RemoteWorkFile",
+    "absent_work_file_digest",
     "cleanup_work_cache",
     "ensure_content_version_file",
     "ensure_work_file",
     "held_work_files",
     "hold_work_file",
+    "local_work_files",
     "locked_remote_work_files",
+    "material_file_digest",
+    "material_file_present",
+    "remote_work_file_digests",
     "remote_work_files",
 ]
