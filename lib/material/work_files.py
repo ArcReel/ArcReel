@@ -327,6 +327,23 @@ async def _download(stored: ObjectLocator, session_factory: async_sessionmaker[A
         raise MaterialFetchFailedError(exc.kind) from exc
 
 
+async def fetch_object_content(
+    stored: ObjectLocator, *, session_factory: async_sessionmaker[AsyncSession] | None = None
+) -> bytes:
+    """按记下的连接与桶取回正式对象的内容，不校验摘要；供项目之外的持有方（全局资产库）安装自己的工作文件。
+
+    Raises:
+        MaterialConnectionUnavailableError: 记录的连接已不存在或已换桶。
+        MaterialFetchFailedError: 下载失败。
+    """
+    return await _download(stored, session_factory or _default_session_factory())
+
+
+def in_use_or_recent(path: Path, stat_result: os.stat_result, idle_before: float) -> bool:
+    """工作文件此刻有使用登记，或在 ``idle_before`` 之后写入或用过；清理须跳过它。"""
+    return _in_use_or_recent(path, stat_result, idle_before)
+
+
 def _install(project_path: Path, work_file: _WorkFile, data: bytes) -> None:
     """校验内容后在版本锁内安装工作文件；记录已变或文件已在时放弃，不覆盖。"""
     from lib.artifacts.version_manager import VersionManager
@@ -550,8 +567,10 @@ __all__ = [
     "cleanup_work_cache",
     "ensure_content_version_file",
     "ensure_work_file",
+    "fetch_object_content",
     "held_work_files",
     "hold_work_file",
+    "in_use_or_recent",
     "local_work_files",
     "locked_remote_work_files",
     "material_file_digest",

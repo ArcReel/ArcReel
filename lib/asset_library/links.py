@@ -20,6 +20,10 @@
 事实，不改变选定，所以入库期间改选了另一张图片，结果仍归属提交时的内容版本，已解除的关系也不会因
 迟到的结果恢复。
 
+**复制**：同一实例里以相同内容保存到全局资产库或应用到另一个项目时，目标经 :func:`copy_usable_links` 得到来源
+可用关联的副本，连同原调用范围。副本由目标独立持有：解除或替换任一副本不改写其他副本；生成时仍按目标实际
+推理凭证的绑定范围选用，复制不授予新账号资格。
+
 生成、导入已有素材与 Agent 工具都经本模块查询与改变关联，不在路由里各自实现。
 """
 
@@ -27,12 +31,13 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -302,6 +307,107 @@ async def record_imported_link(
     return link
 
 
+@dataclass(frozen=True)
+class LinkHolder:
+    """持有关联的一方：某个项目（或全局资产库的保留持有方）里的一个内容。
+
+    ``resource_type`` / ``resource_id`` / ``version`` / ``locator_path`` 只供展示与诊断，查找关联只按
+    ``project_name`` 与 ``content_version_id``。
+    """
+
+    project_name: str
+    content_version_id: str
+    content_digest: str
+    resource_type: str
+    resource_id: str
+    version: int
+    locator_path: str
+
+    @classmethod
+    def of(cls, project_name: str, content_version: ContentVersion) -> LinkHolder | None:
+        """项目里一个内容版本作为持有方；早期没有身份或摘要的记录不能持有关联，返回 ``None``。"""
+        if content_version.id is None or content_version.digest is None:
+            return None
+        material = content_version.material
+        return cls(
+            project_name=project_name,
+            content_version_id=content_version.id,
+            content_digest=content_version.digest,
+            resource_type=material.resource_type,
+            resource_id=material.resource_id,
+            version=content_version.version,
+            locator_path=content_version.locator.path,
+        )
+
+
+async def copy_usable_links(
+    session: AsyncSession, *, source_project: str, source_content_version_id: str, target: LinkHolder
+) -> list[ProviderAssetLink]:
+    """把来源内容当前可用的关联复制给内容相同的目标，返回新建的副本。不提交事务。
+
+    只复制选定、可用且摘要与目标内容一致的关联：关联证明的是这份内容与供应商素材对应，内容不同时不复制。
+    入库中或失败的任务不复制，否则后台会为同一张图重复提交入库。副本保留来源的供应商素材 ID 与冻结的调用范围，
+    以可用状态选定，之后与来源各自解除、互不影响。目标在同一范围已有选定的关联时保留目标自己的。
+    """
+    copies: list[ProviderAssetLink] = []
+    for link in await selected_links(
+        session, project_name=source_project, content_version_id=source_content_version_id
+    ):
+        if not is_usable(link) or link.content_digest != target.content_digest:
+            continue
+        existing = await selected_link(
+            session,
+            project_name=target.project_name,
+            content_version_id=target.content_version_id,
+            scope=scope_of(link),
+        )
+        if existing is not None:
+            continue
+        copy = ProviderAssetLink(
+            project_name=target.project_name,
+            content_version_id=target.content_version_id,
+            content_digest=target.content_digest,
+            resource_type=target.resource_type,
+            resource_id=target.resource_id,
+            version=target.version,
+            locator_path=target.locator_path,
+            origin=link.origin,
+            account_id=link.account_id,
+            account_identity=link.account_identity,
+            site=link.site,
+            region=link.region,
+            provider_project_name=link.provider_project_name,
+            state="active",
+            provider_asset_id=link.provider_asset_id,
+            provider_group_id=link.provider_group_id,
+            submit_name=link.submit_name,
+            selected=True,
+            submitted_at=link.submitted_at,
+            settled_at=link.settled_at,
+            next_check_at=None,
+            check_attempts=0,
+        )
+        await _insert_selected(session, copy)
+        copies.append(copy)
+    return copies
+
+
+async def delete_holder_links(
+    session: AsyncSession, *, project_name: str, content_version_ids: Iterable[str] | None = None
+) -> None:
+    """删除持有方名下这些内容（缺省为全部内容）的关联记录，只删记录，不涉及供应商素材与其他副本。不提交事务。
+
+    供不再持有某个内容的一方（全局资产库条目换图或删除）丢弃它那份副本。
+    """
+    condition = ProviderAssetLink.project_name == project_name
+    if content_version_ids is not None:
+        wanted = set(content_version_ids)
+        if not wanted:
+            return
+        condition = condition & ProviderAssetLink.content_version_id.in_(wanted)
+    await session.execute(delete(ProviderAssetLink).where(condition))
+
+
 async def release_link(session: AsyncSession, link: ProviderAssetLink, *, now: datetime | None = None) -> None:
     """解除关联：只解除当前选定关系，不删除 ArcReel 图片或供应商素材。不提交事务。
 
@@ -328,10 +434,13 @@ async def request_recheck(session: AsyncSession, link: ProviderAssetLink, *, now
 __all__ = [
     "IN_FLIGHT_STATES",
     "UPLOADABLE_RESOURCE_TYPES",
+    "LinkHolder",
     "LinkState",
     "UploadTarget",
     "account_scope",
     "asset_uri",
+    "copy_usable_links",
+    "delete_holder_links",
     "get_link",
     "is_usable",
     "record_imported_link",

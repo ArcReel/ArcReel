@@ -1120,6 +1120,7 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     monkeypatch.setattr("lib.asset_library.ingest.get_project_manager", for_pm)
     monkeypatch.setattr("lib.config.resolver.get_project_manager", for_pm)
     monkeypatch.setattr("lib.project.project_migration_guard.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.assets.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.characters.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.derivative_uploads.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.episode_drafts.get_project_manager", for_pm)
@@ -1191,6 +1192,11 @@ def use_projects_session_factory(monkeypatch, factory) -> None:
     :func:`bind_session_factory` 替换不到。
     """
     monkeypatch.setattr("server.routers.projects.async_session_factory", factory)
+
+
+def use_assets_router_sessions(monkeypatch, factory) -> None:
+    """全局资产库路由经 *factory* 开数据库会话：它在模块顶部绑定了 ``async_session_factory``。"""
+    monkeypatch.setattr("server.routers.assets.async_session_factory", factory)
 
 
 def use_object_storage_sdk(monkeypatch, factory: Callable[..., Any]) -> None:

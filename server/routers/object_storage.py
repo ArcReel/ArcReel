@@ -24,6 +24,7 @@ from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepos
 from lib.infra.api_errors import BadGatewayError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.logging_utils import redact_diagnostic_text
 from lib.material.formal_objects import live_object_count
+from lib.material.global_library import cleanup_global_work_files
 from lib.material.work_files import cleanup_work_cache
 from lib.object_storage.client import ObjectStorageError, is_s3_compatible_endpoint
 from lib.object_storage.connection import load_object_storage_client
@@ -173,11 +174,16 @@ async def check_connection(session: AsyncSession = Depends(get_async_session)) -
 
 @router.post("/work-cache/cleanup", response_model=WorkCacheCleanupResponse)
 async def cleanup_cache(body: WorkCacheCleanupRequest | None = None) -> WorkCacheCleanupResponse:
-    """删除远端素材闲置的本地工作文件；需要时预览与读取会从对象存储重新取回。"""
+    """删除远端素材闲置的本地工作文件（项目与全局资产库）；需要时预览与读取会从对象存储重新取回。"""
     request = body or WorkCacheCleanupRequest()
-    result = await cleanup_work_cache(
-        get_project_manager().projects_dir, min_idle=timedelta(seconds=request.min_idle_seconds)
+    min_idle = timedelta(seconds=request.min_idle_seconds)
+    project_manager = get_project_manager()
+    results = (
+        await cleanup_work_cache(project_manager.projects_dir, min_idle=min_idle),
+        await cleanup_global_work_files(project_manager.data_root, min_idle=min_idle),
     )
     return WorkCacheCleanupResponse(
-        removed=result.removed, freed_bytes=result.freed_bytes, kept_in_use=result.kept_in_use
+        removed=sum(result.removed for result in results),
+        freed_bytes=sum(result.freed_bytes for result in results),
+        kept_in_use=sum(result.kept_in_use for result in results),
     )

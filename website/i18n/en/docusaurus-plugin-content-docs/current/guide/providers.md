@@ -572,6 +572,15 @@ Choose **Select from provider asset library** from the more-actions menu on a pr
 - If the original image cannot be retrieved, nothing is imported, for example when the asset was deleted on the provider side, the access URL has expired, or the network dropped. The original image must be PNG, JPEG, or WebP and no larger than 30 MB. When an import fails, the image keeps its previous version and no link is created; try again later or select another asset.
 - Imports never compress or scale the original image, so the saved version matches the provider asset: asset images keep the original image bytes; derivative images are always saved as PNG, so a PNG original is saved as is and a JPEG or WebP original is converted to PNG with its original pixels.
 
+### Save to the Global Asset Library and Apply to Other Projects {#asset-library-across-projects}
+
+When you save a project asset to the global asset library, or apply an asset from the global asset library to another project, the **Available** links of the current version of its asset image and derivative images go along with the images. They still belong to the original asset library account, site, region, and project.
+
+- What goes along is a copy of each link, held independently by each project or by the global asset library: unlinking or replacing the image in one place does not affect the other copies.
+- Generation still decides whether a link applies by the inference credential actually used for the call. If that credential is bound to a different account, the copied link does not apply and the image content is sent as usual.
+- Only **Available** links are copied. Tasks that are still uploading or that failed are not copied; upload again in the target project if needed.
+- After you delete the source project or asset, the global asset library and the projects it was applied to keep working, and the assets in the provider asset library are not deleted.
+
 ### Use the Asset Library During Generation {#generate-with-asset-library}
 
 Before a reference-to-video request is submitted, ArcReel determines the inference credential the video channel actually uses for this call, finds the asset library account that credential is bound to with a confirmed binding, and then checks, image by image, whether the currently selected version of each reference image has a link in that account. Links created by uploading and by importing follow the same rules.
