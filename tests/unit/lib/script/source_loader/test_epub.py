@@ -254,6 +254,36 @@ def test_epub_toc_with_unknown_xml_encoding_degrades_to_index_titles(epub_factor
     assert "正文一" in result.text
 
 
+def test_epub_landmarks_nav_does_not_override_ncx_titles(epub_factory, tmp_path):
+    """nav 文档只有 landmarks 等非目录导航时，不拿它的链接文字当章节标题。"""
+    src = epub_factory([("第一章 起点", "正文一。")])
+    src = _rewrite_members(
+        src,
+        tmp_path / "landmarks_only.epub",
+        replace={
+            '<nav epub:type="toc"><ol><li><a href="chap_1.xhtml">第一章 起点</a></li></ol></nav>': (
+                '<nav epub:type="landmarks"><ol><li><a href="chap_1.xhtml">Start of Content</a></li></ol></nav>'
+            )
+        },
+    )
+    result = EpubExtractor().extract(src)
+    assert "# 第一章 起点" in result.text
+    assert "Start of Content" not in result.text
+
+
+def test_epub_with_undecodable_utf8_filename_raises_corrupt(tmp_path):
+    """中央目录文件名标记为 UTF-8 却含非法字节时，按损坏文件处理。"""
+    src = tmp_path / "bad_name.epub"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        # 非 ASCII 文件名会被自动标记为 UTF-8，再把它的字节改成非法 UTF-8
+        zf.writestr("META-INF/章.xhtml", "<html/>")
+    name = "章".encode()
+    src.write_bytes(src.read_bytes().replace(name, b"\xff" * len(name)))
+    with pytest.raises(CorruptFileError):
+        EpubExtractor().extract(src)
+
+
 def test_epub_not_a_zip_raises_corrupt(tmp_path):
     src = tmp_path / "broken.epub"
     src.write_bytes(b"not a zip archive")

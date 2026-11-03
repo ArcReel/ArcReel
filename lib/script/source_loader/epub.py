@@ -29,10 +29,10 @@ _OPS_NS = "http://www.idpf.org/2007/ops"
 # expat 原生支持的编码；其余编码（GBK、Big5、Shift_JIS 等）先用 Python 解码再交给解析器。
 _EXPAT_NATIVE_CODECS = frozenset({"utf-8", "utf-16", "utf-16-le", "utf-16-be", "iso8859-1", "ascii"})
 _XML_DECLARATION = re.compile(rb"""^\s*<\?xml[^>]*?\bencoding\s*=\s*["']([A-Za-z0-9._:-]+)["'][^>]*\?>""")
-# 读取条目时上传坏文件的常规结局：压缩数据损坏或 CRC 不符（zlib.error、BadZipFile）、
+# 打开或读取上传的坏 zip 时的常规结局：压缩数据损坏或 CRC 不符（zlib.error、BadZipFile）、
 # 条目截断（EOFError）、加密条目（RuntimeError）、不支持的压缩方式（NotImplementedError）、
-# 本地文件头偏移错乱（ValueError、OSError）。
-_ZIP_READ_ERRORS = (zipfile.BadZipFile, zlib.error, EOFError, RuntimeError, NotImplementedError, ValueError, OSError)
+# 本地文件头偏移错乱或文件名不是合法 UTF-8（ValueError，含 UnicodeDecodeError）、读盘失败（OSError）。
+_ZIP_ERRORS = (zipfile.BadZipFile, zlib.error, EOFError, RuntimeError, NotImplementedError, ValueError, OSError)
 
 
 class _EpubFormatError(Exception):
@@ -90,7 +90,7 @@ class _Archive:
             raise _EpubFormatError(f"缺少文件 {name}")
         try:
             return self._zf.read(name)
-        except _ZIP_READ_ERRORS as exc:
+        except _ZIP_ERRORS as exc:
             raise _EpubFormatError(f"{name} 读取失败: {exc}") from exc
 
     def xml(self, name: str) -> ET.Element:
@@ -148,7 +148,9 @@ def _titles_from_ncx(archive: _Archive, toc_path: str, by_path: dict[str, str]) 
 def _titles_from_nav(archive: _Archive, toc_path: str, by_path: dict[str, str]) -> None:
     navs = _descendants(archive.xml(toc_path), "nav")
     toc_navs = [n for n in navs if "toc" in (n.get(f"{{{_OPS_NS}}}type") or "").split()]
-    for nav in toc_navs or navs[:1]:
+    # 没有标 toc 的目录时只回退到未标类型的 nav；landmarks、page-list 等的链接文字不是章节标题。
+    untyped_navs = [n for n in navs if not n.get(f"{{{_OPS_NS}}}type")]
+    for nav in toc_navs or untyped_navs[:1]:
         for link in _descendants(nav, "a"):
             href, title = link.get("href"), _text(link)
             if href and title:
@@ -201,8 +203,8 @@ class EpubExtractor:
         try:
             with zipfile.ZipFile(path) as zf:
                 chapters = _read_book(_Archive(zf))
-        # 条目读取错误已在 _Archive 内转成 _EpubFormatError；这里另外兜住打开 zip 本身的失败。
-        except (zipfile.BadZipFile, OSError, _EpubFormatError) as exc:
+        # 条目读取错误已在 _Archive 内转成 _EpubFormatError；打开 zip 本身的失败与读取共用同一组异常。
+        except (*_ZIP_ERRORS, _EpubFormatError) as exc:
             raise CorruptFileError(filename=path.name, reason=f"EPUB 解析失败: {exc}") from exc
 
         if not chapters:
