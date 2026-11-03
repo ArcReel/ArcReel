@@ -66,7 +66,8 @@ logger = logging.getLogger(__name__)
 
 #: 正式素材对象的 key 前缀，与中转副本（``arcreel-relay/``）分开。
 FORMAL_PREFIX = "arcreel-materials/"
-#: 新内容版本保存位置的全局设置键；取值 :data:`NewContentTarget`，缺省本地。普通 UI 与 API 暂不开放修改。
+#: 新内容版本保存位置的全局设置键；取值 :data:`NewContentTarget`，缺省本地。设置页经对象存储路由修改，
+#: 没有对象存储连接时不能设为 ``object_storage``。
 MATERIAL_STORAGE_TARGET_SETTING = "material_storage_target"
 NewContentTarget = Literal["local", "object_storage"]
 #: 仍占用连接的对象状态：这些对象在，连接就不能换桶、换 Endpoint 或区域，也不能删除。
@@ -105,6 +106,11 @@ def stores_remotely(resource_type: str) -> bool:
 async def new_content_target(session: AsyncSession) -> NewContentTarget:
     value = await SystemSettingRepository(session).get(MATERIAL_STORAGE_TARGET_SETTING, "local")
     return "object_storage" if value == "object_storage" else "local"
+
+
+async def set_new_content_target(session: AsyncSession, target: NewContentTarget) -> None:
+    """改写新内容版本的保存位置（不提交）。只影响之后的正式提交，已有版本照旧按各自的定位读取。"""
+    await SystemSettingRepository(session).set(MATERIAL_STORAGE_TARGET_SETTING, target)
 
 
 def _default_session_factory() -> async_sessionmaker[AsyncSession]:
@@ -943,6 +949,7 @@ __all__ = [
     "remove_reference",
     "retain_formal_objects",
     "same_connection",
+    "set_new_content_target",
     "stored_object_keys",
     "stores_remotely",
     "sweep_formal_objects",

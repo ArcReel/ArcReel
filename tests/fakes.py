@@ -1138,6 +1138,7 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     monkeypatch.setattr("server.routers.shot_uploads.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.versions.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.currency.upload_finalize.get_project_manager", for_pm)
+    monkeypatch.setattr("server.services.project.end_frame.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.project.provider_asset_import.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.tasks.generation_context.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.tasks.generation_tasks.get_project_manager", for_pm)
