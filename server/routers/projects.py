@@ -125,6 +125,7 @@ from server.services.project.project_activity import project_last_activity_at
 from server.services.project.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
+    provider_asset_link_archive_on,
 )
 from server.services.project.project_cover import resolve_project_cover
 from server.services.project.project_retirement import restore_retired_project, retire_project_on, retiring_project
@@ -191,12 +192,14 @@ def _merge_episode_summaries(project: dict[str, Any], summary: ProjectSummary) -
 
 
 async def get_archive_service() -> ProjectArchiveService:
-    # 在事件循环上构造：导入跑在工作线程里，经捕获的事件循环收尾覆盖掉的现有项目、把导入的图片按全局设置保存。
+    # 在事件循环上构造：导出与导入跑在工作线程里，经捕获的事件循环收尾覆盖掉的现有项目、把导入的图片按全局设置保存，
+    # 并读写归档随带的供应商素材关联。
     bridge = EventLoopBridge.capture()
     return ProjectArchiveService(
         get_project_manager(),
         retire_project=retire_project_on(bridge, async_session_factory),
         formal_commit=formal_commit_on(bridge, async_session_factory),
+        provider_asset_links=provider_asset_link_archive_on(bridge, async_session_factory),
     )
 
 

@@ -581,6 +581,15 @@ When you save a project asset to the global asset library, or apply an asset fro
 - Only **Available** links are copied. Tasks that are still uploading or that failed are not copied; upload again in the target project if needed.
 - After you delete the source project or asset, the global asset library and the projects it was applied to keep working, and the assets in the provider asset library are not deleted.
 
+### Project ZIPs and Provider Asset Links {#asset-library-in-project-zip}
+
+When you export a project ZIP, the **Available** links of the image versions in the package go along with the images. They still belong to the original asset library account, site, region, and project. After you import the ZIP into another ArcReel instance, if the asset library account bound to the inference credential belongs to the same cloud account as the original account, generation uses these assets directly, without uploading again.
+
+- An imported link is used only when the account bound to the inference credential belongs to the same cloud account as the original account and has the same site, region, and project. Otherwise the link is kept but not used, and the image content is sent as usual. Whether an asset can be used is ultimately decided by the provider for each account.
+- Only **Available** links are included. Tasks that are still uploading, waiting for confirmation, or that failed are not included; upload again in the target project after import.
+- A "current version only" ZIP includes links only for the versions that ship in the package. Images whose version records do not ship in the package (such as generated asset images) carry no links.
+- The ZIP contains no asset library Access Keys, signed URLs, or object storage details. If an image in the package has been modified, its link is not imported, and the image is imported as usual.
+
 ### Use the Asset Library During Generation {#generate-with-asset-library}
 
 Before a reference-to-video request is submitted, ArcReel determines the inference credential the video channel actually uses for this call, finds the asset library account that credential is bound to with a confirmed binding, and then checks, image by image, whether the currently selected version of each reference image has a link in that account. Links created by uploading and by importing follow the same rules.
