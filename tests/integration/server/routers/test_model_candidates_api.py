@@ -390,6 +390,134 @@ class TestCustomProviderBucketFiltering:
 
 
 # ---------------------------------------------------------------------------
+# 引用处的下线提示：生命周期与一键切换的目标
+# ---------------------------------------------------------------------------
+
+
+def _entry_ref(option: str, media_type: str = "video") -> str:
+    provider_id, model_id = option.split("/", 1)
+    entry = catalog.provider_model_entry(provider_id, model_id, media_type)
+    assert entry is not None
+    return entry.key.ref
+
+
+def _retire(monkeypatch, option: str, *, successor: str | None, shutdown: date = date(2026, 11, 24)) -> None:
+    """让 ``option`` 所引的条目在 2026-11-24 关停、后继为 ``successor``，今天取关停前一天。"""
+    provider_id, model_id = option.split("/", 1)
+    data = with_entry_changes(factory_snapshot(), provider_id, model_id, shutdown_date=shutdown, successor=successor)
+    install_catalog(monkeypatch, data)
+    set_catalog_today(monkeypatch, date(2026, 11, 23))
+
+
+class TestLifecycleNotices:
+    """``lifecycle``：引用处内联提示的数据源。切换目标是同一供应商下、对应条目为后继、且在该引用位置候选里的供应商模型。"""
+
+    def test_retiring_model_offers_the_same_provider_successor_in_every_layer_it_qualifies_for(
+        self, make_client, monkeypatch
+    ):
+        successor = _entry_ref(DS_R2V)
+        _retire(monkeypatch, DS_I2V_ONLY, successor=successor)
+        with make_client(["dashscope"]) as client:
+            body = client.get(CANDIDATES_URL).json()
+        notice = body["lifecycle"][DS_I2V_ONLY]
+        assert notice["status"] == "retiring"
+        assert notice["shutdown_date"] == "2026-11-24"
+        assert notice["successor"] == successor
+        assert notice["successor_name"] == catalog.get_model(*DS_R2V.split("/", 1)).display_name
+        assert notice["switch_targets"] == {"default": DS_R2V, "i2v": DS_R2V, "r2v": DS_R2V}
+        # 可用的模型不带提示
+        assert DS_R2V not in body["lifecycle"]
+
+    def test_discontinued_model_still_gets_a_notice_though_it_is_no_candidate(self, make_client, monkeypatch):
+        _retire(monkeypatch, DS_I2V_ONLY, successor=_entry_ref(DS_R2V), shutdown=date(2026, 11, 1))
+        with make_client(["dashscope"]) as client:
+            body = client.get(CANDIDATES_URL).json()
+        assert DS_I2V_ONLY not in body["video"]["default"]
+        notice = body["lifecycle"][DS_I2V_ONLY]
+        assert (notice["status"], notice["shutdown_date"]) == ("discontinued", "2026-11-01")
+        assert notice["switch_targets"]["default"] == DS_R2V
+
+    def test_successor_that_does_not_support_the_bucket_is_offered_only_where_it_qualifies(
+        self, make_client, monkeypatch
+    ):
+        _retire(monkeypatch, DS_I2V_ONLY, successor=_entry_ref(DS_T2V_ONLY))
+        with make_client(["dashscope"]) as client:
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][DS_I2V_ONLY]
+        assert notice["switch_targets"] == {"default": DS_T2V_ONLY, "i2v": None, "r2v": None}
+
+    def test_successor_on_another_provider_is_named_but_not_offered(self, make_client, monkeypatch):
+        ark_video = catalog.default_model("ark", "video")
+        assert ark_video is not None
+        successor = _entry_ref(f"ark/{ark_video}")
+        _retire(monkeypatch, DS_I2V_ONLY, successor=successor)
+        with make_client(["dashscope", "ark"]) as client:
+            body = client.get(CANDIDATES_URL).json()
+        assert f"ark/{ark_video}" in body["video"]["default"]
+        notice = body["lifecycle"][DS_I2V_ONLY]
+        assert notice["successor"] == successor
+        assert notice["successor_name"]
+        assert notice["switch_targets"] == {"default": None, "i2v": None, "r2v": None}
+
+    def test_discontinued_successor_is_not_offered(self, make_client, monkeypatch):
+        data = with_entry_changes(
+            factory_snapshot(),
+            "dashscope",
+            DS_I2V_ONLY.split("/", 1)[1],
+            shutdown_date=date(2026, 11, 24),
+            successor=_entry_ref(DS_R2V),
+        )
+        data = with_entry_changes(data, "dashscope", DS_R2V.split("/", 1)[1], discontinued=True)
+        install_catalog(monkeypatch, data)
+        set_catalog_today(monkeypatch, date(2026, 11, 23))
+        with make_client(["dashscope"]) as client:
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][DS_I2V_ONLY]
+        assert notice["switch_targets"] == {"default": None, "i2v": None, "r2v": None}
+
+    async def test_disabled_successor_is_not_offered(self, make_client, session_factory_and_engine, monkeypatch):
+        factory, _engine = session_factory_and_engine
+        _retire(monkeypatch, DS_I2V_ONLY, successor=_entry_ref(DS_R2V))
+        with make_client(["dashscope"], with_model_states=True) as client:
+            async with factory() as session:
+                await BuiltinProviderModelRepository(session).set_enabled("dashscope", DS_R2V.split("/", 1)[1], False)
+                await session.commit()
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][DS_I2V_ONLY]
+        assert notice["switch_targets"] == {"default": None, "i2v": None, "r2v": None}
+
+    async def test_custom_model_switches_to_the_row_bound_to_the_successor(
+        self, make_client, session_factory_and_engine, monkeypatch
+    ):
+        """自定义供应商的模型按条目绑定对应条目；后继取同一供应商里对应到后继条目的模型行，停用的不算。"""
+        factory, _engine = session_factory_and_engine
+        successor = _entry_ref(DS_R2V)
+        _retire(monkeypatch, DS_I2V_ONLY, successor=successor)
+        video = {"endpoint": "openai-video", "display_name": "Relay"}
+        with make_client([]) as client:
+            await _seed_custom_models(
+                factory,
+                [
+                    {**video, "model_id": "relay-old", "is_enabled": True, "entry_binding": _entry_ref(DS_I2V_ONLY)},
+                    {**video, "model_id": "relay-new-off", "is_enabled": False, "entry_binding": successor},
+                    {**video, "model_id": "relay-new", "is_enabled": True, "entry_binding": successor},
+                ],
+            )
+            body = client.get(CANDIDATES_URL).json()
+        old, new = _custom_option(body, "relay-old"), _custom_option(body, "relay-new")
+        notice = body["lifecycle"][old]
+        assert notice["status"] == "retiring"
+        assert notice["switch_targets"] == {"default": new, "i2v": new, "r2v": new}
+
+    def test_text_models_carry_notices_with_a_default_layer_only(self, make_client, monkeypatch):
+        model_id = catalog.default_model("dashscope", "text")
+        assert model_id is not None
+        _retire(monkeypatch, f"dashscope/{model_id}", successor=None)
+        with make_client(["dashscope"]) as client:
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][f"dashscope/{model_id}"]
+        assert notice["status"] == "retiring"
+        assert (notice["successor"], notice["successor_name"]) == (None, None)
+        assert notice["switch_targets"] == {"default": None}
+
+
+# ---------------------------------------------------------------------------
 # 目录名称：供应商名按语言翻译，模型名取目录条目
 # ---------------------------------------------------------------------------
 

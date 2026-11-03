@@ -119,6 +119,7 @@ class ProviderModelItem(BaseModel):
 
     - ``model_id``：设置与项目里引用这个模型的模型键；``api_model_name`` 是发给供应商的模型名。
     - ``display_name``：对应条目的显示名（自定义供应商取用户填写的名字）；没有时为 ``null``，界面显示模型 ID。
+    - ``is_default``：实际生效的默认模型；停用或已下线的模型不标，自定义供应商存下的默认设置不因此改动。
     - ``official``：内置供应商官方收录的模型，只能启用、停用；用户添加的与自定义供应商的模型为 ``false``。
     - ``flags``：``discontinued`` 条目已下线；``retiring`` 条目即将下线（关停日期在 ``lifecycle``）；``unpriced`` 调用费用会记为未定价（对应不上条目或条目没有价格，
       两级倍率之积为 0 时不计费，不标）；``modified`` 用户改过对应的条目，不再随官方更新。
@@ -429,7 +430,8 @@ def _custom_item(row: CustomProviderModel, media_type: MediaType, provider_multi
         display_name=display_name or (entry.display_name if entry is not None else None),
         media_type=media_type,
         enabled=row.is_enabled,
-        is_default=row.is_enabled and row.is_default,
+        # 与内置供应商一致：列表里的默认标记是实际生效的默认，停用或下线后不再标出（默认模型解析同样跳过它）
+        is_default=row.is_enabled and row.is_default and not state.discontinued,
         official=False,
         flags=_flags(entry, provider_multiplier * row.multiplier, state),
         price=_price(entry),

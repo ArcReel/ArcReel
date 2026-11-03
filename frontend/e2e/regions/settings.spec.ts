@@ -66,6 +66,7 @@ function manyModelsOverrides(): ApiOverrides {
         video: { default: video, buckets: { i2v: video, r2v: video } },
         provider_names: Object.fromEntries(LONG_PROVIDERS),
         model_names: modelNames,
+        lifecycle: {},
       },
     },
   };

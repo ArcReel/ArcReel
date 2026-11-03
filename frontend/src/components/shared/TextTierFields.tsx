@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { LayeredModelFields, type LayeredSubField } from "./LayeredModelFields";
+import type { ModelLifecycleNotices } from "./ModelLifecycleNotice";
 
 /** 文本任务档位取值（docs/adr/0051）。字段名即档位键：调用点在代码里固定归档，用户只配置每档 backend。 */
 export interface TextTierValue {
@@ -37,6 +38,8 @@ export interface TextTierFieldsProps {
   auto?: string | null;
   /** 省略即只渲染默认档——创建向导只暴露默认层（docs/adr/0054）。 */
   showTiers?: boolean;
+  /** 下线提示（候选接口的 `lifecycle`）；各档都按默认层取切换目标，文本模型没有任务类型桶。 */
+  lifecycle?: ModelLifecycleNotices;
 }
 
 /**
@@ -55,6 +58,7 @@ export function TextTierFields({
   fallbacks,
   auto,
   showTiers = true,
+  lifecycle,
 }: TextTierFieldsProps) {
   const { t } = useTranslation("templates");
 
@@ -82,6 +86,7 @@ export function TextTierFields({
       providerNames={providerNames}
       modelNames={modelNames}
       subFields={showTiers ? subFields : undefined}
+      lifecycle={lifecycle}
       footnote={
         <p className="border-t border-border pt-3 text-xs text-muted-foreground">
           {t("text_tier_agent_boundary")}

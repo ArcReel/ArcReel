@@ -2097,6 +2097,7 @@ export default {
   'reference_unit_tier_unknown_hint': '{{reason}}. Configure an available {{bucket}} model in project settings, or fix the model under Settings → Providers.',
   'reference_unit_tier_reason_unsupported': 'The current model does not support {{bucket}}',
   'reference_unit_tier_reason_removed': 'The {{bucket}} model was removed or disabled',
+  'reference_unit_tier_reason_discontinued': 'The {{bucket}} model has been discontinued',
   'reference_unit_tier_reason_missing_tiers': 'The {{bucket}} model has no duration tiers',
   'reference_unit_tier_reason_invalid_tiers': 'The {{bucket}} model has invalid duration tiers',
   'reference_unit_tier_reason_incompatible': 'No {{bucket}} duration tier works at the current resolution',
