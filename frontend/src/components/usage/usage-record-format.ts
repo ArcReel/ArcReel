@@ -163,6 +163,7 @@ const INTL_LOCALES: Record<string, string> = {
   zh: "zh-CN",
   en: "en-US",
   vi: "vi-VN",
+  ru: "ru-RU",
 };
 
 function intlLocale(language: string): string {

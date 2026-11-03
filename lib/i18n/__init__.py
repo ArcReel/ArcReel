@@ -13,6 +13,14 @@ from .en import providers as en_providers
 from .en import system as en_system
 from .en import templates as en_templates
 from .en import validation as en_validation
+from .ru import assets as ru_assets
+from .ru import emails as ru_emails
+from .ru import errors as ru_errors
+from .ru import events as ru_events
+from .ru import providers as ru_providers
+from .ru import system as ru_system
+from .ru import templates as ru_templates
+from .ru import validation as ru_validation
 from .vi import assets as vi_assets
 from .vi import emails as vi_emails
 from .vi import errors as vi_errors
@@ -34,13 +42,14 @@ logger = logging.getLogger(__name__)
 
 # Default locale
 DEFAULT_LOCALE = "zh"
-SUPPORTED_LOCALES = ["zh", "en", "vi"]
+SUPPORTED_LOCALES = ["zh", "en", "vi", "ru"]
 
 # Mapping from locale code to human-readable language name
 LOCALE_LANGUAGE_MAP: dict[str, str] = {
     "zh": "中文",
     "en": "English",
     "vi": "Tiếng Việt",
+    "ru": "Русский",
 }
 
 # Merged message dictionary
@@ -74,6 +83,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         **vi_templates.MESSAGES,
         **vi_assets.MESSAGES,
         **vi_validation.MESSAGES,
+    },
+    "ru": {
+        **ru_errors.MESSAGES,
+        **ru_events.MESSAGES,
+        **ru_system.MESSAGES,
+        **ru_emails.MESSAGES,
+        **ru_providers.MESSAGES,
+        **ru_templates.MESSAGES,
+        **ru_assets.MESSAGES,
+        **ru_validation.MESSAGES,
     },
 }
 

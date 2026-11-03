@@ -8,20 +8,21 @@ import { BRAND } from '@/branding';
 // Vite import.meta.glob 在编译期为每个 (lang, ns) 文件生成独立 chunk；运行时由
 // i18next 异步 load。资源仍是 .ts（保留 satisfies Record schema 锁），不是 JSON。
 const loaders = import.meta.glob<{ default: Record<string, string> }>(
-  './{en,zh,vi}/*.ts',
+  './{en,zh,vi,ru}/*.ts',
 );
 
 function pathFor(lang: string, ns: string): string {
   return `./${lang}/${ns}.ts`;
 }
 
-export const SUPPORTED_LANGUAGES = ['zh', 'en', 'vi'] as const;
+export const SUPPORTED_LANGUAGES = ['zh', 'en', 'vi', 'ru'] as const;
 export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number];
 
 export const LANGUAGE_DISPLAY_LABELS: Record<SupportedLanguage, string> = {
   zh: '中文',
   en: 'English',
   vi: 'Tiếng Việt',
+  ru: 'Русский',
 };
 
 const I18N_NAMESPACES = [
