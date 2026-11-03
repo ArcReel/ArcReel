@@ -4,6 +4,7 @@ import { API } from "@/api";
 import { cn } from "cn";
 
 import { Input } from "@/components/ui/input";
+import { ModelLifecycleNotice, type ModelLifecycleNotices } from "@/components/shared/ModelLifecycleNotice";
 import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
 import { voidCall } from "@/utils/async";
 import { narrationDeliveryProblem, type NarrationDeliveryValue } from "./narration-delivery";
@@ -44,9 +45,11 @@ interface Props {
   audioBackends: string[];
   providerNames: Record<string, string>;
   modelNames: Record<string, string>;
+  /** 下线提示（候选接口的 `lifecycle`）；所选配音模型即将下线或已下线时在下拉下方提示。 */
+  lifecycle?: ModelLifecycleNotices;
 }
 
-export function NarrationDeliveryFields({ value, onChange, audioBackends, providerNames, modelNames }: Props) {
+export function NarrationDeliveryFields({ value, onChange, audioBackends, providerNames, modelNames, lifecycle }: Props) {
   const { t } = useTranslation("dashboard");
   const idBase = useId();
   const voiceId = `${idBase}-voice`;
@@ -97,6 +100,12 @@ export function NarrationDeliveryFields({ value, onChange, audioBackends, provid
               modelNames={modelNames}
               onChange={(audioBackend) => onChange({ ...value, audioBackend })}
               aria-label={t("project_tts_model_label")}
+            />
+            <ModelLifecycleNotice
+              value={value.audioBackend}
+              notices={lifecycle}
+              modelNames={modelNames}
+              onSwitch={(audioBackend) => onChange({ ...value, audioBackend })}
             />
             {audioBackends.length === 0 ? (
               <p className="text-xs text-warn">{t("project_tts_no_models")}</p>

@@ -96,6 +96,12 @@ but it no longer appears among any model candidates, even if you enabled it by h
 calls from places that still select it fail with an error that gives the shutdown date and the officially recommended successor.
 Use "All / Enabled" to switch what is shown.
 
+In global and project settings, when a default model, a per-purpose model, or the narration model is set to a retiring or discontinued model,
+a notice below the dropdown gives the shutdown date and the officially recommended successor.
+When the successor is on the same provider and can be used in that place, the notice has a "Switch to …" button: it changes only that one selection,
+which takes effect once you save. When the successor is on another provider, disabled, or not usable in that place, only its name is shown.
+ArcReel never switches models for you.
+
 - Turning off a model's switch disables it immediately: disabled models no longer appear among the global and project default model
   candidates, and when a provider's default model is disabled, automatic selection skips it;
 - A model already selected in settings or a project keeps working after it is disabled; to replace it, pick another one in the default model settings;

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import type { ModelLifecycleNotices } from "@/components/shared/ModelLifecycleNotice";
 import { NarrationDeliveryFields } from "@/components/shared/NarrationDeliveryFields";
 import type { NarrationDeliveryValue } from "@/components/shared/narration-delivery";
 import type { CharacterVoiceBinding, NarrationDefaultsResponse } from "@/types";
@@ -33,6 +34,8 @@ interface VoiceTabProps {
   audioBackends: string[];
   providerNames: Record<string, string>;
   modelNames: Record<string, string>;
+  /** 下线提示（候选接口的 `lifecycle`）。 */
+  lifecycle?: ModelLifecycleNotices;
 }
 
 /** 「配音」：旁白交付方式；角色声音绑定只在参考生视频项目出现。 */
@@ -44,6 +47,7 @@ export function VoiceTab({
   audioBackends,
   providerNames,
   modelNames,
+  lifecycle,
 }: VoiceTabProps) {
   const { t } = useTranslation("dashboard");
   const bindingId = useId();
@@ -77,6 +81,7 @@ export function VoiceTab({
           audioBackends={audioBackends}
           providerNames={providerNames}
           modelNames={modelNames}
+          lifecycle={lifecycle}
         />
       </SettingsBlock>
 
