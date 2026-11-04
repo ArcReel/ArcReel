@@ -13,6 +13,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from lib.backends.image_backends.ark import SEEDREAM_BACKENDS
+from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS
 from lib.backends.provider_assets import InferenceCredentialRef
 from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 from lib.custom_provider.backends import (
@@ -26,8 +28,6 @@ from lib.custom_provider.factory import create_custom_backend
 # endpoints 模块里被 build_backend 闭包直接构造的全部后端类。
 _ENDPOINT_BACKEND_CLASSES = (
     "AnthropicTextBackend",
-    "ArkImageBackend",
-    "DashScopeImageBackend",
     "DashScopeVideoBackend",
     "DeclarativeVideoBackend",
     "GeminiAudioBackend",
@@ -63,6 +63,16 @@ def _endpoint_backends() -> Generator[list[dict[str, Any]]]:
         # Seedance 各代端点按端点名取调用通道类
         seedance = {key: _recorder(backend.__name__) for key, backend in SEEDANCE_BACKENDS.items()}
         stack.enter_context(patch("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", seedance))
+        for mapping_name, backends in (
+            ("SEEDREAM_BACKENDS", SEEDREAM_BACKENDS),
+            ("DASHSCOPE_IMAGE_BACKENDS", DASHSCOPE_IMAGE_BACKENDS),
+        ):
+            stack.enter_context(
+                patch(
+                    f"lib.custom_provider.endpoints.{mapping_name}",
+                    {key: _recorder(backend.__name__) for key, backend in backends.items()},
+                )
+            )
         yield records
 
 
@@ -122,6 +132,31 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://api.example.com/v1",
                 "model": "dall-e-3",
+                "transport_layer": None,
+            },
+        }
+
+    @pytest.mark.parametrize(
+        ("endpoint", "backend_name"),
+        [
+            ("ark-seedream-3", "ArkSeedream3ImageBackend"),
+            ("ark-seedream-4", "ArkImageBackend"),
+            ("dashscope-qwen-image", "DashScopeImageBackend"),
+            ("dashscope-wan-image", "DashScopeWanImageBackend"),
+            ("dashscope-qwen-image-edit", "DashScopeQwenEditImageBackend"),
+        ],
+    )
+    def test_split_image_endpoint_builds_its_request_contract(self, endpoint: str, backend_name: str):
+        result, built = _built(_make_provider(base_url="https://api.example.com"), "opaque", endpoint)
+        assert isinstance(result, CustomImageBackend)
+        assert built == {
+            "backend": backend_name,
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://api.example.com/api/v3"
+                if endpoint.startswith("ark-")
+                else "https://api.example.com",
+                "model": "opaque",
                 "transport_layer": None,
             },
         }

@@ -530,21 +530,18 @@ PROVIDER_ONLY_ENDPOINTS: Mapping[str, str] = {
     "agnes-chat": "text",
     "grok-image": "image",
     "vidu-image": "image",
-    "agnes-image": "image",
+    "agnes-image-pixels": "image",
+    "agnes-image-tier": "image",
     "grok-video": "video",
     "agnes-video": "video",
 }
 
 #: 简单族的 image/video/audio：(provider_id, media_type) → 端点名。
 _SIMPLE_MEDIA_ENDPOINTS: Mapping[tuple[str, str], str] = {
-    ("ark", "image"): "ark-seedream",
-    ("ark-agent-plan", "image"): "ark-seedream",
     ("grok", "image"): "grok-image",
     ("openai", "image"): "openai-images",
     ("vidu", "image"): "vidu-image",
-    ("dashscope", "image"): "dashscope-image",
     ("minimax", "image"): "minimax-image",
-    ("agnes", "image"): "agnes-image",
     ("grok", "video"): "grok-video",
     ("openai", "video"): "openai-video",
     ("vidu", "video"): "vidu-video",
@@ -562,6 +559,23 @@ _MINIMAX_VIDEO_ENDPOINTS = ("minimax-hailuo-v1", "minimax-hailuo-v1-fast", "mini
 _specs: list[ProviderSpec] = [
     _simple_spec(provider_id, media_type, endpoint)
     for (provider_id, media_type), endpoint in _SIMPLE_MEDIA_ENDPOINTS.items()
+]
+_IMAGE_ENDPOINTS = {
+    "ark": ("ark-seedream-3", "ark-seedream-4"),
+    "ark-agent-plan": ("ark-seedream-3", "ark-seedream-4"),
+    "dashscope": ("dashscope-qwen-image", "dashscope-wan-image", "dashscope-qwen-image-edit"),
+    "agnes": ("agnes-image-pixels", "agnes-image-tier"),
+}
+_specs += [
+    ProviderSpec(
+        provider_id=provider_id,
+        media_type="image",
+        registry_backend=endpoint,
+        build_backend=partial(_build_simple, media_type="image", registry_backend=endpoint),
+        endpoint=endpoint,
+    )
+    for provider_id, endpoints in _IMAGE_ENDPOINTS.items()
+    for endpoint in endpoints
 ]
 _specs += [
     _gemini_spec(provider_id, media_type, backend_type=backend_type)
@@ -629,6 +643,10 @@ def _declare_endpoints(provider_id: str, media_type: str, default: str) -> Provi
 
 #: 有多个可选端点的「供应商 + 媒体类型」→ 默认端点；其余只有一个端点，它就是默认端点。
 _MULTI_ENDPOINT_DEFAULTS: Mapping[tuple[str, str], str] = {
+    ("ark", "image"): "ark-seedream-4",
+    ("ark-agent-plan", "image"): "ark-seedream-4",
+    ("dashscope", "image"): "dashscope-qwen-image",
+    ("agnes", "image"): "agnes-image-tier",
     ("minimax", "video"): "minimax-hailuo-v1",
     # 方舟的默认视频模型是 Seedance 2.0 系列
     ("ark", "video"): "ark-seedance-2",
@@ -724,9 +742,21 @@ def get_provider_spec(provider_id: str, media_type: str, endpoint: str | None = 
     return PROVIDER_ENDPOINT_SPECS[(provider_id, name)]
 
 
+def image_endpoint_for_name(provider_id: str, model_id: str) -> str:
+    """拆分前图片后端的名字规则，仅用于官方收录选择与新增模型预填（#3647 删除官方选择）。"""
+    lowered = model_id.lower()
+    if provider_id in ("ark", "ark-agent-plan"):
+        return "ark-seedream-3" if "seedream-3" in lowered else "ark-seedream-4"
+    if provider_id == "dashscope":
+        if lowered.startswith("wan"):
+            return "dashscope-wan-image"
+        return "dashscope-qwen-image-edit" if "qwen-image-edit" in lowered else "dashscope-qwen-image"
+    return "agnes-image-tier" if model_id.startswith("agnes-image-2.5") else "agnes-image-pixels"
+
+
 def official_model_endpoint(provider_id: str, media_type: str, model_id: str | None) -> str:
     """官方收录的模型挂接的端点，暂时在代码里决定：MiniMax 视频按 API 模型名选，方舟视频按名字选 Seedance 代际，
-    其余取默认端点（#3647 改读官方数据后删除这两条名字规则）。
+    图片按尺寸约定选端点，其余取默认端点（#3647 改读官方数据后删除名字规则）。
 
     没有记下端点的用户添加模型同样落到这里，与它们记下端点之前的通道一致。
     """
@@ -735,6 +765,8 @@ def official_model_endpoint(provider_id: str, media_type: str, model_id: str | N
         return _minimax_video_endpoint(model_id)
     if media_type == "video" and provider_id in ("ark", "ark-agent-plan"):
         return _seedance_video_endpoint(provider_id, model_id)
+    if media_type == "image" and provider_id in _IMAGE_ENDPOINTS and model_id:
+        return image_endpoint_for_name(provider_id, model_id)
     return declared.default
 
 
@@ -758,6 +790,8 @@ def builtin_model_spec(provider_id: str, media_type: str, model_id: str | None) 
 
 def infer_builtin_endpoint(provider_id: str, media_type: str, model_id: str) -> str:
     """内置供应商下添加模型时预填的端点：按名字推断（与自定义供应商同一套规则），不在可选端点里时取默认端点。"""
+    if media_type == "image" and provider_id in _IMAGE_ENDPOINTS:
+        return image_endpoint_for_name(provider_id, model_id)
     from lib.custom_provider.endpoints import infer_endpoint
 
     declared = get_provider_endpoints(provider_id, media_type)

@@ -49,7 +49,7 @@ _CALLS: dict[str, Call] = {
     "agnes-image": lambda tmp_path: AgnesImageBackend(api_key="k", base_url=METADATA_BASE_URL).generate(
         _image(tmp_path)
     ),
-    "dashscope-image": lambda tmp_path: DashScopeImageBackend(api_key="k", base_url=METADATA_BASE_URL).generate(
+    "dashscope-qwen-image": lambda tmp_path: DashScopeImageBackend(api_key="k", base_url=METADATA_BASE_URL).generate(
         _image(tmp_path)
     ),
     "kling-image": lambda tmp_path: KlingImageBackend(

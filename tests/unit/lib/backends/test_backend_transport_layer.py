@@ -86,13 +86,13 @@ _CALLS: dict[str, Call] = {
     "gemini-image": lambda layer, tmp_path: GeminiImageBackend(
         api_key="k", base_url=BASE, transport_layer=layer
     ).generate(_image(tmp_path)),
-    "dashscope-image": lambda layer, tmp_path: DashScopeImageBackend(
+    "dashscope-qwen-image": lambda layer, tmp_path: DashScopeImageBackend(
         api_key="k", base_url=BASE, transport_layer=layer
     ).generate(_image(tmp_path)),
     "minimax-image": lambda layer, tmp_path: MiniMaxImageBackend(
         api_key="k", base_url=BASE, transport_layer=layer
     ).generate(_image(tmp_path)),
-    "ark-seedream": lambda layer, tmp_path: ArkImageBackend(
+    "ark-seedream-4": lambda layer, tmp_path: ArkImageBackend(
         api_key="k", base_url=f"{BASE}/api/v3", transport_layer=layer
     ).generate(_image(tmp_path)),
     "kling-image": lambda layer, tmp_path: KlingImageBackend(

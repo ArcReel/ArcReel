@@ -327,11 +327,11 @@ class TestCustomProviderBucketFiltering:
         ("endpoint", "model_id", "buckets"),
         [
             # 端点两者都实现，条目只接受图生图
-            ("dashscope-image", "qwen-image-edit-plus", {"i2i"}),
+            ("dashscope-qwen-image", "qwen-image-edit-plus", {"i2i"}),
             # 端点只实现文生图，条目只接受图生图：没有两者都满足的组合
             ("openai-images-generations", "qwen-image-edit-plus", set()),
             # 对应不上条目：模型事实不加约束，按端点声明
-            ("dashscope-image", "relay-image-x", {"t2i", "i2i"}),
+            ("dashscope-qwen-image", "relay-image-x", {"t2i", "i2i"}),
         ],
     )
     async def test_custom_image_buckets_need_both_entry_and_endpoint(

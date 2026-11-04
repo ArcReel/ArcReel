@@ -55,23 +55,15 @@ _SEEDREAM_1K_SIZE_MAP: dict[str, str] = {
 }
 
 
-def _resolve_seedream_size(model_id: str, aspect_ratio: str) -> str:
-    """按模型族选尺寸表；未识别比例时回退到分辨率 keyword（方式 1，由模型按 prompt 自适应）。"""
-    mid = (model_id or "").lower()
-    if "seedream-3" in mid:
-        size = _SEEDREAM_1K_SIZE_MAP.get(aspect_ratio)
-        return size or "1K"
-    # 默认按 4.x/5.x 处理（含 lite 与未来兼容版本）
-    size = _SEEDREAM_2K_SIZE_MAP.get(aspect_ratio)
-    return size or "2K"
-
-
 class ArkImageBackend:
     """Ark (火山方舟) Seedream 图片生成后端。"""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
     # 通道本身不限参考图张数：Seedream 各代的上限是模型事实，记在条目上。
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
+
+    SIZE_MAP: ClassVar[dict[str, str]] = _SEEDREAM_2K_SIZE_MAP
+    DEFAULT_SIZE = "2K"
 
     DEFAULT_MODEL = "doubao-seedream-5-0-pro-260628"
 
@@ -101,16 +93,16 @@ class ArkImageBackend:
     async def reference_image_limit(self) -> int | None:
         return self.CHANNEL_REFERENCE_LIMIT
 
-    @staticmethod
-    def _size(model: str, image_size: str | None, aspect_ratio: str) -> str:
-        return image_size or _resolve_seedream_size(model, aspect_ratio)
+    @classmethod
+    def _size(cls, image_size: str | None, aspect_ratio: str) -> str:
+        return image_size or cls.SIZE_MAP.get(aspect_ratio, cls.DEFAULT_SIZE)
 
-    @staticmethod
-    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+    @classmethod
+    def estimate_usage(cls, facts: ImageRequestFacts) -> Usage:
         return per_image_usage(
             output_images=1,
             input_images=facts.reference_count,
-            dimensions={"resolution": ArkImageBackend._size(facts.model, facts.image_size, facts.aspect_ratio)},
+            dimensions={"resolution": cls._size(facts.image_size, facts.aspect_ratio)},
         )
 
     @with_retry_async()
@@ -125,7 +117,7 @@ class ArkImageBackend:
         # Seedream 不显式传 size 时默认输出 1:1（4.x/5.x: 2048x2048；3.0-t2i: 1024x1024），
         # 项目设置的 aspect_ratio 会被静默忽略。优先使用 caller 显式传入的 image_size
         # （如 grid 路径会传 "2K"/"4K"），否则按官方推荐表从 aspect_ratio 推导宽高。
-        kwargs["size"] = self._size(self._model, request.image_size, request.aspect_ratio)
+        kwargs["size"] = self._size(request.image_size, request.aspect_ratio)
         reference_count = 0
 
         # I2I: 读取参考图并转为 base64 data URI
@@ -164,3 +156,17 @@ class ArkImageBackend:
                 output_images=len(data), input_images=reference_count, dimensions={"resolution": kwargs["size"]}
             ),
         )
+
+
+class ArkSeedream3ImageBackend(ArkImageBackend):
+    """Seedream 3 的 1K 默认尺寸约定。"""
+
+    SIZE_MAP = _SEEDREAM_1K_SIZE_MAP
+    DEFAULT_SIZE = "1K"
+    DEFAULT_MODEL = "doubao-seedream-3-0-t2i-250415"
+
+
+SEEDREAM_BACKENDS = {
+    "ark-seedream-3": ArkSeedream3ImageBackend,
+    "ark-seedream-4": ArkImageBackend,
+}

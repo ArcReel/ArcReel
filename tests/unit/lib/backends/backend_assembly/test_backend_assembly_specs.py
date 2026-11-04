@@ -70,7 +70,7 @@ class TestBuildSimpleBaseUrlPriority:
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="ark")
         assert _built(get_provider_spec("ark", "image"), config, "doubao-seed-2-0-pro-260215") == {
             "media": "image",
-            "backend": "ark",
+            "backend": "ark-seedream-4",
             "kwargs": {
                 "api_key": "sk-test",
                 "model": "doubao-seed-2-0-pro-260215",

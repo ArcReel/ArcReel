@@ -84,7 +84,7 @@ class TestAssembleBuiltinEndToEnd:
         assert built == [
             {
                 "media": "image",
-                "backend": "ark",
+                "backend": "ark-seedream-4",
                 "kwargs": {
                     "api_key": "ark-secret",
                     "model": "doubao-seedream-5-0-lite-260128",

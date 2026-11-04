@@ -270,9 +270,9 @@ class TestArkImageBackendGenerate:
         """3.0-t2i 模型族单边像素 ∈ [512, 2048]，必须用 1K 表而非 2K 表。"""
         monkeypatch.delenv("ARK_API_KEY", raising=False)
         with _recorded_ark_client() as (_created, client):
-            from lib.backends.image_backends.ark import ArkImageBackend
+            from lib.backends.image_backends.ark import ArkSeedream3ImageBackend
 
-            backend = ArkImageBackend(api_key="test-key", model="doubao-seedream-3-0-t2i-250415")
+            backend = ArkSeedream3ImageBackend(api_key="test-key", model="doubao-seedream-3-0-t2i-250415")
 
         request = ImageGenerationRequest(prompt="x", output_path=tmp_path / "v.png", aspect_ratio="9:16")
         await backend.generate(request)
@@ -282,9 +282,9 @@ class TestArkImageBackendGenerate:
         """3.0-t2i 未识别比例必须回退到 '1K' 而非 '2K'（单边像素上限 2048）。"""
         monkeypatch.delenv("ARK_API_KEY", raising=False)
         with _recorded_ark_client() as (_created, client):
-            from lib.backends.image_backends.ark import ArkImageBackend
+            from lib.backends.image_backends.ark import ArkSeedream3ImageBackend
 
-            backend = ArkImageBackend(api_key="test-key", model="doubao-seedream-3-0-t2i-250415")
+            backend = ArkSeedream3ImageBackend(api_key="test-key", model="doubao-seedream-3-0-t2i-250415")
 
         request = ImageGenerationRequest(prompt="x", output_path=tmp_path / "u3.png", aspect_ratio="weird")
         await backend.generate(request)
