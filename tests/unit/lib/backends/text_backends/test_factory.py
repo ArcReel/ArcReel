@@ -33,7 +33,7 @@ def _make_mock_resolver(**async_methods):
 async def test_resolved_provider_model_and_credentials_reach_the_spec():
     mock_resolver = _make_mock_resolver(
         text_backend_for_task=("ark", "doubao-seed-2-1-lite-260915"),
-        provider_config={"api_key": "ark-key"},
+        provider_config_with_credential=({"api_key": "ark-key"}, None),
     )
 
     with (
@@ -70,7 +70,7 @@ async def test_returns_resolver_provider_id_not_registry_backend_name(
 ):
     mock_resolver = _make_mock_resolver(
         text_backend_for_task=(provider_id, model),
-        provider_config=credentials,
+        provider_config_with_credential=(credentials, None),
     )
 
     with (

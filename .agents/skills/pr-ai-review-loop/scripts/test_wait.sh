@@ -23,6 +23,10 @@ cat > "$TMP_ROOT/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$WAIT_TEST_ROOT/gh-args"
+if [[ "$*" == *graphql* || "$*" == *--paginate* || "$1" != api ]]; then
+  echo 'HTTP 403: only named REST routes are available' >&2
+  exit 1
+fi
 
 mode=${WAIT_TEST_MODE:-review_change}
 if [[ "$mode" == "slow_probe" ]]; then
@@ -40,9 +44,13 @@ next_count() {
   printf '%s\n' "$count"
 }
 
-if [[ "$1 $2" == "repo view" ]]; then
+if [[ "$1 $2" == "api repos/{owner}/{repo}" ]]; then
   printf '%s\n' 'ArcReel/ArcReel'
-elif [[ "$*" == *'reviews(first:100'* ]]; then
+elif [[ "$*" == *'/pulls/1767/reviews?'* ]]; then
+  if [[ "$mode" == "paged_review_change" && "$*" == *'&page=1' ]]; then
+    jq -cn '[range(1;101) | {id:.,submitted_at:"2026-08-11T00:00:00Z",updated_at:"2026-08-11T00:00:00Z",state:"COMMENTED",commit_id:"abc"}]'
+    exit 0
+  fi
   count=$(next_count review)
   if [[ "$mode" == "hung_probe" ]]; then
     exec /bin/sleep 2
@@ -79,26 +87,29 @@ elif [[ "$*" == *'reviews(first:100'* ]]; then
     esac
   fi
   submitted_at='2026-08-11T00:00:00Z'
-  if [[ "$mode" == "review_change" && "$count" -gt 1 ]]; then
+  if [[ ( "$mode" == "review_change" || "$mode" == "paged_review_change" ) && "$count" -gt 1 ]]; then
     submitted_at='2026-08-11T00:01:00Z'
   fi
-  printf '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"id":"R1","submittedAt":"%s","updatedAt":"%s","state":"COMMENTED","commit":{"oid":"abc"}}]}}}}}\n' "$submitted_at" "$submitted_at"
-elif [[ "$*" == *'comments(first:100'* ]]; then
+  body='original review'
+  if [[ "$mode" == "review_body_change" && "$count" -gt 1 ]]; then body='edited review'; fi
+  printf '[{"id":"R1","submitted_at":"%s","state":"COMMENTED","commit_id":"abc","body":"%s"}]\n' "$submitted_at" "$body"
+elif [[ "$*" == *'/issues/1767/comments?'* ]]; then
   count=$(next_count issue_comment)
-  head_sha=${WAIT_TEST_HEAD:-abc}
   updated_at='2026-08-11T00:00:00Z'
   reaction_count=0
-  if [[ "$mode" == "head_change" && "$count" -gt 1 ]]; then
-    head_sha=def
-  fi
   if [[ "$mode" == "issue_comment_change" && "$count" -gt 1 ]]; then
     updated_at='2026-08-11T00:01:00Z'
   fi
   if [[ "$mode" == "comment_reaction_change" && "$count" -gt 1 ]]; then
     reaction_count=1
   fi
-  printf '{"data":{"repository":{"pullRequest":{"headRefOid":"%s","comments":{"nodes":[{"id":"C1","updatedAt":"%s","reactionGroups":[{"content":"EYES","reactors":{"totalCount":%s}}]}]}}}}}\n' \
-    "$head_sha" "$updated_at" "$reaction_count"
+  printf '[{"id":"C1","updated_at":"%s","reactions":{"eyes":%s}}]\n' \
+    "$updated_at" "$reaction_count"
+elif [[ "$*" == *'/pulls/1767' ]]; then
+  count=$(<"$WAIT_TEST_ROOT/issue_comment-count")
+  head_sha=${WAIT_TEST_HEAD:-abc}
+  if [[ "$mode" == "head_change" && "$count" -gt 1 ]]; then head_sha=def; fi
+  printf '{"head":{"sha":"%s"}}\n' "$head_sha"
 elif [[ "$*" == *'/issues/1767/reactions'* ]]; then
   count=$(next_count reaction)
   content=eyes
@@ -193,7 +204,7 @@ run_wait() {
     > "$TMP_ROOT/result.out" 2> "$TMP_ROOT/result.err"
 }
 
-for signal in head review issue_comment reaction comment_reaction inline check security base_security; do
+for signal in review_body paged_review head review issue_comment reaction comment_reaction inline check security base_security; do
   reset_case
   run_wait "${signal}_change" --max 180
   [[ "$(<"$TMP_ROOT/sleeps")" == "60" ]] || fail "expected $signal change after one interval"

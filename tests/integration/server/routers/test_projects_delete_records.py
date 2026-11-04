@@ -1,5 +1,8 @@
 """删除项目后，数据库里的旧记录与同名新项目断开关联，费用统计仍按已删除项目保留。"""
 
+from lib.asset_library.bindings import AssetLibraryScope
+from lib.asset_library.links import selected_link
+from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.repositories.session_repo import SessionRepository
 from lib.db.repositories.task_repo import TaskRepository
 from lib.db.repositories.usage_repo import UsageFilters, UsageRepository
@@ -11,6 +14,33 @@ async def test_same_name_project_after_delete_inherits_no_records(tmp_path, monk
     manager = ProjectManager(tmp_path)
     manager.create_project("demo")
     old = await seed_project_records(db_factory)
+    scope = AssetLibraryScope(
+        account_id=1, account_identity="TEST-identity", site="volcengine", region="cn-beijing", project_name="film"
+    )
+    async with db_factory() as session:
+        session.add(
+            ProviderAssetLink(
+                project_name="demo",
+                content_version_id="cv-1",
+                content_digest="0" * 64,
+                resource_type="characters",
+                resource_id="Alice",
+                version=1,
+                locator_path="versions/characters/Alice_v1.png",
+                origin="upload",
+                account_id=scope.account_id,
+                account_identity=scope.account_identity,
+                site=scope.site,
+                region=scope.region,
+                provider_project_name=scope.project_name,
+                state="active",
+                provider_asset_id="asset-1",
+                submit_name="Alice-arc-1",
+                selected=True,
+                check_attempts=0,
+            )
+        )
+        await session.commit()
 
     with build_projects_client(monkeypatch, manager, session_factory=db_factory) as client:
         response = client.delete("/api/v1/projects/demo")
@@ -30,6 +60,8 @@ async def test_same_name_project_after_delete_inherits_no_records(tmp_path, monk
         assert fresh["task_id"] != old["running"]
 
         assert await SessionRepository(session).list(project_name="demo") == []
+        # 导入的同名项目带着相同的内容版本身份，也不继承旧项目的供应商素材关联
+        assert await selected_link(session, project_name="demo", content_version_id="cv-1", scope=scope) is None
 
         usage = UsageRepository(session)
         assert await usage.fetch_summary_rows(filters=UsageFilters(project_name="demo")) == []

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -8,13 +9,16 @@ import shutil
 import stat
 import tempfile
 import zipfile
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
+from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, NoReturn
+from typing import Any, NoReturn, Protocol
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from arcreel_market_core.validation_messages import MessageRef, ValidationMessage
 from lib.artifacts.artifact_activation import (
@@ -34,13 +38,36 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.rendered_artifact import RENDERS_DIRNAME
 from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
+from lib.asset_library.links import (
+    UPLOADABLE_RESOURCE_TYPES,
+    ArchivedLink,
+    LinkHolder,
+    adopt_archived_links,
+    archivable_links,
+)
 from lib.catalog import query as catalog
 from lib.config.resolver import VideoGenerationType, project_video_backend_ids
 from lib.episode.episode_ledger import parse_positive_episode_num
+from lib.infra.api_errors import BadGatewayError
+from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async
 from lib.infra.content_digest import digest_stream, sha256_file
 from lib.infra.json_io import load_json
 from lib.infra.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.infra.validation_messages import ValidationResult, default_translate
+from lib.material.formal_objects import (
+    ObjectContentStorage,
+    RemoteSaveFailedError,
+    iter_version_records,
+    stores_remotely,
+)
+from lib.material.storage import CONTENT_DIGEST, CONTENT_VERSION_ID, STORAGE, ObjectLocator, new_content_version_id
+from lib.material.work_files import (
+    MaterialFetchFailedError,
+    RemoteWorkFile,
+    held_work_files,
+    locked_remote_work_files,
+    remote_work_files,
+)
 from lib.project import deleted_projects
 from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key, build_asset_entry, normalize_asset_name
 from lib.project.data_validator import DataValidator
@@ -62,6 +89,8 @@ from lib.project.resource_paths import (
     CHARACTER_DERIVATIVE_RESOURCE_TYPE,
     END_FRAME_RESOURCE_TYPE,
     resource_extension,
+    resource_id_segments,
+    resource_of_path,
     resource_relative_path,
 )
 from lib.script.reference_video.draft_validation import dialogue_speakers
@@ -71,9 +100,56 @@ from lib.script.script_skeleton import SKELETONS, resolve_declared_kind, resolve
 from lib.script.source_loader.migration import migrate_project_source_encoding
 from server.services.project.project_retirement import RetireProject
 
+#: 归档导入的正式提交：收目标项目名，产出这次导入保存图片用的对象存储（目标实例存本地时为 ``None``）。
+FormalCommit = Callable[[str], AbstractContextManager[ObjectContentStorage | None]]
+
+
+class ProviderAssetLinkArchive(Protocol):
+    """归档携带的供应商素材关联在数据库里的读写，供工作线程里的同步导出与导入使用。"""
+
+    def export(self, project_name: str, content_digests: dict[str, str]) -> list[ArchivedLink]:
+        """项目里这些内容版本（身份 → 摘要）当前可用的关联。"""
+        ...
+
+    def restore(self, links: list[tuple[ArchivedLink, LinkHolder]]) -> int:
+        """为导入项目写入核对过的关联并提交，返回写入条数。"""
+        ...
+
+
+@dataclass(frozen=True)
+class _LinkArchiveOnLoop:
+    bridge: EventLoopBridge
+    session_factory: async_sessionmaker[AsyncSession]
+
+    def export(self, project_name: str, content_digests: dict[str, str]) -> list[ArchivedLink]:
+        return self.bridge.run(self._export(project_name, content_digests))
+
+    def restore(self, links: list[tuple[ArchivedLink, LinkHolder]]) -> int:
+        return self.bridge.run(self._restore(links))
+
+    async def _export(self, project_name: str, content_digests: dict[str, str]) -> list[ArchivedLink]:
+        async with self.session_factory() as session:
+            return await archivable_links(session, project_name=project_name, content_digests=content_digests)
+
+    async def _restore(self, links: list[tuple[ArchivedLink, LinkHolder]]) -> int:
+        async with self.session_factory() as session:
+            adopted = await adopt_archived_links(session, links)
+            await run_noninterruptible_async(session.commit())
+            return len(adopted)
+
+
+def provider_asset_link_archive_on(
+    bridge: EventLoopBridge, session_factory: async_sessionmaker[AsyncSession]
+) -> ProviderAssetLinkArchive:
+    """给工作线程里的导出与导入用的关联读写：投回 ``bridge`` 的事件循环执行，只能在工作线程里使用。"""
+    return _LinkArchiveOnLoop(bridge, session_factory)
+
+
 logger = logging.getLogger(__name__)
 
 ARCHIVE_MANIFEST_NAME = "arcreel-export.json"
+#: 归档信封里随带的供应商素材关联（``ArchivedLink.to_payload`` 的列表）；没有可带的关联时不写这个字段。
+ARCHIVED_LINKS_KEY = "provider_asset_links"
 ARCHIVE_FORMAT_VERSION = 2
 ARCHIVE_SCRIPT_SCHEMA_VERSION = 2
 DEFAULT_IMPORT_FILENAME = "imported-project.zip"
@@ -325,11 +401,89 @@ class ProjectArchiveService:
     _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES - _ARCHIVE_EXCLUDED_ROOTS)
     _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
 
-    def __init__(self, project_manager: ProjectManager, *, retire_project: RetireProject | None = None):
-        """``retire_project`` 收尾覆盖导入替换掉的现有项目，覆盖现有项目时必需。"""
+    def __init__(
+        self,
+        project_manager: ProjectManager,
+        *,
+        retire_project: RetireProject | None = None,
+        formal_commit: FormalCommit | None = None,
+        provider_asset_links: ProviderAssetLinkArchive | None = None,
+    ):
+        """``retire_project`` 收尾覆盖导入替换掉的现有项目，覆盖现有项目时必需。
+
+        ``formal_commit`` 是导入图片的正式提交入口（``lib.material.formal_objects.formal_commit_on``），按目标实例的
+        全局设置把导入的图片内容版本保存到本地或对象存储；缺省时一律本地保存。
+
+        ``provider_asset_links`` 读写归档携带的供应商素材关联（:func:`provider_asset_link_archive_on`）；缺省时导出
+        不带关联，导入也不写入。
+        """
         self.project_manager = project_manager
         self._retire_project = retire_project
+        self._formal_commit = formal_commit
+        self._provider_asset_links = provider_asset_links
         self.validator = DataValidator(projects_dir=str(project_manager.projects_dir))
+
+    @asynccontextmanager
+    async def export_materials_held(self, project_name: str, *, scope: str = "full") -> AsyncGenerator[None]:
+        """导出前取回这次归档要带的远端内容版本工作文件，并在上下文里登记使用，清理不会删掉它们。
+
+        导出与导出诊断都须在这段上下文里执行：归档带的是图片的真实内容，工作文件被清理过时从对象存储取回并校验。
+        项目不存在时什么也不做，由导出本身报告。
+
+        Raises:
+            MaterialConnectionUnavailableError, MaterialFetchFailedError: 远端内容取不回或与摘要不符。
+        """
+        self._validate_scope(scope)
+        project_dir, paths = await asyncio.to_thread(self._export_work_file_paths, project_name, scope)
+        if not paths:
+            yield
+            return
+        async with held_work_files(project_dir, paths):
+            yield
+
+    def _export_work_file_paths(self, project_name: str, scope: str) -> tuple[Path, list[str]]:
+        if not self.project_manager.project_exists(project_name):
+            return Path(), []
+        project_dir = self.project_manager.get_project_path(project_name)
+        versions = self._load_json_file(project_dir / "versions" / "versions.json") or {}
+        exported = self._exported_work_files(locked_remote_work_files(project_dir), versions, scope)
+        return project_dir, [work_file.path for work_file in exported]
+
+    def _exported_work_files(
+        self, work_files: list[RemoteWorkFile], versions: dict[str, Any], scope: str
+    ) -> list[RemoteWorkFile]:
+        """归档要带的远端内容版本工作文件：完整归档是全部，仅当前版本是正式文件加上保留的版本快照。"""
+        if scope == "full":
+            return work_files
+        _, retained = self._current_export_versions(versions)
+        return [work_file for work_file in work_files if work_file.formal or work_file.path in retained]
+
+    def _verify_remote_content(self, snapshot_dir: Path, scope: str) -> None:
+        """快照里须有归档要带的每个远端内容版本的真实内容；缺失或与摘要不符时不产出归档。
+
+        版本快照位置按记录的摘要校验；正式文件只要求在场，内容以盘上为准，与本地内容版本的导出一致。
+        """
+        versions = self._load_json_file(snapshot_dir / "versions" / "versions.json") or {}
+        project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE) or {}
+        for work_file in self._exported_work_files(remote_work_files(versions, project), versions, scope):
+            path = snapshot_dir / work_file.path
+            if not path.is_file():
+                raise MaterialFetchFailedError("work_file_missing")
+            if not work_file.formal and sha256_file(path) != work_file.digest:
+                raise MaterialFetchFailedError("content_mismatch")
+
+    @staticmethod
+    def _drop_remote_locators(payload: dict[str, Any]) -> bool:
+        """去掉版本记录上的远端定位，返回是否改动。
+
+        定位只在写入它的实例里有意义：导出不带出源实例的连接与桶，导入不按包里的定位读目标实例的桶。
+        """
+        changed = False
+        for _resource_type, _resource_id, record in iter_version_records(payload):
+            if STORAGE in record:
+                del record[STORAGE]
+                changed = True
+        return changed
 
     def get_export_diagnostics(
         self,
@@ -366,6 +520,9 @@ class ProjectArchiveService:
         temp_dir: tempfile.TemporaryDirectory[str] | None = None
         try:
             temp_dir, snapshot_dir, manifest, _ = self._prepare_export_snapshot(project_name, scope=scope)
+            archived_links = self._archived_links(project_name, snapshot_dir, scope)
+            if archived_links:
+                manifest[ARCHIVED_LINKS_KEY] = [link.to_payload() for link in archived_links]
             with zipfile.ZipFile(
                 archive_path,
                 mode="w",
@@ -395,6 +552,91 @@ class ProjectArchiveService:
 
         download_name = f"{project_name}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
         return archive_path, download_name
+
+    def _archived_links(self, project_name: str, snapshot_dir: Path, scope: str) -> list[ArchivedLink]:
+        """归档要带的供应商素材关联：包里每条版本记录所属内容版本的可用关联，摘要须与记录一致。
+
+        仅当前版本的包按 ``CURRENT_EXPORT_VERSION_RETENTION`` 裁剪版本历史，没进包的版本记录不带关联。
+        """
+        if self._provider_asset_links is None:
+            return []
+        versions = self._load_json_file(snapshot_dir / "versions" / "versions.json") or {}
+        if scope == "current":
+            versions, _ = self._current_export_versions(versions)
+        content_digests = {
+            record[CONTENT_VERSION_ID]: record[CONTENT_DIGEST]
+            for resource_type, _resource_id, record in iter_version_records(versions)
+            if resource_type in UPLOADABLE_RESOURCE_TYPES
+            and isinstance(record.get(CONTENT_VERSION_ID), str)
+            and isinstance(record.get(CONTENT_DIGEST), str)
+        }
+        return self._provider_asset_links.export(project_name, content_digests) if content_digests else []
+
+    def _verified_archived_links(
+        self, project_dir: Path, manifest: dict[str, Any] | None, project_name: str
+    ) -> list[tuple[ArchivedLink, LinkHolder]]:
+        """包里随带的关联中，内容版本身份与摘要都和暂存目录里的版本记录、快照的实际内容一致的那些。
+
+        对不上的关联丢弃，不影响图片导入：关联证明的是这份内容与供应商素材对应，内容被改过就不再成立。
+        """
+        raw = (manifest or {}).get(ARCHIVED_LINKS_KEY)
+        if self._provider_asset_links is None or not isinstance(raw, list) or not raw:
+            return []
+        versions = self._load_json_file(project_dir / "versions" / "versions.json") or {}
+        records: dict[str, tuple[str, str, dict[str, Any]]] = {}
+        for resource_type, resource_id, record in iter_version_records(versions):
+            content_version_id = record.get(CONTENT_VERSION_ID)
+            if resource_type in UPLOADABLE_RESOURCE_TYPES and isinstance(content_version_id, str):
+                records.setdefault(content_version_id, (resource_type, resource_id, record))
+        snapshot_digests: dict[Path, str] = {}
+        verified: list[tuple[ArchivedLink, LinkHolder]] = []
+        for item in raw:
+            link = ArchivedLink.from_payload(item)
+            found = records.get(link.content_version_id) if link is not None else None
+            if link is None or found is None:
+                continue
+            resource_type, resource_id, record = found
+            snapshot = try_safe_join(project_dir, record["file"]) if isinstance(record.get("file"), str) else None
+            if (
+                record.get(CONTENT_DIGEST) != link.content_digest
+                or type(record.get("version")) is not int
+                or snapshot is None
+                or not snapshot.is_file()
+            ):
+                continue
+            if snapshot not in snapshot_digests:
+                snapshot_digests[snapshot] = sha256_file(snapshot)
+            if snapshot_digests[snapshot] != link.content_digest:
+                continue
+            holder = LinkHolder(
+                project_name=project_name,
+                content_version_id=link.content_version_id,
+                content_digest=link.content_digest,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                version=record["version"],
+                locator_path=record["file"],
+            )
+            verified.append((link, holder))
+        if len(verified) < len(raw):
+            logger.info("导入包随带的供应商素材关联有 %d 条与包内图片对不上，已丢弃", len(raw) - len(verified))
+        return verified
+
+    def _restore_archived_links(
+        self, links: list[tuple[ArchivedLink, LinkHolder]], diagnostics: ArchiveDiagnostics
+    ) -> None:
+        """项目安装后写入核对过的关联。写入失败不撤销导入：图片照常可用，生成时按没有关联发送图片内容。"""
+        if not links or self._provider_asset_links is None:
+            return
+        try:
+            self._provider_asset_links.restore(links)
+        except Exception:
+            logger.exception("导入项目的供应商素材关联写入失败")
+            diagnostics.add(
+                "warnings",
+                "provider_asset_links_not_restored",
+                ValidationMessage("arch_provider_asset_links_not_restored", {"count": len(links)}),
+            )
 
     @staticmethod
     def _raise_artifact_activation_validation_error(
@@ -581,12 +823,32 @@ class ProjectArchiveService:
                     )
 
                     self._ensure_standard_subdirs(staging_dir)
+                    # 安装会把暂存目录移走：先按包内的真实内容核对随带的关联，安装后再写入。
+                    archived_links = self._verified_archived_links(staging_dir, manifest, target_name)
 
-                    self._install_project_dir(
-                        staging_dir,
-                        target_name,
-                        overwrite=(conflict_policy == "overwrite"),
+                    commit = (
+                        self._formal_commit(target_name)
+                        if self._formal_commit is not None and self._has_importable_images(staging_dir)
+                        else nullcontext(None)
                     )
+                    with commit as storage:
+                        if storage is not None:
+                            # 仅当前版本的包裁掉了生成图片的版本记录：先补登成内容版本，才能按目标存储保存。
+                            self._track_current_images(staging_dir)
+                            # 安装前保存：保存失败时什么也没安装，本次新建的对象由结算补偿删除。
+                            try:
+                                self._store_imported_images(staging_dir, storage)
+                            except RemoteSaveFailedError as exc:
+                                # 新导入没有「原来的版本」：按导入的结果说明，没有写入任何项目
+                                raise BadGatewayError("archive_import_remote_save_failed", **exc.params) from exc
+                            storage.track(self.project_manager.projects_dir / target_name)
+                        self._install_project_dir(
+                            staging_dir,
+                            target_name,
+                            overwrite=(conflict_policy == "overwrite"),
+                        )
+                    # 覆盖导入时旧项目的关联已随收尾改挂墓碑名，新写入的只属于导入的项目。
+                    self._restore_archived_links(archived_links, diagnostics)
 
                     imported_project = self.project_manager.load_project(target_name)
                     emit_project_change_hint(
@@ -618,6 +880,15 @@ class ProjectArchiveService:
         temp_dir = tempfile.TemporaryDirectory(prefix="arcreel-export-")
         snapshot_dir = Path(temp_dir.name) / project_name
         source_manifest_entries = self._capture_stable_visible_tree(source_dir, snapshot_dir)
+        try:
+            self._verify_remote_content(snapshot_dir, scope)
+        except BaseException:
+            temp_dir.cleanup()
+            raise
+        snapshot_versions_path = snapshot_dir / "versions" / "versions.json"
+        snapshot_versions = self._load_json_file(snapshot_versions_path)
+        if isinstance(snapshot_versions, dict) and self._drop_remote_locators(snapshot_versions):
+            self._write_json_file(snapshot_versions_path, snapshot_versions)
 
         diagnostics = self._repair_project_tree(snapshot_dir)
         # 源项目已在当前 schema 上，正文就位，与导入路径共用同一遍提及自愈。
@@ -1868,8 +2139,100 @@ class ProjectArchiveService:
                     errors.append(ValidationMessage("arch_version_snapshot_path_unmanaged", {"location": location}))
         if errors:
             raise ProjectArchiveValidationError(ValidationMessage("arch_import_validation_failed"), errors=errors)
-        if unknown:
+        # 包里的远端定位一律去掉：导入的图片只凭包里的真实内容，按目标实例的全局设置重新保存。
+        dropped_locators = self._drop_remote_locators(payload)
+        if unknown or dropped_locators:
             self._write_json_file(versions_path, payload)
+
+    def _importable_image_records(self, project_dir: Path) -> tuple[dict[str, Any], list[tuple[dict[str, Any], Path]]]:
+        """暂存目录的版本历史，以及其中可保存到对象存储的图片版本记录与快照文件。"""
+        payload = self._load_json_file(project_dir / "versions" / "versions.json")
+        if not isinstance(payload, dict):
+            return {}, []
+        records = []
+        for resource_type, _resource_id, record in iter_version_records(payload):
+            if not stores_remotely(resource_type) or not isinstance(record.get("file"), str):
+                continue
+            snapshot = try_safe_join(project_dir, record["file"])
+            if snapshot is not None and snapshot.is_file():
+                records.append((record, snapshot))
+        return payload, records
+
+    def _has_importable_images(self, project_dir: Path) -> bool:
+        return bool(self._importable_image_records(project_dir)[1] or self._untracked_current_images(project_dir))
+
+    def _untracked_current_images(self, project_dir: Path) -> list[tuple[str, str, Path]]:
+        """暂存目录里没有版本记录的当前正式图片：``(资源类型, 资源 ID, 文件)``。
+
+        仅当前版本的包按 ``CURRENT_EXPORT_VERSION_RETENTION`` 裁掉生成图片的版本记录，只带当前正式文件。
+        资产图以 project.json 的资产图字段为准，其余图片取规范路径。尾帧不经存储选择，不在其列。
+        """
+        payload = self._load_json_file(project_dir / "versions" / "versions.json")
+        payload = payload if isinstance(payload, dict) else {}
+        project = self._load_json_file(project_dir / self.project_manager.PROJECT_FILE)
+        project = project if isinstance(project, dict) else {}
+
+        candidates: dict[tuple[str, str], str] = {}
+        for spec in ASSET_SPECS.values():
+            bucket = project.get(spec.bucket_key)
+            for name, entry in bucket.items() if isinstance(bucket, dict) else ():
+                sheet = entry.get(spec.sheet_field) if isinstance(entry, dict) else None
+                if isinstance(sheet, str) and sheet:
+                    candidates[(spec.bucket_key, str(name))] = sheet
+        for resource_type in ("storyboards", "grids", CHARACTER_DERIVATIVE_RESOURCE_TYPE):
+            segments = resource_id_segments(resource_type)
+            sample = Path(resource_relative_path(resource_type, "/".join(["x"] * segments)))
+            subdir = project_dir / sample.parents[segments - 1]
+            for path in sorted(subdir.rglob(f"*{resource_extension(resource_type)}")) if subdir.is_dir() else ():
+                rel = path.relative_to(project_dir).as_posix()
+                resource = resource_of_path(rel)
+                if resource is not None and resource[0] == resource_type:
+                    candidates.setdefault(resource, rel)
+
+        result: list[tuple[str, str, Path]] = []
+        for (resource_type, resource_id), rel in candidates.items():
+            if not stores_remotely(resource_type) or resource_type == END_FRAME_RESOURCE_TYPE:
+                continue
+            bucket = payload.get(resource_type)
+            history = bucket.get(resource_id) if isinstance(bucket, dict) else None
+            if isinstance(history, dict) and history.get("versions"):
+                continue
+            path = try_safe_join(project_dir, rel)
+            if path is not None and path.is_file() and not path.is_symlink():
+                result.append((resource_type, resource_id, path))
+        return result
+
+    def _track_current_images(self, project_dir: Path) -> None:
+        """为没有版本记录的当前正式图片补登一条内容版本（同 ``VersionManager.ensure_current_tracked``）。
+
+        只在目标实例把新图片保存到对象存储时调用；导入到本地时照旧不补登，仅当前版本的范围语义不变。
+        """
+        versions = VersionManager(project_dir)
+        for resource_type, resource_id, path in self._untracked_current_images(project_dir):
+            versions.ensure_current_tracked(resource_type, resource_id, path, prompt="")
+
+    def _store_imported_images(self, project_dir: Path, storage: ObjectContentStorage) -> None:
+        """把暂存目录里的图片版本保存为目标实例的正式对象，并在版本记录上写下定位。
+
+        早于内容版本身份的记录先补写身份与摘要（同 ``VersionManager.ensure_content_version``）。快照内容与记录的
+        摘要不符时这条版本照旧本地保存，与导入到本地的结果一致。同字节的版本共用一个对象，只保存一次。
+        """
+        payload, records = self._importable_image_records(project_dir)
+        stored: dict[tuple[str, str], ObjectLocator] = {}
+        for record, snapshot in records:
+            digest = sha256_file(snapshot)
+            if not isinstance(record.get(CONTENT_VERSION_ID), str):
+                record[CONTENT_VERSION_ID] = new_content_version_id()
+            if not isinstance(record.get(CONTENT_DIGEST), str):
+                record[CONTENT_DIGEST] = digest
+            if record[CONTENT_DIGEST] != digest:
+                continue
+            key = (digest, snapshot.suffix.lower())
+            if key not in stored:
+                stored[key] = storage.store(snapshot, digest)
+            record[STORAGE] = stored[key].to_record()
+        if records:
+            self._write_json_file(project_dir / "versions" / "versions.json", payload)
 
     @staticmethod
     def _iter_version_histories(bucket: object) -> Iterator[tuple[str, list[Any]]]:
@@ -2240,7 +2603,7 @@ class ProjectArchiveService:
         deleted_dir: Path | None = None
 
         try:
-            with self._retire_project(target_dir.name) as tombstone:
+            with self._retire_project(target_dir) as tombstone:
                 deleted_dir = deleted_projects.move_in(self.project_manager.layout, target_dir, tombstone)
                 prepared_dir.rename(target_dir)
         except BaseException:

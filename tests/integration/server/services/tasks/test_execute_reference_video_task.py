@@ -2450,3 +2450,197 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
             task_id="task-checkpoint-failure",
         )
     assert not (proj_dir / ".arcreel" / "tasks" / "task-checkpoint-failure" / "provider_media").exists()
+
+
+def _provider_asset_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    proj_dir = write_project(tmp_path)
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda _name, filename: json.loads((proj_dir / filename).read_text("utf-8"))
+    _wire_locked_script(fake_pm)
+    use_project_manager(monkeypatch, fake_pm)
+    use_video_thumbnail_extractor(monkeypatch, AsyncMock(return_value=False))
+    return proj_dir
+
+
+def _capturing_queue(monkeypatch: pytest.MonkeyPatch, rvt) -> dict[str, str]:
+    persisted: dict[str, str] = {}
+
+    async def _persist(task_id: str, raw: str, _provider_id: str) -> None:
+        persisted[task_id] = raw
+
+    queue = MagicMock()
+    queue.persist_execution_checkpoint = AsyncMock(side_effect=_persist)
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: queue)
+    return persisted
+
+
+@pytest.mark.asyncio
+async def test_selected_provider_assets_reach_request_and_checkpoint_without_changing_the_artifact_basis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """可用关联以素材引用发出：与实发参考图同序，记进检查点与版本元数据；产物时效依据与发图片内容时一致。"""
+    from lib.asset_library.generation_inputs import ReferenceAssetChoice
+    from lib.script.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
+    from server.services.tasks import reference_video_tasks as rvt
+
+    proj_dir = _provider_asset_project(tmp_path, monkeypatch)
+    persisted = _capturing_queue(monkeypatch, rvt)
+    submitted: dict[str, dict[str, Any]] = {}
+    seen_sources: list[list[Any]] = []
+    use_assets = False
+
+    async def _choose(sources):
+        seen_sources.append(list(sources))
+        return tuple(
+            ReferenceAssetChoice(asset_uri="asset://asset-zhang-1", content_version_id="cv-zhang-1", link_id=7)
+            if use_assets and source.name == "张三"
+            else None
+            for source in sources
+        )
+
+    async def _fake_generate_video_async(**kwargs):
+        submitted[kwargs["task_id"]] = {**kwargs, "metadata": await kwargs["before_submit"]()}
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        await write_backend_output(out, b"paid-video")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.choose_reference_image_assets = AsyncMock(side_effect=_choose)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-11-03T00:00:00Z"}]}
+    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
+
+    await rvt.execute_reference_video_task(
+        "demo", "E1U1", {}, script_file="scripts/episode_1.json", user_id="u1", task_id="task-plain"
+    )
+    use_assets = True
+    await rvt.execute_reference_video_task(
+        "demo", "E1U1", {}, script_file="scripts/episode_1.json", user_id="u1", task_id="task-asset"
+    )
+
+    # 选择按实发字节：来源路径与暂存摘要，按提示词里的图片顺序。
+    assert [(s.locator, s.name) for s in seen_sources[-1]] == [
+        ("characters/张三.png", "张三"),
+        ("scenes/酒馆.png", "酒馆"),
+    ]
+    plain = ReferenceSubmissionCheckpoint.from_json(persisted["task-plain"])
+    asset = ReferenceSubmissionCheckpoint.from_json(persisted["task-asset"])
+    assert [s.sha256 for s in seen_sources[-1]] == [m.sha256 for m in asset.media if m.role == "reference_image"]
+
+    assert submitted["task-plain"]["reference_image_asset_uris"] is None
+    assert submitted["task-asset"]["reference_image_asset_uris"] == ["asset://asset-zhang-1", None]
+    assert len(submitted["task-asset"]["reference_images"]) == 2
+    assert [ref.to_dict() for ref in asset.provider_asset_references] == [
+        {"media_index": 0, "content_version_id": "cv-zhang-1", "asset_uri": "asset://asset-zhang-1"}
+    ]
+    assert submitted["task-asset"]["metadata"]["execution_provider_asset_references"] == [
+        {"media_index": 0, "content_version_id": "cv-zhang-1", "asset_uri": "asset://asset-zhang-1"}
+    ]
+    assert plain.provider_asset_references == ()
+    assert asset.request_digest != plain.request_digest
+    # 传输形式不进产物依据：同样的内容以素材引用发出，复用与时效判定不变。
+    assert asset.artifact_currency is not None
+    assert plain.artifact_currency is not None
+    assert asset.artifact_currency.video_basis == plain.artifact_currency.video_basis
+    assert asset.visual_basis_digest == plain.visual_basis_digest
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unusable_from_call", [1, 2], ids=["at-projection", "after-staging"])
+async def test_unusable_provider_asset_link_fails_before_submission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unusable_from_call: int
+):
+    """适用关联尚在入库：不提交、不留暂存，落库的失败原因点名图片并提示等待或解除关联。
+
+    请求投影先按当前文件核对（与接收任务、批量预览同一问题码）；暂存之后按实发字节再核对一次，关联在两次之间
+    变得不可用时同样失败，问题码与提示相同。
+    """
+    from lib.asset_library.generation_inputs import ProviderAssetLinkUnavailableError
+    from lib.db.models.asset_library import ProviderAssetLink
+    from lib.generation.task_failure import render_failure
+    from lib.generation.task_failure_encoding import encode_task_failure_message
+    from lib.script.reference_video.request_projection import ReferenceProjectionBlockedError
+    from server.services.tasks import reference_video_tasks as rvt
+
+    proj_dir = _provider_asset_project(tmp_path, monkeypatch)
+    persisted = _capturing_queue(monkeypatch, rvt)
+    pending = ProviderAssetLink(id=7, state="processing", selected=True)
+    expected_error = ReferenceProjectionBlockedError if unusable_from_call == 1 else ProviderAssetLinkUnavailableError
+    calls = 0
+
+    async def _choose(sources):
+        nonlocal calls
+        calls += 1
+        if calls >= unusable_from_call:
+            raise ProviderAssetLinkUnavailableError(pending, index=1, name="张三")
+        return (None,) * len(sources)
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock()
+    fake_generator.choose_reference_image_assets = AsyncMock(side_effect=_choose)
+    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
+
+    with pytest.raises(expected_error) as excinfo:
+        await rvt.execute_reference_video_task(
+            "demo", "E1U1", {}, script_file="scripts/episode_1.json", user_id="u1", task_id="task-wait"
+        )
+
+    assert calls == unusable_from_call
+    assert excinfo.value.code == "provider_asset_link_processing"
+    assert fake_generator.generate_video_async.await_count == 0
+    assert persisted == {}
+    assert not (proj_dir / ".arcreel" / "tasks" / "task-wait" / "provider_media").exists()
+    rendered = render_failure(encode_task_failure_message(excinfo.value), _, make_display_names())
+    assert rendered is not None
+    assert "图片1（张三）" in rendered
+    assert "解除关联" in rendered
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reference_index", "sent_as_asset", "expected"),
+    [
+        (1, False, "供应商审核未通过图片2（酒馆）"),
+        (0, True, "以素材库素材发出的图片1（张三）"),
+        (None, False, "供应商审核未通过这次请求的输入图片"),
+    ],
+    ids=["plain-image", "asset", "unmapped"],
+)
+async def test_input_image_rejection_names_the_reference_image_and_points_to_upload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference_index, sent_as_asset, expected
+):
+    """普通图片被拒时点名那张资产图并提示上传到素材库；以素材发出的被拒不提示上传；不能确定时不点名。"""
+    from lib.backends.provider_assets import ProviderInputImageRejectedError
+    from lib.generation.task_failure import render_failure
+    from lib.generation.task_failure_encoding import encode_task_failure_message
+    from server.services.tasks import reference_video_tasks as rvt
+
+    _provider_asset_project(tmp_path, monkeypatch)
+    _capturing_queue(monkeypatch, rvt)
+
+    async def _rejected(**kwargs):
+        await kwargs["before_submit"]()
+        raise ProviderInputImageRejectedError(
+            provider_code="InputImageSensitiveContentDetected.PrivacyInformation",
+            provider_reason="input image may contain a real person",
+            reference_index=reference_index,
+            sent_as_asset=sent_as_asset,
+        )
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_rejected)
+    fake_generator.versions.get_versions.return_value = {"versions": []}
+    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
+
+    with pytest.raises(ProviderInputImageRejectedError) as excinfo:
+        await rvt.execute_reference_video_task(
+            "demo", "E1U1", {}, script_file="scripts/episode_1.json", user_id="u1", task_id="task-rejected"
+        )
+
+    rendered = render_failure(encode_task_failure_message(excinfo.value), _, make_display_names())
+    assert rendered is not None
+    assert expected in rendered
+    assert "InputImageSensitiveContentDetected.PrivacyInformation" in rendered
+    assert ("上传到供应商素材库" in rendered) is (not sent_as_asset)

@@ -13,7 +13,7 @@ import math
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import cast
 
 from .model import (
@@ -47,6 +47,7 @@ from .vocabulary import (
 #: 数据集版本是 UTC 时间戳，定长，字符串顺序即时间顺序。
 DATASET_VERSION_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _APP_VERSION = re.compile(r"\d+(\.\d+){0,2}")
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _CONTEXT_TIER = "context_tier"
 
 
@@ -77,12 +78,40 @@ def parse_dataset_version(value: str) -> datetime:
 
 _DATA_FIELDS = frozenset({"dataset_version", "entries", "builtin_providers"})
 _ENTRY_FIELDS = frozenset(
-    {"maker", "name", "media_type", "display_name", "aliases", "discontinued", "context_length", "facts", "price"}
+    {
+        "maker",
+        "name",
+        "media_type",
+        "display_name",
+        "aliases",
+        "discontinued",
+        "context_length",
+        "facts",
+        "price",
+        "release_date",
+        "shutdown_date",
+        "successor",
+    }
 )
 _FACT_FIELDS: Mapping[MediaType, frozenset[str]] = {
     "text": frozenset({"image_input", "structured_output", "max_output_tokens"}),
-    "image": frozenset({"text_to_image", "image_to_image", "resolutions"}),
-    "video": frozenset({"durations", "resolutions", "duration_constraints"}),
+    "image": frozenset(
+        {"text_to_image", "image_to_image", "resolutions", "max_reference_images", "output_token_bases"}
+    ),
+    "video": frozenset(
+        {
+            "durations",
+            "resolutions",
+            "duration_constraints",
+            "max_reference_images",
+            "text_to_video",
+            "first_frame",
+            "last_frame",
+            "reference_audio",
+            "max_reference_audio_count",
+            "max_reference_audio_total_seconds",
+        }
+    ),
     "audio": frozenset(),
 }
 _CONSTRAINT_FIELDS = frozenset({"by_resolution", "with_reference_images"})
@@ -147,6 +176,19 @@ class CatalogReader:
         self.reject(_at(path, key), "invalid_bool", "应为布尔值")
         return False
 
+    def optional_date(self, raw: Mapping[str, object], key: str, path: str) -> date | None:
+        """精确到日的日期，写作 ``YYYY-MM-DD``。"""
+        value = raw.get(key)
+        if value is None:
+            return None
+        if isinstance(value, str) and _ISO_DATE.fullmatch(value):
+            try:
+                return date.fromisoformat(value)
+            except ValueError:
+                pass
+        self.reject(_at(path, key), "invalid_date", "应为 YYYY-MM-DD 格式的日期")
+        return None
+
     def positive_int(self, raw: Mapping[str, object], key: str, path: str) -> int | None:
         value = raw.get(key)
         if value is None:
@@ -156,14 +198,38 @@ class CatalogReader:
         self.reject(_at(path, key), "invalid_positive_int", "应为正整数")
         return None
 
+    def optional_flag(self, raw: Mapping[str, object], key: str, path: str) -> bool | None:
+        return None if raw.get(key) is None else self.flag_value(raw, key, path)
+
+    def nonnegative_int(self, raw: Mapping[str, object], key: str, path: str) -> int | None:
+        value = raw.get(key)
+        if value is None:
+            return None
+        if type(value) is int and value >= 0:
+            return value
+        self.reject(_at(path, key), "invalid_nonnegative_int", "应为非负整数")
+        return None
+
+    def nonnegative_seconds(self, raw: Mapping[str, object], key: str, path: str) -> float | None:
+        """非负有限秒数上限。上限与价格不同：负数或非有限值让上限无从比较，实例侧同样拒收。"""
+        value = raw.get(key)
+        if value is None:
+            return None
+        seconds = _as_float(value)
+        if seconds is not None and math.isfinite(seconds) and seconds >= 0:
+            return seconds
+        self.reject(_at(path, key), "invalid_nonnegative_number", "应为非负的有限数")
+        return None
+
     def number(self, value: object, path: str) -> float:
         """非负有限数。不是数字时拒收；负数或非有限值只在构建侧报告。"""
-        if isinstance(value, bool) or not isinstance(value, int | float):
+        result = _as_float(value)
+        if result is None:
             self.reject(path, "invalid_number", "应为数字")
             return 0.0
-        if not math.isfinite(value) or value < 0:
+        if not math.isfinite(result) or result < 0:
             self.flag(path, "negative_number", "应为非负的有限数")
-        return float(value)
+        return result
 
     def items(self, value: object, path: str) -> list[object]:
         if value is None:
@@ -215,6 +281,7 @@ class CatalogReader:
         }
         result = CatalogData(dataset_version, tuple(entries), providers)
         self.check_entry_identities(result.entries)
+        self.check_successors(result.entries)
         self.check_listings(result)
         return result
 
@@ -243,6 +310,9 @@ class CatalogReader:
         aliases = self.texts(data.get("aliases"), _at(path, "aliases"))
         discontinued = self.flag_value(data, "discontinued", path)
         context_length = self.positive_int(data, "context_length", path)
+        release_date = self.optional_date(data, "release_date", path)
+        shutdown_date = self.optional_date(data, "shutdown_date", path)
+        successor = self.optional_text(data, "successor", path)
         if media_type not in MEDIA_TYPES:
             if media_type:
                 self.flag(_at(path, "media_type"), "unknown_media_type", "不认识的媒体类型")
@@ -263,6 +333,9 @@ class CatalogReader:
             discontinued=discontinued,
             context_length=context_length,
             price=price,
+            release_date=release_date,
+            shutdown_date=shutdown_date,
+            successor=successor,
         )
 
     def facts(self, raw: object, media_type: MediaType, path: str) -> ModelFacts:
@@ -279,6 +352,10 @@ class CatalogReader:
                 return ImageFacts(
                     text_to_image=self.flag_value(data, "text_to_image", path),
                     image_to_image=self.flag_value(data, "image_to_image", path),
+                    max_reference_images=self.nonnegative_int(data, "max_reference_images", path),
+                    output_token_bases=self.output_token_bases(
+                        data.get("output_token_bases"), _at(path, "output_token_bases")
+                    ),
                     resolutions=self.texts(data.get("resolutions"), _at(path, "resolutions")),
                 )
             case "video":
@@ -289,9 +366,42 @@ class CatalogReader:
                 constraints = self.duration_constraints(
                     data.get("duration_constraints"), durations, resolutions, _at(path, "duration_constraints")
                 )
-                return VideoFacts(durations=durations, resolutions=resolutions, duration_constraints=constraints)
+                reference_audio = self.optional_flag(data, "reference_audio", path)
+                audio_count = self.nonnegative_int(data, "max_reference_audio_count", path)
+                if reference_audio is True and audio_count == 0:
+                    self.flag(
+                        _at(path, "max_reference_audio_count"),
+                        "reference_audio_without_count",
+                        "接受参考音频时参考音频数量上限不能为 0",
+                    )
+                return VideoFacts(
+                    durations=durations,
+                    resolutions=resolutions,
+                    duration_constraints=constraints,
+                    max_reference_images=self.nonnegative_int(data, "max_reference_images", path),
+                    text_to_video=self.optional_flag(data, "text_to_video", path),
+                    first_frame=self.optional_flag(data, "first_frame", path),
+                    last_frame=self.optional_flag(data, "last_frame", path),
+                    reference_audio=reference_audio,
+                    max_reference_audio_count=audio_count,
+                    max_reference_audio_total_seconds=self.nonnegative_seconds(
+                        data, "max_reference_audio_total_seconds", path
+                    ),
+                )
             case "audio":
                 return AudioFacts()
+
+    def output_token_bases(self, raw: object, path: str) -> Mapping[str, int]:
+        data = {} if raw is None else self.obj(raw, path)
+        result: dict[str, int] = {}
+        for quality, base in data.items():
+            if not is_valid_dimension_value("quality", quality):
+                self.reject(path, "invalid_text", "质量档应为非空字符串")
+            elif type(base) is int and base > 0:
+                result[quality] = base
+            else:
+                self.reject(_at(path, quality), "invalid_positive_int", "应为正整数")
+        return result
 
     def duration_constraints(
         self, raw: object, durations: tuple[int, ...], resolutions: tuple[str, ...], path: str
@@ -485,6 +595,17 @@ class CatalogReader:
                 if owner != entry.key:
                     self.flag(name_path, "name_conflict", f"「{name}」与条目 {owner.ref} 的名字冲突")
 
+    def check_successors(self, entries: tuple[CatalogEntry, ...]) -> None:
+        """后继模型指向已存在、且媒体类型与原条目相同的条目。只查直接后继，不查后继链。"""
+        for index, entry in enumerate(entries):
+            if entry.successor is None or matching_entries(entries, entry.successor, entry.media_type):
+                continue
+            path = f"entries[{index}].successor"
+            if matching_entries(entries, entry.successor, None):
+                self.flag(path, "successor_media_type_mismatch", "后继模型的媒体类型与原条目不同")
+            else:
+                self.flag(path, "unknown_successor", "后继模型指向的条目不存在")
+
     def check_listings(self, data: CatalogData) -> None:
         for provider_id, listing in data.builtin_providers.items():
             path = f"builtin_providers.{provider_id}"
@@ -511,7 +632,9 @@ class CatalogReader:
                         continue  # 引用问题已在清单条目上报告
                     self.flag(default_path, "unknown_default_model", "默认模型不在这个供应商这一媒体类型的清单中")
                 elif default_entry.discontinued:
-                    self.flag(default_path, "default_model_discontinued", "默认模型已下架")
+                    self.flag(default_path, "default_model_discontinued", "默认模型已下线")
+                elif default_entry.shutdown_date is not None:
+                    self.flag(default_path, "default_model_retiring", "默认模型带关停日期")
 
     def listed_entry(self, data: CatalogData, model: BuiltinProviderModel, path: str) -> CatalogEntry | None:
         if model.media_type is not None and model.media_type not in MEDIA_TYPES:
@@ -529,6 +652,16 @@ class CatalogReader:
 
 def _at(path: str, key: str) -> str:
     return f"{path}.{key}" if path else key
+
+
+def _as_float(value: object) -> float | None:
+    """JSON 数字转为浮点数，不是数字时返回 None。超出浮点范围的整数按同号无穷处理，交由非有限值规则判断。"""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        return float(value)
+    except OverflowError:
+        return math.inf if value > 0 else -math.inf
 
 
 def _overlaps(a: Mapping[str, object], b: Mapping[str, object]) -> bool:

@@ -91,7 +91,7 @@ class ArkImageBackend:
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
 
-    DEFAULT_MODEL = "doubao-seedream-5-0-lite-260128"
+    DEFAULT_MODEL = "doubao-seedream-5-0-pro-260628"
 
     def __init__(
         self,

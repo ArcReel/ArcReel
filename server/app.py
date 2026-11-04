@@ -42,6 +42,7 @@ from lib.agent.agent_session_store import default_sdk_config_dir, session_store_
 from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
 from lib.agent.agent_session_store.key_alignment import align_session_keys
 from lib.agent.agent_session_store.store import DbSessionStore
+from lib.asset_library.ingest import start_asset_ingest, stop_asset_ingest
 from lib.catalog.official_sync import start_official_sync, stop_official_sync
 from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
@@ -59,6 +60,7 @@ from lib.infra.logging_config import (
 )
 from lib.infra.loop_stall_probe import start_loop_stall_probe, stop_loop_stall_probe
 from lib.infra.path_safety import try_safe_join
+from lib.material.maintenance import start_material_maintenance
 from lib.project.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.script.source_loader.migration import migrate_project_source_encoding, migrate_project_source_encoding_once
 from server.auth import ensure_auth_password, ensure_token_secret, get_current_user, warn_if_auth_disabled
@@ -71,6 +73,7 @@ from server.routers import (
     agent_config,
     agent_memory,
     api_keys,
+    asset_library,
     asset_sheets,
     assets,
     assistant,
@@ -92,6 +95,7 @@ from server.routers import (
     grids,
     market,
     market_submissions,
+    object_storage,
     official_service,
     onboarding,
     presentations,
@@ -103,6 +107,7 @@ from server.routers import (
     prompt_authoring,
     prompt_templates,
     props,
+    provider_asset_links,
     provider_models,
     providers,
     reference_videos,
@@ -464,15 +469,6 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("text tier settings migration failed (non-fatal): %s", exc)
 
-    # 设置里已改名的模型改写为后继模型（退役模型映射）。放在档位迁移之后：旧任务级键收编进档位键后一并改写
-    try:
-        from lib.config.migration import migrate_retired_model_settings
-
-        async with async_session_factory() as session:
-            await migrate_retired_model_settings(session)
-    except Exception as exc:
-        logger.warning("retired model settings migration failed (non-fatal): %s", exc)
-
     # 官方市场源 seed：不存在则插入，地址常量变了就同步；不抓取
     try:
         from lib.market.sources import seed_official_source
@@ -546,10 +542,18 @@ async def lifespan(app: FastAPI):
     from server.services.project.trash_expiry import start_trash_expiry, stop_trash_expiry
 
     trash_expiry = start_trash_expiry(layout)
+    # 供应商素材库入库任务：启动时恢复中断的提交，之后推进中转上传、状态查询与中转副本清理；随应用关停取消
+    asset_ingest = start_asset_ingest(async_session_factory)
+    # 远端素材：启动时结算中断的正式提交，之后重试删除待删除的正式对象、重算对象引用、清理闲置的本地工作文件（项目与全局资产库）；随应用关停取消
+    material_maintenance = start_material_maintenance(
+        async_session_factory, layout.projects_dir, layout.deleted_projects_dir, data_root=layout.root
+    )
     try:
         async with remote_mcp_host.run():
             yield
     finally:
+        await material_maintenance.stop()
+        await stop_asset_ingest(asset_ingest)
         await stop_trash_expiry(trash_expiry)
         await stop_official_sync(catalog_sync)
         # 运行期异常或关停被取消时同样停掉探针，免得收尾阶段把关停工作误报成卡顿。
@@ -791,6 +795,13 @@ app.include_router(
     provider_models.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"]
 )
 app.include_router(catalog.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["模型目录"])
+app.include_router(object_storage.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["对象存储"])
+app.include_router(
+    asset_library.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商素材库"]
+)
+app.include_router(
+    provider_asset_links.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商素材库"]
+)
 app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统配置"])
 app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统"])
 app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["API Key 管理"])

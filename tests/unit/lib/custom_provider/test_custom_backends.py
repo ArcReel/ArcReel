@@ -201,7 +201,21 @@ class TestCustomVideoBackend:
         request = VideoGenerationRequest(prompt="p", output_path=tmp_path / "v.mp4")
 
         assert backend.metered_usage("seedance", request) is declared
-        delegate.metered_usage.assert_called_once_with("seedance", request, None)
+        delegate.metered_usage.assert_called_once_with("seedance", request, None, entry=None)
+
+    def test_metered_usage_hands_the_delegate_its_catalog_entry(self, tmp_path: Path):
+        """结算经 ``backend_metered_usage`` 计量时，被包装的调用通道按工厂交给它的条目认定模型。"""
+        from lib.backends.video_backends.registry import backend_metered_usage
+
+        entry = cast(Any, object())
+        declared = Usage(quantities={"video_tokens": 1000})
+        delegate = SimpleNamespace(metered_usage=MagicMock(return_value=declared), catalog_entry=entry)
+        backend = CustomVideoBackend(provider_id="custom-vid", delegate=cast(Any, delegate), model="relay-x")
+        request = VideoGenerationRequest(prompt="p", output_path=tmp_path / "v.mp4")
+
+        assert backend.catalog_entry is entry
+        assert backend_metered_usage(backend, request) is declared
+        delegate.metered_usage.assert_called_once_with("relay-x", request, None, entry=entry)
 
     def test_metered_usage_falls_back_when_the_channel_does_not_know_the_model(self, tmp_path: Path):
         delegate = SimpleNamespace(metered_usage=MagicMock(side_effect=ValueError("unknown model")))

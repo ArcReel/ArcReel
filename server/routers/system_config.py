@@ -8,13 +8,14 @@ is managed by the providers router.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 from urllib.parse import urlsplit
 
 import httpx
@@ -34,6 +35,8 @@ from lib.backends.generation_type_buckets import (
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
+from lib.catalog.lifecycle import Lifecycle, entry_lifecycle
+from lib.config.model_setting_keys import GLOBAL_MODEL_SETTING_KEYS, MODEL_SETTING_MEDIA_TYPES
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
@@ -47,6 +50,7 @@ from lib.speech.narration_config import parse_tts_backend
 from server.dependencies import get_config_service
 from server.i18n import Locale, Translator
 from server.routers._validators import validate_backend_value
+from server.services.project.model_references import project_model_references
 from server.services.project.narration_settings import default_narration_tts
 from server.services.tasks.generation_context import audio_backend_capabilities
 
@@ -163,6 +167,20 @@ class _ModelCandidate:
     media_type: str
     buckets: frozenset[GenerationTypeBucket]
     display_name: str  # 按请求语言成文的模型名
+    entry: str | None = None  # 所对应条目的引用（「模型厂商/官方模型名」）；对应不上条目时为 None
+
+    @property
+    def provider(self) -> str:
+        return self.option.split("/", 1)[0]
+
+
+@dataclass(frozen=True)
+class _RetiringModel:
+    """一个即将下线或已下线的供应商模型，不论启用与否、在不在候选里：引用处的下线提示据此给出。"""
+
+    option: str  # "provider_id/model_id"
+    media_type: str
+    lifecycle: Lifecycle
 
 
 async def _enumerate_candidates(
@@ -170,8 +188,9 @@ async def _enumerate_candidates(
 ) -> tuple[list[_ModelCandidate], dict[str, str]]:
     """列出所有可选模型（内置 ready 供应商与自定义供应商下已启用的供应商模型），并附任务类型桶归属。
 
-    候选只来自已启用的供应商模型，默认层与任务类型桶层同受此约束（能力过滤只加在桶层）。内置供应商的启用状态
-    取自供应商状态的 ``disabled_models``（见 :mod:`lib.catalog.builtin_models`）。
+    候选只来自已启用、未下线的供应商模型，默认层与任务类型桶层同受此约束（能力过滤只加在桶层）。内置供应商的这两项
+    取自供应商状态的 ``disabled_models``（见 :func:`lib.catalog.builtin_models.disabled_builtin_models`）；自定义供应商
+    看模型行的启用状态与所对应条目的生命周期（:func:`lib.custom_provider.default_models.model_lifecycle`）。
 
     供应商名与模型名走 ``translate_or``，与 ``/providers`` 目录同一条路径：有译名表的按请求
     语言成文，没有的（纯品牌名、自定义供应商用户自填的名字）原样返回 registry / DB 里的原名。
@@ -189,17 +208,21 @@ async def _enumerate_candidates(
         for model_id, model_info in catalog.list_models(provider_id).items():
             if model_id in ready_providers[provider_id].disabled_models:
                 continue
+            entry = catalog.provider_model_entry(provider_id, model_id, model_info.media_type)
             candidates.append(
                 _ModelCandidate(
                     option=f"{provider_id}/{model_id}",
                     media_type=model_info.media_type,
                     buckets=builtin_model_buckets(provider_id, model_id, model_info),
                     display_name=model_info.display_name,
+                    entry=entry.key.ref if entry is not None else None,
                 )
             )
 
     from lib.custom_provider import make_provider_id
+    from lib.custom_provider.default_models import model_lifecycle
     from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+    from lib.custom_provider.model_facts import model_entry
     from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
     from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
@@ -211,7 +234,10 @@ async def _enumerate_candidates(
         endpoint_repo = CustomEndpointRepository(session)
         for model in enabled_models:
             endpoint_spec = await resolve_endpoint_spec(model.endpoint, endpoint_repo.get)
+            if model_lifecycle(model, endpoint_spec.media_type).discontinued:
+                continue
             pid = make_provider_id(model.provider_id)
+            entry = model_entry(model.model_id, endpoint_spec.media_type, model.entry_binding)
             candidates.append(
                 _ModelCandidate(
                     option=f"{pid}/{model.model_id}",
@@ -224,6 +250,7 @@ async def _enumerate_candidates(
                         entry_binding=model.entry_binding,
                     ),
                     display_name=model.display_name,
+                    entry=entry.key.ref if entry is not None else None,
                 )
             )
             if pid not in provider_names and model.provider_id in provider_name_map:
@@ -232,6 +259,135 @@ async def _enumerate_candidates(
         pass  # Non-fatal: custom providers unavailable shouldn't break the options endpoint
 
     return candidates, provider_names
+
+
+async def _enumerate_retiring_models(session: AsyncSession) -> list[_RetiringModel]:
+    """列出即将下线或已下线的供应商模型：全部内置供应商与自定义供应商，启用与否都算。
+
+    设置与项目里的引用可能指向停用的、已下线的或所在供应商尚未配置的模型，它们不在候选里，提示仍要给出。
+    官方数据删除、只剩本地保留条目的模型不在清单里，这里列不出，由 :func:`_unlisted_references` 按被引用的值补上。
+    """
+    retiring = [
+        _RetiringModel(f"{provider_id}/{view.model_id}", view.model.media_type, view.lifecycle)
+        for provider_id in PROVIDER_REGISTRY
+        for view in catalog.provider_models(provider_id)
+        if view.lifecycle.status != "available"
+    ]
+
+    from lib.custom_provider import make_provider_id
+    from lib.custom_provider.default_models import model_lifecycle
+    from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+    from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+    endpoint_repo = CustomEndpointRepository(session)
+    for provider, models in await CustomProviderRepository(session).list_providers_with_models():
+        for model in models:
+            try:
+                media_type = (await resolve_endpoint_spec(model.endpoint, endpoint_repo.get)).media_type
+            except ValueError:
+                continue  # 调用端点已被删除：供应商模型列表同样不列这一行
+            state = model_lifecycle(model, media_type)
+            if state.status != "available":
+                retiring.append(_RetiringModel(f"{make_provider_id(provider.id)}/{model.model_id}", media_type, state))
+    return retiring
+
+
+async def _referenced_models(svc: ConfigService) -> dict[str, str]:
+    """全局设置与各项目的模型设置字段引用的 ``provider/model`` → 所引模型的媒体类型（取自字段）。
+
+    逐个读项目的 ``project.json``，耗时与项目数成正比。
+    """
+    settings = await svc.get_all_settings()
+    pairs: list[tuple[str, object]] = [(key, settings.get(key)) for key in GLOBAL_MODEL_SETTING_KEYS]
+    for project in await asyncio.to_thread(project_model_references):
+        pairs.extend(project.references.items())
+    return {value: MODEL_SETTING_MEDIA_TYPES[key] for key, value in pairs if isinstance(value, str) and value}
+
+
+def _unlisted_references(references: Mapping[str, str]) -> tuple[list[_RetiringModel], dict[str, str]]:
+    """被引用、却不在内置供应商清单里的模型：按名字对应到本地已下线条目的，按条目给下线提示；其余提示不可用。
+
+    返回（按条目提示的模型, 不可用的 ``provider/model`` → 媒体类型）。不在清单里的模型无法调用，对应到的条目
+    即将下线或仍可用时同样算不可用。自定义供应商的引用不在这里判定：它们按模型行判定（:func:`_enumerate_retiring_models`）。
+    """
+    discontinued: list[_RetiringModel] = []
+    unavailable: dict[str, str] = {}
+    for option, media_type in references.items():
+        provider_id, sep, model_id = option.partition("/")
+        if not sep or provider_id not in PROVIDER_REGISTRY or catalog.get_model(provider_id, model_id) is not None:
+            continue
+        state = entry_lifecycle(catalog.referenced_entry(provider_id, model_id, media_type))
+        if state.discontinued:
+            discontinued.append(_RetiringModel(option, media_type, state))
+        else:
+            unavailable[option] = media_type
+    return discontinued, unavailable
+
+
+#: 引用处提示的状态：即将下线、已下线，以及引用的模型不在清单里、本地也没有已下线条目的「不可用」。
+NoticeStatus = Literal["retiring", "discontinued", "unavailable"]
+
+
+class LifecycleNotice(BaseModel):
+    """引用处的下线提示：状态、关停日期、官方后继，以及每个引用位置可一键切换的目标。"""
+
+    status: NoticeStatus
+    shutdown_date: date | None
+    #: 官方后继的条目引用（「模型厂商/官方模型名」）与条目名；没有登记后继时为 None。
+    successor: str | None
+    successor_name: str | None
+    #: 引用位置（``default`` 为默认层，其余为该媒体类型的任务类型桶）→ 一键切换的目标 ``provider/model``；
+    #: 同一供应商下没有对应到后继、且是该位置候选的供应商模型时为 None，只展示后继名称。
+    switch_targets: dict[str, str | None]
+
+
+def _reference_layers(media_type: str) -> tuple[str, ...]:
+    """一种媒体类型的引用位置：默认层加该媒体类型的任务类型桶。"""
+    return ("default", *BUCKETS_BY_MEDIA_TYPE.get(media_type, ()))
+
+
+def _lifecycle_notices(
+    retiring: list[_RetiringModel], candidates: list[_ModelCandidate], unavailable: Mapping[str, str] | None = None
+) -> dict[str, LifecycleNotice]:
+    """``provider/model`` → 下线提示。切换目标只从候选里挑，与该位置的下拉同一份资格（启用、未下线、媒体类型、
+    端点、最低应用版本由候选枚举把关，任务类型桶看候选的桶归属）。``unavailable``（``provider/model`` → 媒体类型）
+    的模型没有生命周期信息，提示不可用，不给后继与切换目标。"""
+    notices: dict[str, LifecycleNotice] = {
+        option: LifecycleNotice(
+            status="unavailable",
+            shutdown_date=None,
+            successor=None,
+            successor_name=None,
+            switch_targets=dict.fromkeys(_reference_layers(media_type)),
+        )
+        for option, media_type in (unavailable or {}).items()
+    }
+    for model in retiring:
+        state = model.lifecycle
+        provider = model.option.split("/", 1)[0]
+        successors = [
+            c
+            for c in candidates
+            if state.successor is not None
+            and c.entry == state.successor
+            and c.provider == provider
+            and c.media_type == model.media_type
+        ]
+        layers = _reference_layers(model.media_type)
+        successor_key = catalog.binding_key(state.successor, model.media_type)
+        successor_entry = catalog.get_entry(successor_key) if successor_key is not None else None
+        notices[model.option] = LifecycleNotice(
+            status="discontinued" if state.discontinued else "retiring",  # 只收即将下线与已下线的模型
+            shutdown_date=state.shutdown_date,
+            successor=state.successor,
+            successor_name=successor_entry.display_name if successor_entry is not None else None,
+            switch_targets={
+                layer: next((c.option for c in successors if layer == "default" or layer in c.buckets), None)
+                for layer in layers
+            },
+        )
+    return notices
 
 
 def _model_names(candidates: list[_ModelCandidate]) -> dict[str, str]:
@@ -288,6 +444,9 @@ class ModelCandidatesResponse(BaseModel):
     # "provider_id/model_id" → 按请求语言成文的模型名；键覆盖全部媒体类型的候选（含 options
     # 才用到的 text / audio），前端下拉据此显示译名。
     model_names: dict[str, str]
+    # "provider_id/model_id" → 下线提示，收即将下线与已下线的供应商模型（含不在候选里的），以及设置与项目里引用的
+    # 清单之外的模型（已下线或不可用），覆盖全部媒体类型；引用了它的下拉就地展示。
+    lifecycle: dict[str, LifecycleNotice]
 
 
 class SystemConfigPatchRequest(BaseModel):
@@ -416,8 +575,12 @@ async def get_model_candidates(
 
     默认层不过滤 —— 默认层不承诺能力，能力不满足由解析闸报错兜底；只有桶层承诺「配进去的
     组合执行得了」，故按桶过滤。
+
+    另带引用处的下线提示（``lifecycle``），一键切换的目标从同一份候选里挑。设置与项目里引用了清单之外的模型时，
+    按被引用的值对应本地保留的条目补上提示（:func:`_unlisted_references`）。
     """
     candidates, provider_names = await _enumerate_candidates(svc, session, locale)
+    discontinued, unavailable = _unlisted_references(await _referenced_models(svc))
 
     media: dict[str, MediaCandidates] = {}
     for media_type, buckets in BUCKETS_BY_MEDIA_TYPE.items():
@@ -432,6 +595,9 @@ async def get_model_candidates(
         video=media["video"],
         provider_names=provider_names,
         model_names=_model_names(candidates),
+        lifecycle=_lifecycle_notices(
+            [*await _enumerate_retiring_models(session), *discontinued], candidates, unavailable
+        ),
     )
 
 

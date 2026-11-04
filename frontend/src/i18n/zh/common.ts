@@ -87,4 +87,5 @@ export default {
   'item_position_of_total': '{{position}} / {{total}}',
   'item_internal_id': '内部编号 {{id}}',
   'item_agent_ref': '{{label}}（ID {{id}}）',
+  "error_details": "详情",
 } satisfies Record<keyof typeof enCommon, string>;

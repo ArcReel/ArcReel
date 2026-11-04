@@ -4,6 +4,7 @@ trash, list deletion records, restore a record.
 There is deliberately no purge or empty tool: those are irreversible and belong to the creator alone
 (``docs/adr/0107``). Deletion reuses the file-view check, so the reference index is rebuilt under the
 project lock before anything moves; the record's origin is the Agent because the change source is not ``webui``.
+A remote history version whose local cache was cleared is fetched first, exactly as in the file view.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from lib.i18n import _ as translate
 from lib.infra.api_errors import ApiError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
 from lib.project import project_trash
-from lib.project.file_view import move_file_to_trash
+from lib.project.file_view import local_file, move_file_to_trash
 from lib.project.project_change_hints import project_change_source
 from server.media_tools.context import tool_error, tool_problem
 from server.tool_runtime import CallerContext, NoArguments, ProjectScope, Services, ToolOutcome, ToolRequest
@@ -50,10 +51,14 @@ async def _run(operation: str, write: bool, func: Callable[[], Any]) -> ToolOutc
     try:
         value = await (run_sync_transaction(guarded) if write else asyncio.to_thread(guarded))
     except ApiError as exc:
-        return tool_problem(translate(exc.key, DEFAULT_LOCALE, **exc.params), code=exc.key, params=exc.params or None)
+        return _problem(exc)
     except Exception as exc:
         return tool_error(operation, exc)
     return ToolOutcome(value=value)
+
+
+def _problem(exc: ApiError) -> ToolOutcome[Any]:
+    return tool_problem(translate(exc.key, DEFAULT_LOCALE, **exc.params), code=exc.key, params=exc.params or None)
 
 
 async def delete_project_file(
@@ -63,15 +68,26 @@ async def delete_project_file(
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
     path = request.value.path
+    try:
+        project_dir = await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
+    except (FileNotFoundError, NotADirectoryError):
+        return _problem(NotFoundError("file_not_found", path=path))
+    except Exception as exc:
+        return tool_error("delete_project_file", exc)
 
     def delete() -> dict[str, Any]:
         try:
-            record = move_file_to_trash(services.projects.get_project_path(scope.project_name), path)
+            record = move_file_to_trash(project_dir, path)
         except (FileNotFoundError, NotADirectoryError) as exc:
             raise NotFoundError("file_not_found", path=path) from exc
         return {"record": record.to_dict()}
 
-    return await _run("delete_project_file", True, delete)
+    try:
+        # 缓存已清理的远端历史版本先取回，删除记录带着内容本身（与文件视图同一入口）
+        async with local_file(project_dir, path, deleting=True):
+            return await _run("delete_project_file", True, delete)
+    except ApiError as exc:
+        return _problem(exc)
 
 
 async def list_trash_records(

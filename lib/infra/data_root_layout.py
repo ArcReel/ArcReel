@@ -23,6 +23,8 @@ from lib.infra.app_data_dir import app_data_dir
 
 PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_FILENAME = "project.json"
+#: 全局资产库在数据根下的目录名；资产记录里的路径以数据根为基准，前缀即本目录名。
+GLOBAL_ASSETS_DIRNAME = "global_assets"
 
 
 def is_project_dir(path: Path) -> bool:
@@ -68,7 +70,7 @@ class DataRootLayout:
     @property
     def global_assets_dir(self) -> Path:
         """全局资产库；资产记录里的路径以数据根为基准，前缀即本目录名。"""
-        return self.root / "global_assets"
+        return self.root / GLOBAL_ASSETS_DIRNAME
 
     @property
     def users_dir(self) -> Path:

@@ -27,6 +27,74 @@ def test_dump_keeps_price_table_details():
     assert dump_entry(parse_entry(audio_entry()))["price"] == audio_entry()["price"]
 
 
+@pytest.mark.parametrize("factory", [amphibious_image_entry, video_entry])
+def test_dump_does_not_invent_unrecorded_model_facts(factory):
+    raw = factory()
+
+    assert dump_entry(parse_entry(raw))["facts"] == raw["facts"]
+
+
+@pytest.mark.parametrize(
+    ("factory", "additions"),
+    [
+        (
+            amphibious_image_entry,
+            {"max_reference_images": 16, "output_token_bases": {"low": 16, "medium": 48, "high": 96}},
+        ),
+        (amphibious_image_entry, {"max_reference_images": 0, "image_to_image": False}),
+        (
+            video_entry,
+            {
+                "max_reference_images": 9,
+                "text_to_video": True,
+                "first_frame": True,
+                "last_frame": False,
+                "reference_audio": True,
+                "max_reference_audio_count": 3,
+                "max_reference_audio_total_seconds": 15.5,
+            },
+        ),
+        (
+            video_entry,
+            {
+                "max_reference_images": 0,
+                "text_to_video": False,
+                "first_frame": False,
+                "last_frame": False,
+                "reference_audio": False,
+                "max_reference_audio_count": 0,
+                "max_reference_audio_total_seconds": 0,
+            },
+        ),
+    ],
+)
+def test_dump_preserves_optional_model_facts(factory, additions):
+    raw = factory()
+    raw["facts"].update(additions)
+
+    entry = parse_entry(raw)
+    dumped = json.loads(json.dumps(dump_entry(entry)))
+
+    assert dumped["facts"] == raw["facts"]
+    assert parse_entry(dumped) == entry
+    assert check_entry(dumped) == []
+
+
+def test_dump_preserves_lifecycle_fields():
+    raw = text_entry()
+    raw.update(release_date="2025-11-18", shutdown_date="2026-12-11", successor="google/gemini-3.5-pro")
+
+    entry = parse_entry(raw)
+    dumped = json.loads(json.dumps(dump_entry(entry)))
+
+    assert (dumped["release_date"], dumped["shutdown_date"], dumped["successor"]) == (
+        "2025-11-18",
+        "2026-12-11",
+        "google/gemini-3.5-pro",
+    )
+    assert parse_entry(dumped) == entry
+
+
 def test_dump_omits_empty_optional_fields():
     raw = {
         "maker": "acme",

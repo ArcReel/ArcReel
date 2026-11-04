@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
@@ -28,10 +29,16 @@ from lib.backends.backend_runtime import (
     reference_audio_to_data_uri,
     should_retry_download,
 )
+from lib.backends.provider_assets import (
+    REFERENCE_IMAGE_ROLE,
+    InferenceCredentialRef,
+    ProviderInputImageRejectedError,
+    is_input_image_rejection,
+)
 from lib.backends.providers import PROVIDER_ARK
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import capabilities_by_names
+from lib.backends.video_backends.name_family import EntryBoundCapabilities, capabilities_by_names, match_by_names
 from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -142,7 +149,51 @@ def _safe_create_params_for_log(create_params: dict[str, Any]) -> dict[str, Any]
     return view
 
 
-class ArkVideoBackend(ProviderJobIdPersistenceMixin):
+def _reference_asset_uris(request: VideoGenerationRequest) -> list[str | None]:
+    """与参考图等长同序的素材引用；请求没有给出时全部为 None。"""
+    refs = request.reference_images or []
+    uris = request.reference_image_asset_uris
+    if uris is None:
+        return [None] * len(refs)
+    if len(uris) != len(refs):
+        raise ValueError("reference_image_asset_uris must align with reference_images")
+    return list(uris)
+
+
+def _input_image_rejection(
+    request: VideoGenerationRequest, provider_code: object, provider_reason: object
+) -> ProviderInputImageRejectedError | None:
+    """方舟以「输入图片未通过审核」拒绝时的结构化错误；其他错误返回 None。
+
+    方舟的错误不给出被拒图片的位置，所以只有请求里恰好一张图片时才能确定是哪一张：这时点名它，
+    其余情况不猜测。
+    """
+    if not is_input_image_rejection(provider_code):
+        return None
+    refs = request.reference_images or []
+    frames = [image for image in (request.start_image, request.end_image) if image]
+    reference_index = 0 if len(refs) == 1 and not frames else None
+    asset_uris = _reference_asset_uris(request)
+    return ProviderInputImageRejectedError(
+        provider_code=str(provider_code),
+        provider_reason=provider_reason if isinstance(provider_reason, str) and provider_reason else None,
+        reference_index=reference_index,
+        sent_as_asset=reference_index is not None and asset_uris[reference_index] is not None,
+    )
+
+
+def _task_failure(task: Any, request: VideoGenerationRequest) -> str | None:
+    """轮询到的终态失败：输入图片被拒时抛结构化错误，其余失败返回原因文本，未失败返回 None。"""
+    if task.status not in ("failed", "expired"):
+        return None
+    error = getattr(task, "error", None)
+    rejection = _input_image_rejection(request, getattr(error, "code", None), getattr(error, "message", None))
+    if rejection is not None:
+        raise rejection
+    return f"Ark 视频生成失败(status={task.status}): {error or 'Unknown error'}"
+
+
+class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """Ark (火山方舟) 视频生成后端。"""
 
     def __init__(
@@ -152,6 +203,8 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         model: str | None = None,
         base_url: str | None = None,
         transport_layer: TransportLayer | None = None,
+        inference_credential: InferenceCredentialRef | None = None,
+        catalog_entry: CatalogEntry | None = None,
     ):
         self._client = create_ark_client(api_key=api_key, base_url=base_url, transport_layer=transport_layer)
         self._transport_layer = transport_layer
@@ -169,12 +222,52 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         # 的粒度是世代而非具体型号：同代的未知后缀照样按族群剔除 service_tier，这正是要的，
         # 该参数是整代都不接受。逐型号的严格判定另走 _matches_known_model 白名单（尾帧与参考
         # 音频用），两者不可互换。这是 backend 内部的运输细节，不进 VideoCapabilities——后者只
-        # 声明调用方需要据以取舍的输入路径。
-        self._supports_service_tier = self._accepts_service_tier(self._model)
+        # 声明调用方需要据以取舍的输入路径。模型对应的条目属于这两代时同样不带。
+        self._supports_service_tier = self._accepts_service_tier_for(self._model, catalog_entry)
+        self._inference_credential = inference_credential
+        self._catalog_entry = catalog_entry
 
     @property
     def name(self) -> str:
         return PROVIDER_ARK
+
+    @property
+    def inference_credential(self) -> InferenceCredentialRef | None:
+        """本实例发请求实际使用的推理凭证，素材库按它的绑定选用供应商素材；装配时没有给出则为 None。"""
+        return self._inference_credential
+
+    @property
+    def provider_asset_roles(self) -> frozenset[str]:
+        """当前模型可以用 ``asset://`` 素材引用代替图片内容的槽位，按装配时给出的模型条目认定。"""
+        return self.provider_asset_roles_for_entry(self._catalog_entry)
+
+    @staticmethod
+    def _accepts_service_tier_for(model: str, entry: CatalogEntry | None) -> bool:
+        """请求体是否带 ``service_tier``：API 模型名或所对应条目的名字属于 Seedance 2.0 / 2.5 时都不带。
+
+        不透明的 API 模型名绑定了 2.x 条目时，只看 API 模型名会误判为 1.x 而下发这个参数，上游在参考生视频下拒绝。
+        """
+        names = (model,) if entry is None else (model, entry.name, *entry.aliases)
+        return all(ArkVideoBackend._accepts_service_tier(name) for name in names)
+
+    def _on_catalog_entry_changed(self) -> None:
+        self._supports_service_tier = self._accepts_service_tier_for(self._model, self._catalog_entry)
+
+    @staticmethod
+    def provider_asset_roles_for_entry(entry: CatalogEntry | None) -> frozenset[str]:
+        """模型条目在方舟协议下可以用 ``asset://`` 素材引用代替图片内容的槽位。
+
+        官方《Seedance 人像素材使用指南》只给出 Seedance 2.0 / 2.5 在 ``reference_image`` 槽位使用素材 ID 的
+        契约，没有说明首帧、尾帧，也没有说明 1.x 系列，所以只为这两代的参考图槽位声明。名字取条目的官方模型名与
+        模型别名；供应商模型对应不上条目时不声明，不按 API 模型名推断：中转站可以给任意模型起含 Seedance 字样的
+        名字，用户要为改了名的模型启用，在模型上绑定对应的条目。未声明的槽位照常发送图片内容。
+        """
+        if entry is None:
+            return frozenset()
+        names = (entry.name, *entry.aliases)
+        if any(ArkVideoBackend._is_seedance_2(name) or ArkVideoBackend._is_seedance_2_5(name) for name in names):
+            return frozenset({REFERENCE_IMAGE_ROLE})
+        return frozenset()
 
     @property
     def model(self) -> str:
@@ -186,16 +279,25 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         return not (ArkVideoBackend._is_seedance_2(model) or ArkVideoBackend._is_seedance_2_5(model))
 
     @staticmethod
-    def estimate_video_tokens(model: str, *, resolution: str | None, ratio: str, seconds: int) -> float | None:
+    def _seedance_pixels(name: str) -> dict[tuple[str, str], tuple[int, int]] | None:
+        """名字所属世代的输出像素表；不是 Seedance 2.0 / 2.5 时为 ``None``。"""
+        if ArkVideoBackend._is_seedance_2_5(name):
+            return _SEEDANCE_2_5_PIXELS
+        if ArkVideoBackend._is_seedance_2(name):
+            return _SEEDANCE_2_PIXELS
+        return None
+
+    @staticmethod
+    def estimate_video_tokens(
+        model: str, *, resolution: str | None, ratio: str, seconds: int, entry: CatalogEntry | None = None
+    ) -> float | None:
         """按官方公式估算一次 Seedance 2.x 请求的视频 token；宽高比为 ``adaptive``、档位或型号不在像素表里时为 ``None``。
 
-        内置调用通道不发送输入视频，输入视频时长恒为 0。
+        世代按模型对应条目的名字认定（``entry`` 是对应的条目，见 name_family），与能力声明同一套名字：不透明的
+        API 模型名绑定了 2.x 条目时按该条目的像素表估算。内置调用通道不发送输入视频，输入视频时长恒为 0。
         """
-        if ArkVideoBackend._is_seedance_2_5(model):
-            pixels = _SEEDANCE_2_5_PIXELS
-        elif ArkVideoBackend._is_seedance_2(model):
-            pixels = _SEEDANCE_2_PIXELS
-        else:
+        pixels = match_by_names(model, ArkVideoBackend._seedance_pixels, entry=entry)
+        if pixels is None:
             return None
         size = pixels.get(((resolution or _SEEDANCE_DEFAULT_RESOLUTION).lower(), ratio))
         if size is None:
@@ -205,18 +307,27 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
 
     @staticmethod
     def metered_usage(
-        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         视频 token 结算取供应商回报的 ``completion_tokens``（``result.usage_tokens``），预估按
-        :meth:`estimate_video_tokens` 换算。服务档只在请求体带它的型号上上报。
+        :meth:`estimate_video_tokens` 换算。服务档只在请求体带它的型号上上报，与请求构造同一判定。``entry`` 是
+        模型对应的条目，两项都按它认定世代。
         """
         tokens = (
             result.usage_tokens
             if result is not None
             else ArkVideoBackend.estimate_video_tokens(
-                model, resolution=request.resolution, ratio=request.aspect_ratio, seconds=request.duration_seconds
+                model,
+                resolution=request.resolution,
+                ratio=request.aspect_ratio,
+                seconds=request.duration_seconds,
+                entry=entry,
             )
         )
         tier = request.service_tier
@@ -229,7 +340,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             video_tokens=tokens,
             dimensions=(
                 {"service_tier": _CATALOG_SERVICE_TIERS.get(tier, tier)}
-                if ArkVideoBackend._accepts_service_tier(model)
+                if ArkVideoBackend._accepts_service_tier_for(model, entry)
                 else None
             ),
         )
@@ -321,17 +432,17 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         return "seedance-1-" in model_lower or "seedance-1." in model_lower
 
     @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
         """按模型名纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
 
         resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
-        保持 backend 为单一真相源。名字按 ``name_family`` 的规则取，Seedance 1.x / 2.0 / 2.5 三个
-        系列之外的名字统一回落。
+        保持 backend 为单一真相源。名字按 ``name_family`` 的规则取（``entry`` 是模型对应的条目，不给时按
+        ``model`` 现查），Seedance 1.x / 2.0 / 2.5 三个系列之外的名字统一回落。
 
         音轨形态全系取 ``VideoCapabilities`` 的默认值（开关可控）：``_build_payload`` 无条件把
         ``generate_audio`` 放进请求体，各档 Seedance 都认这个开关，故无需分支声明。
         """
-        return capabilities_by_names(model, ArkVideoBackend._match_video_capabilities)
+        return capabilities_by_names(model, ArkVideoBackend._match_video_capabilities, entry=entry)
 
     @staticmethod
     def _match_video_capabilities(model: str) -> VideoCapabilities | None:
@@ -403,11 +514,19 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model)
+        return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
-        provider_task_id = await self._create_task(request)
+        try:
+            provider_task_id = await self._create_task(request)
+        except Exception as exc:
+            body = getattr(exc, "body", None)
+            reason = body.get("message") if isinstance(body, dict) else getattr(exc, "message", None)
+            rejection = _input_image_rejection(request, getattr(exc, "code", None), reason)
+            if rejection is not None:
+                raise rejection from exc
+            raise
         # 一并写回本次实际请求的域名：续跑据此回放，否则在途改了 base_url 会按新域名去查旧任务。
         await self._persist_provider_job_id(request, provider_task_id, provider=PROVIDER_ARK, endpoint=self._base_url)
         return await self._poll_until_done(provider_task_id, request)
@@ -532,7 +651,15 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             )
 
         if request.reference_images:
-            missing = [p for r in request.reference_images if not (p := Path(r)).is_file()]
+            asset_uris = _reference_asset_uris(request)
+            if any(asset_uris) and REFERENCE_IMAGE_ROLE not in self.provider_asset_roles:
+                raise ValueError(f"model {self._model} does not accept provider asset references")
+            # 以素材引用发出的参考图不读本地内容，只核对其余参考图。
+            missing = [
+                p
+                for r, uri in zip(request.reference_images, asset_uris, strict=True)
+                if uri is None and not (p := Path(r)).is_file()
+            ]
             if missing:
                 # 与尾帧同理：少一张参考图仍会出片并计费，成片里的角色/场景却已跑偏。
                 raise VideoCapabilityError(
@@ -540,13 +667,14 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                     model=self._model,
                     names=", ".join(p.name or str(p) for p in missing),
                 )
+            # 素材引用就地替换同一位置的图片内容，不增删、不重排：提示词里的「图片N」仍指向第 N 个参考图条目。
             content.extend(
                 {
                     "type": "image_url",
-                    "image_url": {"url": image_to_base64_data_uri(Path(ref_path))},
+                    "image_url": {"url": uri if uri is not None else image_to_base64_data_uri(Path(ref_path))},
                     "role": "reference_image",
                 }
-                for ref_path in request.reference_images
+                for ref_path, uri in zip(request.reference_images, asset_uris, strict=True)
             )
         return content
 
@@ -574,11 +702,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             result = await poll_with_retry(
                 poll_fn=lambda: asyncio.to_thread(client.content_generation.tasks.get, task_id=task_id),
                 is_done=lambda r: r.status == "succeeded",
-                is_failed=lambda r: (
-                    f"Ark 视频生成失败(status={r.status}): {getattr(r, 'error', None) or 'Unknown error'}"
-                    if r.status in ("failed", "expired")
-                    else None
-                ),
+                is_failed=lambda r: _task_failure(r, request),
                 max_wait=request.poll_timeout_seconds,
                 label="Ark",
                 on_progress=lambda r, elapsed: logger.info(

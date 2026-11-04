@@ -65,7 +65,7 @@ const MANY_CREDENTIALS: ApiOverrides = {
   },
 };
 
-// 压力变体：模型列表里有已下架、未定价的模型与很长的模型 ID，状态标记与价格摘要换行而不撑出横向滚动。
+// 压力变体：模型列表里有已下线、未定价的模型与很长的模型 ID，状态标记与价格摘要换行而不撑出横向滚动。
 const recordedAiStudioModels = (
   JSON.parse(readFileSync(join(RECORDED_DIR, "provider-gemini-aistudio-models.json"), "utf8")) as RecordedResponse
 ).body as { models: Record<string, unknown>[] };
@@ -87,6 +87,7 @@ const MODEL_LIST_STATES: ApiOverrides = {
           official: true,
           flags: ["discontinued", "unpriced"],
           price: null,
+          lifecycle: { status: "discontinued", shutdown_date: "2026-03-31", successor: null },
           endpoint: null,
         },
       ],
@@ -221,6 +222,7 @@ const customListItems = customProvider.models.map((m) => ({
     m.endpoint === "kling-video"
       ? { currency: "CNY", items: [{ meter: "output_seconds", min_price: 0.5, max_price: 1, per: 1 }] }
       : null,
+  lifecycle: { status: "available", shutdown_date: null, successor: null },
   endpoint: m.endpoint,
 }));
 
@@ -453,13 +455,13 @@ defineRegionScenarios("供应商", [
     act: async (page) => {
       const models = page.getByRole("region", { name: "模型" });
       await models.scrollIntoViewIfNeeded();
-      await expect(models.getByText("已下架")).toBeVisible();
+      await expect(models.getByText("已下线")).toBeVisible();
       await models.getByRole("button", { name: /已启用/ }).click();
-      await expect(models.getByText("已下架")).toHaveCount(0);
+      await expect(models.getByText("已下线")).toHaveCount(0);
       await expect(models.getByRole("switch").first()).toBeChecked();
       // 回到「全部」，截长名称与状态标记所在的行
       await models.getByRole("button", { name: /全部/ }).click();
-      const legacy = models.getByRole("listitem").filter({ hasText: "已下架" });
+      const legacy = models.getByRole("listitem").filter({ hasText: "已下线" });
       await legacy.scrollIntoViewIfNeeded();
       await expect(legacy).toBeInViewport();
     },

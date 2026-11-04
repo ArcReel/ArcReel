@@ -25,7 +25,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoRoute,
     audio_capability_pair_is_coherent,
 )
-from lib.custom_provider.model_facts import ALL_MODEL_FACT_OVERRIDE_KEYS
+from lib.custom_provider.model_facts import ALL_MODEL_FACT_OVERRIDE_KEYS, model_entry
 
 logger = logging.getLogger(__name__)
 
@@ -110,12 +110,18 @@ def capability_type_name(expected: object) -> str:
 
 
 def system_video_capabilities(
-    *, endpoint: str, model_id: str, endpoint_spec: EndpointSpec | None = None
+    *,
+    endpoint: str,
+    model_id: str,
+    endpoint_spec: EndpointSpec | None = None,
+    entry_binding: str | None = None,
 ) -> VideoCapabilities:
     """读 endpoint spec 得出系统对该模型视频能力的判定。
 
     两条声明形式（注册表不变式保证恰填其一）：
-    - ``video_caps_for_model``：backend 的 per-model 纯函数，四字段全量由 backend 声明；
+    - ``video_caps_for_model``：backend 的 per-model 纯函数，四字段全量由 backend 声明。backend 按模型对应的
+      条目认定（``entry_binding`` 是用户的条目绑定，优先于按名字现查，docs/adr/0104、0105），请求里的模型
+      仍是 ``model_id``；
     - ``video_max_reference_images``：endpoint 维度硬上限，其余维度（首帧/尾帧/参考音频）
       取 ``VideoCapabilities`` 默认。
 
@@ -134,7 +140,7 @@ def system_video_capabilities(
 
     caps_fn = spec.video_caps_for_model
     if caps_fn is not None:
-        caps = caps_fn(model_id)
+        caps = caps_fn(model_id, model_entry(model_id, spec.media_type, entry_binding))
         if caps.max_reference_images < 0:
             raise ValueError(
                 f"invalid backend max_reference_images: endpoint={endpoint!r} model={model_id!r} "
@@ -266,6 +272,7 @@ def synthesize_video_capabilities(
     model_id: str,
     overrides: object | None,
     endpoint_spec: EndpointSpec | None = None,
+    entry_binding: str | None = None,
 ) -> VideoCapabilities:
     """系统判定 ⊕ 用户覆盖 → 生效能力。
 
@@ -277,6 +284,7 @@ def synthesize_video_capabilities(
         model_id=model_id,
         overrides=overrides,
         endpoint_spec=endpoint_spec,
+        entry_binding=entry_binding,
     )
     return caps
 
@@ -287,6 +295,7 @@ def synthesize_video_capabilities_with_overrides(
     model_id: str,
     overrides: object | None,
     endpoint_spec: EndpointSpec | None = None,
+    entry_binding: str | None = None,
 ) -> tuple[VideoCapabilities, dict[str, object]]:
     """同 :func:`synthesize_video_capabilities`，额外返回过滤后的稀疏覆盖字典。
 
@@ -299,7 +308,9 @@ def synthesize_video_capabilities_with_overrides(
     Raises:
         ValueError: 系统判定本身不可得（见 :func:`system_video_capabilities`）。
     """
-    caps = system_video_capabilities(endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec)
+    caps = system_video_capabilities(
+        endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec, entry_binding=entry_binding
+    )
     applied = filter_valid_overrides(
         endpoint=endpoint, model_id=model_id, overrides=overrides, endpoint_spec=endpoint_spec
     )
@@ -339,6 +350,7 @@ def resolve_audio_pair(
     endpoint: str,
     model_id: str,
     endpoint_spec: EndpointSpec | None = None,
+    entry_binding: str | None = None,
 ) -> tuple[object, int]:
     """把稀疏的音频覆盖补齐成完整的（模式, 段数上限）二元组，未覆盖的维度取系统判定。
 
@@ -347,7 +359,9 @@ def resolve_audio_pair(
     endpoint / model_id 不可解析时按最保守的"不支持音色输入"补齐。
     """
     try:
-        system_caps = system_video_capabilities(endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec)
+        system_caps = system_video_capabilities(
+            endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec, entry_binding=entry_binding
+        )
     except ValueError:
         system_caps = None
     mode = overrides.get(
@@ -367,6 +381,7 @@ def strip_incoherent_audio_overrides(
     endpoint: str,
     model_id: str,
     endpoint_spec: EndpointSpec | None = None,
+    entry_binding: str | None = None,
 ) -> dict[str, object]:
     """剔除合并后违反音频两维不变式的覆盖键。
 
@@ -377,7 +392,9 @@ def strip_incoherent_audio_overrides(
     """
     if not any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
         return overrides
-    mode, count = resolve_audio_pair(overrides, endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec)
+    mode, count = resolve_audio_pair(
+        overrides, endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec, entry_binding=entry_binding
+    )
     if audio_capability_pair_is_coherent(mode=mode, count=count):
         return overrides
     return {key: value for key, value in overrides.items() if key not in AUDIO_OVERRIDE_KEYS}

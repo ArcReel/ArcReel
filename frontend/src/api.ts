@@ -48,6 +48,21 @@ import type {
   OnboardingStatus,
   SystemConfigPatch,
   ApiKeyInfo,
+  AssetLibraryAccount,
+  AssetLibraryAccountList,
+  AssetLibraryBindableCredential,
+  AssetLibraryBindingStatus,
+  AssetLibraryCredentialType,
+  CreateAssetLibraryAccountPayload,
+  NewImageTarget,
+  ObjectStorageConnection,
+  ObjectStorageSettings,
+  ProviderAssetImportResult,
+  ProviderAssetLink,
+  ProviderAssetLinkPanel,
+  ProviderAssetPage,
+  SaveObjectStorageConnectionPayload,
+  UpdateAssetLibraryAccountPayload,
   CreateApiKeyResponse,
   ProviderInfo,
   CatalogEntryHit,
@@ -3466,6 +3481,126 @@ class API {
   static async checkProviderConnectivity(id: string, credentialId?: number): Promise<ConnectivityCheckResult> {
     const params = credentialId != null ? `?credential_id=${credentialId}` : "";
     return this.request(`/providers/${encodeURIComponent(id)}/test${params}`, {
+      method: "POST",
+    });
+  }
+
+  // ==================== 对象存储与供应商素材库 ====================
+
+  static async getObjectStorageConnection(options: { signal?: AbortSignal } = {}): Promise<ObjectStorageSettings> {
+    return this.request("/object-storage/connection", { signal: options.signal });
+  }
+
+  static async saveNewImageTarget(target: NewImageTarget): Promise<{ target: NewImageTarget }> {
+    return this.request("/object-storage/new-image-target", { method: "PUT", body: JSON.stringify({ target }) });
+  }
+
+  static async saveObjectStorageConnection(data: SaveObjectStorageConnectionPayload): Promise<ObjectStorageConnection> {
+    return this.request("/object-storage/connection", { method: "PUT", body: JSON.stringify(data) });
+  }
+
+  static async deleteObjectStorageConnection(): Promise<void> {
+    return this.request("/object-storage/connection", { method: "DELETE" });
+  }
+
+  static async checkObjectStorageConnection(): Promise<{ success: boolean }> {
+    return this.request("/object-storage/connection/test", { method: "POST" });
+  }
+
+  static async listAssetLibraryAccounts(options: { signal?: AbortSignal } = {}): Promise<AssetLibraryAccountList> {
+    return this.request("/asset-library/accounts", { signal: options.signal });
+  }
+
+  static async createAssetLibraryAccount(data: CreateAssetLibraryAccountPayload): Promise<AssetLibraryAccount> {
+    return this.request("/asset-library/accounts", { method: "POST", body: JSON.stringify(data) });
+  }
+
+  static async updateAssetLibraryAccount(
+    accountId: number,
+    data: UpdateAssetLibraryAccountPayload,
+  ): Promise<AssetLibraryAccount> {
+    return this.request(`/asset-library/accounts/${accountId}`, { method: "PATCH", body: JSON.stringify(data) });
+  }
+
+  static async deleteAssetLibraryAccount(accountId: number): Promise<void> {
+    return this.request(`/asset-library/accounts/${accountId}`, { method: "DELETE" });
+  }
+
+  static async listAssetLibraryBindings(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ credentials: AssetLibraryBindableCredential[] }> {
+    return this.request("/asset-library/bindings", { signal: options.signal });
+  }
+
+  /** 按推理凭证与账号的当前内容确认绑定；首次绑定、改绑与重新确认都走这里。 */
+  static async confirmAssetLibraryBinding(
+    credentialType: AssetLibraryCredentialType,
+    credentialId: number,
+    accountId: number,
+  ): Promise<{ account_id: number; status: AssetLibraryBindingStatus }> {
+    return this.request(`/asset-library/bindings/${credentialType}/${credentialId}`, {
+      method: "PUT",
+      body: JSON.stringify({ account_id: accountId }),
+    });
+  }
+
+  static async deleteAssetLibraryBinding(credentialType: AssetLibraryCredentialType, credentialId: number): Promise<void> {
+    return this.request(`/asset-library/bindings/${credentialType}/${credentialId}`, { method: "DELETE" });
+  }
+
+  static async listProviderAssets(
+    accountId: number,
+    params: { page: number; pageSize: number },
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ProviderAssetPage> {
+    const query = new URLSearchParams({ page: String(params.page), page_size: String(params.pageSize) });
+    return this.request(`/asset-library/accounts/${accountId}/assets?${query.toString()}`, { signal: options.signal });
+  }
+
+  /** 图片当前选中版本在各个素材库范围里的关联与入库状态。 */
+  static async getProviderAssetLinks(
+    projectName: string,
+    resourceType: string,
+    resourceId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ProviderAssetLinkPanel> {
+    const query = new URLSearchParams({ resource_type: resourceType, resource_id: resourceId });
+    return this.request(`/projects/${encodeURIComponent(projectName)}/provider-asset-links?${query.toString()}`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 把图片当前选中的版本上传到素材库账号；立即返回入库任务，之后按状态轮询。 */
+  static async uploadToProviderAssetLibrary(
+    projectName: string,
+    body: { resource_type: string; resource_id: string; account_id: number },
+  ): Promise<ProviderAssetLink> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/provider-asset-links`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** 从素材库选择一张可用的图片：取回原图保存为新版本，并为这个版本建立关联。 */
+  static async importProviderAsset(
+    projectName: string,
+    body: { resource_type: string; resource_id: string; account_id: number; asset_id: string },
+  ): Promise<ProviderAssetImportResult> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/provider-asset-links/import`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** 解除关联：只解除当前关系，不删除 ArcReel 图片或供应商素材。 */
+  static async unlinkProviderAsset(projectName: string, linkId: number): Promise<void> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/provider-asset-links/${linkId}`, {
+      method: "DELETE",
+    });
+  }
+
+  static async refreshProviderAssetLink(projectName: string, linkId: number): Promise<ProviderAssetLink> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/provider-asset-links/${linkId}/refresh`, {
       method: "POST",
     });
   }

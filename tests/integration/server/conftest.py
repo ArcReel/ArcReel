@@ -34,7 +34,7 @@ from server.routers import assets, usage
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import bind_session_factory
+from tests.fakes import bind_session_factory, use_assets_router_sessions
 from tests.integration.server.agent_tool_support import CLAIMED_BASIS_DIGEST, ToolHarness, fake_caps_resolver
 
 
@@ -216,7 +216,7 @@ def assets_env(db_factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> d
     """全局资产库路由的测试客户端（``client``）与指向 ``tmp_path/projects`` 的 ``ProjectManager``（``pm``）。"""
 
     pm = ProjectManager(tmp_path / "projects")
-    monkeypatch.setattr(assets, "async_session_factory", db_factory)
+    use_assets_router_sessions(monkeypatch, db_factory)
     monkeypatch.setattr(assets, "get_project_manager", lambda: pm)
     app = FastAPI()
     register_error_handlers(app)

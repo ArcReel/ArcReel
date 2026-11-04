@@ -80,6 +80,7 @@ def _build_simple(
     media_type: str,
     registry_backend: str,
     extra_keys: tuple[str, ...] = (),
+    extra_kwargs: dict[str, Any] | None = None,
 ) -> Any:
     """简单族通用构造：api_key + model + base_url，外加 extra_keys 声明的 db_config 直传键。
 
@@ -100,7 +101,32 @@ def _build_simple(
         value = config.credentials.get(key)
         if value:
             kwargs[key] = value
+    kwargs.update(extra_kwargs or {})
     return _media_create_backend(media_type)(registry_backend, **kwargs)
+
+
+def _build_ark_video(config: LoadedConfig, model_id: str | None, *, provider_id: str) -> Any:
+    """方舟视频：简单族构造之外报出实际使用的推理凭证与模型对应的条目，供素材库按绑定选用供应商素材。
+
+    凭证引用只在 api_key 来自一条凭证记录时给出：素材库只能绑定凭证记录，按供应商配置直填的密钥没有可绑定的对象。
+    模型条目决定参考图槽位是否接受素材引用（``ArkVideoBackend.provider_asset_roles_for_entry``），与自定义供应商
+    共用同一判定。
+    """
+    from lib.backends.provider_assets import InferenceCredentialRef
+
+    api_key = config.credentials.get("api_key")
+    extra: dict[str, Any] = {}
+    if model_id:
+        extra["catalog_entry"] = catalog.provider_model_entry(provider_id, model_id, "video")
+    if config.credential_id is not None and api_key:
+        extra["inference_credential"] = InferenceCredentialRef(
+            credential_type="builtin",
+            credential_id=config.credential_id,
+            api_key=api_key,
+            base_url=config.credentials.get("base_url"),
+            default_base_url=config.provider_meta.default_base_url if config.provider_meta else None,
+        )
+    return _build_simple(config, model_id, media_type="video", registry_backend=provider_id, extra_kwargs=extra)
 
 
 def _simple_spec(provider_id: str, media_type: str, *, extra_keys: tuple[str, ...] = ()) -> ProviderSpec:
@@ -454,6 +480,14 @@ PROVIDER_SPEC_REGISTRY.update(
 # dashscope video 比简单族多一个 wan3_base_url：万相 3.0 走独立 maas 域名（含地域与
 # workspace，推不出），未配置时 backend 自行回落通用 base_url。image/audio 两条 lane 不消费它，
 # 仍走简单族。
+# 方舟两个 provider_id 的视频 lane 多报一项实际使用的推理凭证，见 _build_ark_video。
+for _ark_provider in ("ark", "ark-agent-plan"):
+    PROVIDER_SPEC_REGISTRY[(_ark_provider, "video")] = ProviderSpec(
+        provider_id=_ark_provider,
+        media_type="video",
+        registry_backend=_ark_provider,
+        build_backend=partial(_build_ark_video, provider_id=_ark_provider),
+    )
 PROVIDER_SPEC_REGISTRY[("dashscope", "video")] = _simple_spec("dashscope", "video", extra_keys=("wan3_base_url",))
 PROVIDER_SPEC_REGISTRY[("minimax", "video")] = ProviderSpec(
     provider_id="minimax",
@@ -566,7 +600,10 @@ def declared_builtin_video_capabilities(provider_id: str, model_id: str) -> Vide
         return declarative_video_capabilities(definition)
     from lib.backends.video_backends.registry import video_capabilities_for_model
 
-    return video_capabilities_for_model(spec.registry_backend, model_id)
+    # 调用通道按模型对应的条目认定能力：官方收录的取清单所引的条目，用户添加的取条目绑定或按名字现查的结果。
+    return video_capabilities_for_model(
+        spec.registry_backend, model_id, catalog.provider_model_entry(provider_id, model_id, "video")
+    )
 
 
 def builtin_video_metered_usage(
@@ -593,7 +630,14 @@ def builtin_video_metered_usage(
 
     if request.video_capabilities is None:
         request = replace(request, video_capabilities=builtin_video_capabilities_for_model(provider_id, model_id))
-    return metered_usage_for_model(spec.registry_backend, model_id, request, result)
+    # 与能力声明、执行时实例装配同一个条目：官方收录的取清单所引的条目，用户添加的取条目绑定或按名字现查的结果。
+    return metered_usage_for_model(
+        spec.registry_backend,
+        model_id,
+        request,
+        result,
+        entry=catalog.provider_model_entry(provider_id, model_id, "video"),
+    )
 
 
 def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str) -> bool:
@@ -605,4 +649,6 @@ def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str) 
         return builtin_video_capabilities_for_model(provider_id, model_id).audio_track is not VideoAudioMode.ALWAYS_OFF
     from lib.backends.video_backends.registry import effective_generate_audio_for_model
 
-    return effective_generate_audio_for_model(spec.registry_backend, model_id)
+    return effective_generate_audio_for_model(
+        spec.registry_backend, model_id, catalog.provider_model_entry(provider_id, model_id, "video")
+    )

@@ -13,6 +13,8 @@ function tierProblemReasonKey(code: string): string {
     case "model_not_in_provider_catalog":
     case "reference_capability_unavailable":
       return "reference_unit_tier_reason_removed";
+    case "model_discontinued":
+      return "reference_unit_tier_reason_discontinued";
     case "reference_supported_durations_missing":
       return "reference_unit_tier_reason_missing_tiers";
     case "reference_supported_durations_invalid":

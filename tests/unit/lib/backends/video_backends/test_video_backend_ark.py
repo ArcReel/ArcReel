@@ -17,6 +17,7 @@ from arcreel_market_core.video_backend_contract import (
 )
 from lib.backends.video_backends.ark import ArkVideoBackend
 from lib.backends.video_frame_slots import FIRST_FRAME_ADAPTIVE_RATIO, resolve_first_frame_aspect_ratio
+from lib.catalog import query as catalog
 from tests.fakes import (
     blocking_file_read_gate,
     bounded_poll_clock,
@@ -633,6 +634,29 @@ class TestArkServiceTierParam:
         create_kwargs = ark_backend._client.content_generation.tasks.create.call_args.kwargs
         assert "service_tier" not in create_kwargs
 
+    @pytest.mark.parametrize(("bound", "sends_tier"), [(True, False), (False, True)], ids=["bound-2.0", "unbound"])
+    async def test_opaque_model_follows_the_bound_entry(self, tmp_path, bound: bool, sends_tier: bool):
+        """不透明模型 ID 绑定 Seedance 2.0 条目后按 2.0 不发 service_tier，请求里仍是原模型 ID；未绑定时照旧发送。"""
+        with patch("lib.backends.video_backends.ark.create_ark_client", return_value=MagicMock()):
+            backend = ArkVideoBackend(api_key="test", model="ep-20261103-opaque")
+        if bound:
+            entry = catalog.find_bound_entry("bytedance/doubao-seedance-2.0", "video")
+            assert entry is not None
+            backend = backend.with_catalog_entry(entry)
+        captured: dict = {}
+
+        def fake_create(**kwargs):
+            captured.update(kwargs)
+            raise RuntimeError("stop")
+
+        backend._client.content_generation.tasks.create = fake_create
+        with pytest.raises(RuntimeError):
+            await backend._create_task(VideoGenerationRequest(prompt="x", output_path=tmp_path / "o.mp4"))
+
+        assert captured["model"] == "ep-20261103-opaque"
+        assert ("service_tier" in captured) is sends_tier
+        assert backend.video_capabilities.max_reference_images == (9 if bound else 0)
+
     async def test_seedance_1_5_sends_service_tier(self, ark_backend, tmp_path):
         output = tmp_path / "out.mp4"
 
@@ -911,3 +935,145 @@ class TestArkReferenceAudio:
             )
 
         assert exc.value.code == "video_reference_audio_unreadable"
+
+
+class TestArkProviderAssets:
+    """供应商素材引用：Seedance 2.x 的参考图槽位就地换成 ``asset://``；输入图片被拒时给出可点名的结构化错误。"""
+
+    _PRIVACY_CODE = "InputImageSensitiveContentDetected.PrivacyInformation"
+
+    @staticmethod
+    def _backend(model: str = "doubao-seedance-2-0-260128") -> ArkVideoBackend:
+        """内置方舟清单里的模型，按装配时同样的方式带上它所引的条目。"""
+        from lib.catalog import query as catalog
+
+        client = MagicMock()
+        with patch("lib.backends.video_backends.ark.create_ark_client", return_value=client):
+            return ArkVideoBackend(
+                api_key="TEST-ark-key", model=model, catalog_entry=catalog.provider_model_entry("ark", model, "video")
+            )
+
+    @staticmethod
+    def _rejection(code: str) -> Exception:
+        from volcenginesdkarkruntime._exceptions import ArkBadRequestError
+
+        response = httpx.Response(400, request=httpx.Request("POST", "https://ark.test/api/v3/contents"))
+        return ArkBadRequestError(
+            "rejected",
+            response=response,
+            body={"code": code, "message": "input image may contain a real person"},
+            request_id="req-1",
+        )
+
+    def test_only_seedance_2_reference_slots_accept_asset_references(self):
+        """按模型条目认定：Seedance 2.0 / 2.5 的条目声明参考图槽位，1.x 不声明；没有条目时不按模型名推断。"""
+        from lib.backends.provider_assets import REFERENCE_IMAGE_ROLE
+
+        assert self._backend().provider_asset_roles == frozenset({REFERENCE_IMAGE_ROLE})
+        assert self._backend("doubao-seedance-2-5-260628").provider_asset_roles == frozenset({REFERENCE_IMAGE_ROLE})
+        assert self._backend(_SEEDANCE_1_5_PRO).provider_asset_roles == frozenset()
+        client = MagicMock()
+        with patch("lib.backends.video_backends.ark.create_ark_client", return_value=client):
+            unbound = ArkVideoBackend(api_key="TEST-ark-key", model="doubao-seedance-2-0-260128")
+        assert unbound.provider_asset_roles == frozenset()
+
+    async def test_asset_reference_replaces_its_image_in_place(self, tmp_path):
+        """素材引用占原图片的位置，不读本地内容；其余参考图照常内嵌，条目数量与顺序不变。"""
+        backend = self._backend()
+        scene = tmp_path / "scene.png"
+        scene.write_bytes(b"scene-bytes")
+        create_result = MagicMock()
+        create_result.id = "cgt-asset"
+        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+        backend._client.content_generation.tasks.get = MagicMock(side_effect=RuntimeError("stop after create"))
+
+        request = VideoGenerationRequest(
+            prompt="@图片1 的角色走进 @图片2",
+            output_path=tmp_path / "out.mp4",
+            reference_images=[tmp_path / "missing-character.png", scene],
+            reference_image_asset_uris=["asset://asset-alice-1", None],
+        )
+        with pytest.raises(RuntimeError, match="stop after create"):
+            await backend.generate(request)
+
+        content = backend._client.content_generation.tasks.create.call_args.kwargs["content"]
+        images = [item for item in content if item["type"] == "image_url"]
+        assert [item["role"] for item in images] == ["reference_image", "reference_image"]
+        assert images[0]["image_url"]["url"] == "asset://asset-alice-1"
+        assert images[1]["image_url"]["url"].startswith("data:image/")
+        assert content[0] == {"type": "text", "text": "@图片1 的角色走进 @图片2"}
+
+    async def test_model_without_asset_support_refuses_asset_references(self, tmp_path):
+        backend = self._backend(_SEEDANCE_1_5_PRO)
+        backend._client.content_generation.tasks.create = MagicMock()
+        request = VideoGenerationRequest(
+            prompt="p",
+            output_path=tmp_path / "out.mp4",
+            reference_images=[tmp_path / "a.png"],
+            reference_image_asset_uris=["asset://asset-alice-1"],
+        )
+        with pytest.raises(ValueError, match="provider asset"):
+            await backend.generate(request)
+        backend._client.content_generation.tasks.create.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("refs", "asset_uris", "expected_index", "sent_as_asset"),
+        [
+            (1, None, 0, False),
+            (1, ["asset://asset-alice-1"], 0, True),
+            (2, None, None, False),
+        ],
+        ids=["single-image", "single-asset", "ambiguous"],
+    )
+    async def test_input_image_rejection_names_the_image_only_when_certain(
+        self, tmp_path, refs, asset_uris, expected_index, sent_as_asset
+    ):
+        """方舟不给出被拒图片的位置：只有一张图片时才点名，多张时不猜测。"""
+        from lib.backends.provider_assets import ProviderInputImageRejectedError
+
+        backend = self._backend()
+        paths = []
+        for i in range(refs):
+            path = tmp_path / f"ref{i}.png"
+            path.write_bytes(b"ref")
+            paths.append(path)
+        backend._client.content_generation.tasks.create = MagicMock(side_effect=self._rejection(self._PRIVACY_CODE))
+        request = VideoGenerationRequest(
+            prompt="p", output_path=tmp_path / "out.mp4", reference_images=paths, reference_image_asset_uris=asset_uris
+        )
+
+        with pytest.raises(ProviderInputImageRejectedError) as excinfo:
+            await backend.generate(request)
+
+        assert excinfo.value.provider_code == self._PRIVACY_CODE
+        assert excinfo.value.reference_index == expected_index
+        assert excinfo.value.sent_as_asset is sent_as_asset
+        assert excinfo.value.params["provider_reason"] == "input image may contain a real person"
+
+    async def test_input_image_rejection_reported_by_the_task_is_structured(self, tmp_path):
+        from lib.backends.provider_assets import ProviderInputImageRejectedError
+
+        backend = self._backend()
+        ref = tmp_path / "ref.png"
+        ref.write_bytes(b"ref")
+        create_result = MagicMock()
+        create_result.id = "cgt-rejected"
+        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+        task = MagicMock()
+        task.status = "failed"
+        task.error = MagicMock(code=self._PRIVACY_CODE, message="flagged")
+        backend._client.content_generation.tasks.get = MagicMock(return_value=task)
+
+        with pytest.raises(ProviderInputImageRejectedError) as excinfo:
+            await backend.generate(
+                VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4", reference_images=[ref])
+            )
+        assert excinfo.value.reference_index == 0
+
+    async def test_other_bad_requests_propagate_unchanged(self, tmp_path):
+        from volcenginesdkarkruntime._exceptions import ArkBadRequestError
+
+        backend = self._backend()
+        backend._client.content_generation.tasks.create = MagicMock(side_effect=self._rejection("InvalidParameter"))
+        with pytest.raises(ArkBadRequestError):
+            await backend.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4"))

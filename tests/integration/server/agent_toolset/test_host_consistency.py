@@ -36,6 +36,12 @@ from lib.project.project_migration_failure import (
 )
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.arcreel_mcp import build_arcreel_mcp_server
+from server.agent_toolset.asset_library import (
+    LIST_PROVIDER_LIBRARY_ASSETS,
+    RELEASE_PROVIDER_ASSET_LINK,
+    SELECT_PROVIDER_LIBRARY_ASSET,
+    UPLOAD_TO_PROVIDER_ASSET_LIBRARY,
+)
 from server.agent_toolset.declaration import (
     BLOCKED,
     MIGRATION_REFUSAL_NOTE,
@@ -145,6 +151,21 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "select_video_version": {"unit_id": "E1S01", "version": 1},
     "inspect_video_units": {"unit_ids": ["E1S01"]},
     "inspect_images": {"resource_type": "character", "ids": ["甲"]},
+    "get_provider_asset_links": {"resource_type": "character", "resource_id": "甲"},
+    "list_provider_library_assets": {"account_id": 1},
+    "upload_to_provider_asset_library": {
+        "resource_type": "character",
+        "resource_id": "甲",
+        "account_id": 1,
+        "user_requested": True,
+    },
+    "select_provider_library_asset": {
+        "resource_type": "character",
+        "resource_id": "甲",
+        "account_id": 1,
+        "asset_id": "asset-absent",
+    },
+    "release_provider_asset_link": {"link_id": 1},
     "create_timeline": {"from": "script", "episode": 1, "name": "完整版"},
     "list_timelines": {"episode": 1},
     "read_timeline": {"timeline": "tl-0000abcd"},
@@ -564,6 +585,11 @@ _PROBLEM_ON_SAMPLE = frozenset(
         # 测试项目里没有样例路径的文件，回收站里也没有删除记录。
         DELETE_PROJECT_FILE.name,
         RESTORE_TRASH_RECORD.name,
+        # 测试库里没有素材库账号与关联：上传、浏览、选择与解除都找不到对象。
+        LIST_PROVIDER_LIBRARY_ASSETS.name,
+        UPLOAD_TO_PROVIDER_ASSET_LIBRARY.name,
+        SELECT_PROVIDER_LIBRARY_ASSET.name,
+        RELEASE_PROVIDER_ASSET_LINK.name,
     }
 )
 

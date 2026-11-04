@@ -89,7 +89,9 @@ class TestFactoryWiring:
         resolver = MagicMock()
         session_cm = MagicMock()
         session_cm.text_backend_for_task = AsyncMock(return_value=(PROVIDER_MINIMAX, "MiniMax-M2.7"))
-        session_cm.provider_config = AsyncMock(return_value={"api_key": "sk-mm", "base_url": None})
+        session_cm.provider_config_with_credential = AsyncMock(
+            return_value=({"api_key": "sk-mm", "base_url": None}, None)
+        )
         resolver.session.return_value.__aenter__ = AsyncMock(return_value=session_cm)
         resolver.session.return_value.__aexit__ = AsyncMock(return_value=False)
 

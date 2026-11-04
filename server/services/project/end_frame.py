@@ -53,6 +53,7 @@ from lib.infra.async_thread import run_sync_transaction
 from lib.infra.image_utils import normalize_storyboard_upload
 from lib.infra.json_io import domain_error_on_value_error
 from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.material.work_files import local_work_files
 from lib.project.media_trash import trash_end_frame
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import ProjectManager, get_project_manager, is_reference_video_project
@@ -350,9 +351,13 @@ async def set_end_frame_from_project_image(
     shot_id: str,
     source_path: str,
 ) -> str:
-    """项目内选图通道：读源图字节后走与上传完全相同的归一 + 快照落点。"""
+    """项目内选图通道：读源图字节后走与上传完全相同的归一 + 快照落点。
+
+    源图是缓存已清理的远端内容版本时，读取前先从对象存储取回并校验摘要；尾帧快照本身始终保存在本地。
+    """
     project_path = await run_sync_transaction(_locate_shot, project_name, script_file, shot_id)
-    content = await asyncio.to_thread(read_project_image, project_path, source_path)
+    async with local_work_files(project_path, [source_path.strip().replace("\\", "/")]):
+        content = await asyncio.to_thread(read_project_image, project_path, source_path)
     return await _apply_snapshot(
         project_path=project_path,
         project_name=project_name,

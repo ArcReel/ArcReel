@@ -69,6 +69,8 @@ from lib.generation.video_request_facts import (
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import safe_join, try_safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
+from lib.material.formal_objects import formal_commit
+from lib.material.work_files import local_work_files
 from lib.project.asset_derivatives import DERIVATIVE_ASSET_TYPE, DERIVATIVE_TASK_TYPE
 from lib.project.asset_types import (
     ASSET_SPECS,
@@ -517,7 +519,11 @@ async def execute_storyboard_task(
         )
 
     artifact_path = f"storyboards/scene_{resource_id}.png"
-    async with frozen_generation_input(_freeze) as frozen:
+    async with frozen_generation_input(
+        _freeze,
+        project_path=project_path,
+        sources=[reference.visual.path for reference in inputs.generation_input.references],
+    ) as frozen:
         # 剧本 claim 排在最前，其后是参考图按冻结字节绑定的 claims。
         formal_claims = (inputs.script_claim, *frozen.claims)
 
@@ -1327,27 +1333,29 @@ async def execute_video_task(
     warnings: list[dict[str, Any]] = []
     try:
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
-        _output_path, version, _, video_uri = await generator.generate_video_async(
-            prompt=prompt_text,
-            resource_type="videos",
-            resource_id=resource_id,
-            start_image=provider_start_image,
-            end_image=provider_end_image,
-            aspect_ratio=aspect_ratio,
-            duration_seconds=duration_seconds,
-            resolution=resolution,
-            task_id=task_id,
-            before_submit=checkpoint_hook,
-            formal_output=task_id is not None,
-            before_formal_commit=artifact_committer.prepare_selection if artifact_committer is not None else None,
-            commit_formal_output=artifact_committer,
-            seed=seed,
-            service_tier=service_tier,
-            visual_basis_digest=visual_basis_digest,
-            generate_audio=requested_generate_audio,
-            poll_timeout_seconds=poll_timeout_seconds,
-            warnings=warnings,
-        )
+        # 直接调用把项目里的分镜图交给供应商：缓存已清理的远端内容版本先取回，调用期间登记使用
+        async with local_work_files(project_path, [provider_start_image] if task_id is None else []):
+            _output_path, version, _, video_uri = await generator.generate_video_async(
+                prompt=prompt_text,
+                resource_type="videos",
+                resource_id=resource_id,
+                start_image=provider_start_image,
+                end_image=provider_end_image,
+                aspect_ratio=aspect_ratio,
+                duration_seconds=duration_seconds,
+                resolution=resolution,
+                task_id=task_id,
+                before_submit=checkpoint_hook,
+                formal_output=task_id is not None,
+                before_formal_commit=artifact_committer.prepare_selection if artifact_committer is not None else None,
+                commit_formal_output=artifact_committer,
+                seed=seed,
+                service_tier=service_tier,
+                visual_basis_digest=visual_basis_digest,
+                generate_audio=requested_generate_audio,
+                poll_timeout_seconds=poll_timeout_seconds,
+                warnings=warnings,
+            )
 
         async def _finalize() -> dict[str, Any]:
             return await finalize_video_task(
@@ -1490,7 +1498,11 @@ async def execute_asset_sheet_task(
             bind_claims=_originals_have_no_claims,
         )
 
-    async with frozen_generation_input(_freeze) as frozen:
+    async with frozen_generation_input(
+        _freeze,
+        project_path=project_path,
+        sources=[reference.visual.path for reference in generation_input.references],
+    ) as frozen:
         return await run_asset_sheet_image_task(
             asset_type=kind,
             project_name=project_name,
@@ -1709,7 +1721,8 @@ async def execute_grid_task(
             )
             return frozen_references
 
-        frozen_references = await run_sync_transaction(_freeze_references)
+        async with local_work_files(project_path, [reference.visual.path for reference in assembled]):
+            frozen_references = await run_sync_transaction(_freeze_references)
         # 剧本 claim 排在最前，其后是参考图按冻结字节绑定的 claims。
         formal_claims = list(
             await asyncio.to_thread(
@@ -1796,28 +1809,30 @@ async def execute_grid_task(
         async def _before_submit() -> None:
             await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
 
-        await generator.generate_image_async(
-            prompt=prompt_text,
-            resource_type="grids",
-            resource_id=resource_id,
-            reference_images=reference_images,
-            aspect_ratio=aspect_ratio,
-            image_size=image_size,
-            before_submit=_before_submit,
-            formal_output=True,
-            task_id=task_id,
-            commit_formal_output=grid_formal_image_callback(
-                project_path=project_path,
-                grid_manager=grid_manager,
-                grid=grid,
+        # 新联合图按新内容版本的全局保存位置写入（缺省本地）
+        async with formal_commit(project_name):
+            await generator.generate_image_async(
+                prompt=prompt_text,
+                resource_type="grids",
                 resource_id=resource_id,
-                prompt=str(prompt_text),
-                versions=generator.versions,
+                reference_images=reference_images,
+                aspect_ratio=aspect_ratio,
+                image_size=image_size,
+                before_submit=_before_submit,
+                formal_output=True,
                 task_id=task_id,
-                basis=grid_basis,
-                outcome_box=formal_outcomes,
-            ),
-        )
+                commit_formal_output=grid_formal_image_callback(
+                    project_path=project_path,
+                    grid_manager=grid_manager,
+                    grid=grid,
+                    resource_id=resource_id,
+                    prompt=str(prompt_text),
+                    versions=generator.versions,
+                    task_id=task_id,
+                    basis=grid_basis,
+                    outcome_box=formal_outcomes,
+                ),
+            )
 
         # formal_output=True 时 generate_image_async 恒经活化回调提交，回调恰好记录一条结果。
         outcome = formal_outcomes[0]

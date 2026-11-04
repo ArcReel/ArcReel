@@ -1,0 +1,688 @@
+"""后台推进入库任务：中转上传、提交 CreateAsset、查询处理状态，并清理到期的中转副本。
+
+内容版本已作为正式对象保存在当前连接的桶里时直接为它签发地址，签发前以入库任务的引用方键
+（:func:`ingest_holder`，见 ``docs/adr/0118``）登记引用，按与中转副本相同的保留规则到期后撤下，
+供应商异步取图期间来源被彻底清除也不会回收这个对象。
+
+页面与 Agent 只创建入库任务并查询状态，不等待供应商审核；推进全部在这里进行，进程重启后从数据库继续。
+状态与选定的含义见 :mod:`lib.asset_library.links`。每一步都只按条件更新状态事实，不改变 ``selected``。
+
+:func:`run_once` 是一轮完整的处理，测试直接调用它；:class:`AssetIngestRunner` 在应用生命周期里循环调用，
+新任务创建后由 :func:`wake_asset_ingest` 提前唤醒。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any, Literal, get_args
+
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from lib.artifacts.version_manager import VersionManager
+from lib.asset_library.bindings import account_identity
+from lib.asset_library.control_plane import (
+    AssetLibraryRequestError,
+    create_asset,
+    credentials_of,
+    ensure_asset_group,
+    find_assets_by_name,
+    get_asset,
+)
+from lib.db.base import utc_now
+from lib.db.models.asset_library import AssetLibraryAccount, ProviderAssetLink
+from lib.db.models.object_storage import FormalObjectRef, ObjectStorageConnection
+from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
+from lib.infra.api_errors import ApiError
+from lib.infra.async_thread import run_noninterruptible_async
+from lib.infra.logging_utils import redact_diagnostic_text
+from lib.infra.task_cancel import raise_if_cancel_absorbed
+from lib.material.formal_objects import REF_ACTIVE, add_reference, release_holder
+from lib.material.storage import (
+    ContentVersion,
+    LocalLocator,
+    MaterialRef,
+    VersionSnapshotCorruptedError,
+)
+from lib.material.work_files import ensure_content_version_file, local_work_files
+from lib.object_storage.client import IMAGE_CONTENT_TYPES, ObjectStorageClient, ObjectStorageError
+from lib.object_storage.connection import config_from_connection
+from lib.object_storage.relay import (
+    RELAY_URL_TTL,
+    mark_relay_signed,
+    record_relay_object,
+    relay_object_key,
+    signed_content_retained_until,
+    sweep_relay_objects,
+)
+from lib.project.project_manager import get_project_manager
+
+logger = logging.getLogger(__name__)
+
+#: ArcReel 上传的素材所在的 AIGC 素材组名称，每个账号项目范围一个。
+ASSET_GROUP_NAME = "ArcReel"
+_ASSET_GROUP_DESCRIPTION = "ArcReel 上传的图片素材"
+
+#: 提交后第一次查询状态的等待时间，之后按指数退避到 :data:`CHECK_MAX_INTERVAL`。
+CHECK_INITIAL_DELAY = timedelta(seconds=5)
+CHECK_MAX_INTERVAL = timedelta(minutes=5)
+#: 自提交起自动查询的时长；之后停在当前状态，由用户手动刷新。
+POLL_WINDOW = timedelta(hours=72)
+#: 结果不确定的任务按名称查回素材的时长：下载地址过期后供应商已无法再取图。
+UNCERTAIN_LOOKUP_WINDOW = RELAY_URL_TTL + timedelta(hours=1)
+#: 循环在没有被唤醒时的轮询间隔。
+LOOP_INTERVAL_SECONDS = 10.0
+
+_MESSAGE_LIMIT = 500
+
+#: 入库任务对直接签名的正式对象持有引用时的引用方键前缀（不是项目的消费者，见 ``docs/adr/0118``）。
+INGEST_HOLDER_PREFIX = "ingest:"
+
+
+def ingest_holder(link_id: int) -> str:
+    """入库任务 ``link_id`` 持有正式对象引用时的引用方键。"""
+    return f"{INGEST_HOLDER_PREFIX}{link_id}"
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _default_project_path(project_name: str) -> Path:
+    return get_project_manager().get_project_path(project_name)
+
+
+@dataclass(frozen=True)
+class _LinkSnapshot:
+    id: int
+    project_name: str
+    content_version_id: str
+    content_digest: str
+    resource_type: str
+    resource_id: str
+    version: int
+    locator_path: str
+    account_id: int
+    account_identity: str
+    site: str
+    region: str
+    provider_project_name: str
+    state: str
+    selected: bool
+    provider_asset_id: str | None
+    provider_group_id: str | None
+    submit_name: str
+    submitted_at: datetime | None
+    check_attempts: int
+
+
+def _snapshot(link: ProviderAssetLink) -> _LinkSnapshot:
+    return _LinkSnapshot(
+        id=link.id,
+        project_name=link.project_name,
+        content_version_id=link.content_version_id,
+        content_digest=link.content_digest,
+        resource_type=link.resource_type,
+        resource_id=link.resource_id,
+        version=link.version,
+        locator_path=link.locator_path,
+        account_id=link.account_id,
+        account_identity=link.account_identity,
+        site=link.site,
+        region=link.region,
+        provider_project_name=link.provider_project_name,
+        state=link.state,
+        selected=link.selected,
+        provider_asset_id=link.provider_asset_id,
+        provider_group_id=link.provider_group_id,
+        submit_name=link.submit_name,
+        submitted_at=_aware(link.submitted_at),
+        check_attempts=link.check_attempts,
+    )
+
+
+def _account_matches(account: AssetLibraryAccount | None, link: _LinkSnapshot) -> bool:
+    """账号仍覆盖提交时的范围；账号被换成另一个云账号的 Access Key，或改到另一个站点、区域、项目后，
+    不再用它提交或查询：新凭证推进旧任务会把素材建进另一个账号，或拿另一个账号的结果改写这条关联。"""
+    return (
+        account is not None
+        and account_identity(account.site, account.access_key_id) == link.account_identity
+        and account.site == link.site
+        and account.region == link.region
+        and account.project_name == link.provider_project_name
+    )
+
+
+def _next_check(now: datetime, attempts: int) -> datetime:
+    # 指数先封顶再乘：查询次数累积多了，timedelta 乘法会溢出，min 来不及截断
+    return now + min(CHECK_INITIAL_DELAY * (2 ** min(max(attempts, 0), 16)), CHECK_MAX_INTERVAL)
+
+
+def _clip(text: str | None) -> str | None:
+    return redact_diagnostic_text(text)[:_MESSAGE_LIMIT] if text else None
+
+
+async def _update(
+    session_factory: async_sessionmaker[AsyncSession], link_id: int, *conditions: Any, **values: Any
+) -> bool:
+    """按条件更新一条关联的状态事实，返回是否命中。不触碰 ``selected``。"""
+    assert "selected" not in values
+    async with session_factory() as session:
+        result = await session.execute(
+            update(ProviderAssetLink)
+            .where(ProviderAssetLink.id == link_id, *conditions)
+            .values(updated_at=utc_now(), **values)
+        )
+        await session.commit()
+        return bool(getattr(result, "rowcount", 0))
+
+
+#: ArcReel 自己判定的提交前失败。界面按码给出本地化原因，不当作供应商原文；前端的码表与它
+#: 经 ``frontend/src/test/contracts/provider-asset-local-failures.json`` 双向核对。
+LocalFailureCode = Literal[
+    "unlinked_before_submit",
+    "account_missing",
+    "account_scope_changed",
+    "object_storage_missing",
+    "content_unavailable",
+    "content_changed",
+    "relay_upload_failed",
+]
+LOCAL_FAILURE_CODES: frozenset[str] = frozenset(get_args(LocalFailureCode))
+
+
+async def _fail(
+    session_factory: async_sessionmaker[AsyncSession],
+    link_id: int,
+    now: datetime,
+    code: LocalFailureCode,
+    message: str | None = None,
+) -> None:
+    await _fail_before_submit(session_factory, link_id, now, code, message)
+
+
+async def _fail_before_submit(
+    session_factory: async_sessionmaker[AsyncSession],
+    link_id: int,
+    now: datetime,
+    code: str,
+    message: str | None = None,
+) -> None:
+    # 只用于提交之前的失败：此时供应商侧没有创建素材。``code`` 可以是供应商返回的错误码。
+    await _update(
+        session_factory,
+        link_id,
+        ProviderAssetLink.state == "pending",
+        state="failed",
+        error_code=code[:128],
+        error_message=_clip(message),
+        settled_at=now,
+        next_check_at=None,
+    )
+
+
+def _frozen_content_version(project_path: Path, link: _LinkSnapshot) -> ContentVersion:
+    # 按内容版本身份取此刻的定位：入库在途时资源改名会移动快照，提交时记下的路径随之失效。
+    # 摘要始终用提交时冻结的值，读到的内容与关联认定的内容不符即拒绝。
+    current = VersionManager(project_path).find_content_version(link.resource_type, link.content_version_id)
+    return ContentVersion(
+        material=current.material if current else MaterialRef(link.resource_type, link.resource_id),
+        version=current.version if current else link.version,
+        id=link.content_version_id,
+        digest=link.content_digest,
+        locator=current.locator if current else LocalLocator(link.locator_path),
+        stored=current.stored if current and current.digest == link.content_digest else None,
+    )
+
+
+def _formal_object_on(connection: ObjectStorageConnection, content_version: ContentVersion) -> str | None:
+    """内容版本已作为正式对象保存在这条连接的桶里时返回对象 key：直接为它签发地址，不另写中转副本。
+
+    对象 key 按内容摘要命名，签发的地址固定指向这个内容版本；它不是中转副本，中转清理不会删除它。签发前由
+    :func:`_hold_formal_object` 以入库任务的引用方键登记引用，保留期内来源被彻底清除也不会回收它。
+    """
+    stored = content_version.stored
+    if stored is None or stored.connection_id != connection.id or stored.bucket != connection.bucket:
+        return None
+    return stored.key
+
+
+async def _content_bytes(
+    project_path: Path, content_version: ContentVersion, session_factory: async_sessionmaker[AsyncSession]
+) -> bytes:
+    # 取回到读取期间登记使用：缓存清理不会在两者之间删掉工作文件
+    async with local_work_files(project_path, [content_version.locator.path], session_factory=session_factory):
+        path = await ensure_content_version_file(project_path, content_version, session_factory=session_factory)
+        return await asyncio.to_thread(path.read_bytes)
+
+
+async def _submit(
+    session_factory: async_sessionmaker[AsyncSession],
+    link: _LinkSnapshot,
+    now: datetime,
+    project_path_of: Callable[[str], Path],
+) -> None:
+    if not link.selected:
+        await _fail(session_factory, link.id, now, "unlinked_before_submit")
+        return
+    async with session_factory() as session:
+        account = await session.get(AssetLibraryAccount, link.account_id)
+        connection = await ObjectStorageConnectionRepository(session).get()
+    if account is None:
+        await _fail(session_factory, link.id, now, "account_missing")
+        return
+    if not _account_matches(account, link):
+        await _fail(session_factory, link.id, now, "account_scope_changed")
+        return
+    if connection is None:
+        await _fail(session_factory, link.id, now, "object_storage_missing")
+        return
+
+    # 内容按提交时冻结的内容版本读取并校验摘要：入库期间改选或替换图片不影响这次上传。
+    client = ObjectStorageClient(config_from_connection(connection))
+    try:
+        project_path = await asyncio.to_thread(project_path_of, link.project_name)
+        content_version = await asyncio.to_thread(_frozen_content_version, project_path, link)
+        formal_key = _formal_object_on(connection, content_version)
+        if formal_key is not None and not await _hold_formal_object(session_factory, link, content_version, now):
+            formal_key = None  # 对象已不在或等待删除之外的状态：按中转副本上传
+        data = None if formal_key is not None else await _content_bytes(project_path, content_version, session_factory)
+    except VersionSnapshotCorruptedError:
+        await _fail(session_factory, link.id, now, "content_changed")
+        return
+    except (OSError, ValueError, ApiError):  # 快照不在盘上，或项目已不存在、已删除，或远端取回失败
+        await _fail(session_factory, link.id, now, "content_unavailable")
+        return
+
+    try:
+        if formal_key is not None:
+            url = await client.presign_get(formal_key, expires_seconds=int(RELAY_URL_TTL.total_seconds()))
+        else:
+            assert data is not None
+            suffix = Path(link.locator_path).suffix or ".png"
+            key = relay_object_key(suffix, now=now)
+            relay_id = await record_relay_object(session_factory, connection, key, link_id=link.id)
+            await client.put_bytes(key, data, content_type=IMAGE_CONTENT_TYPES.get(suffix.lower()))
+            url = await client.presign_get(key, expires_seconds=int(RELAY_URL_TTL.total_seconds()))
+            await mark_relay_signed(session_factory, relay_id, now + RELAY_URL_TTL)
+    except ObjectStorageError as exc:
+        await _fail(session_factory, link.id, now, "relay_upload_failed", f"{exc.kind}:{exc.code}")
+        return
+
+    credentials = credentials_of(account)
+    try:
+        group_id = await ensure_asset_group(credentials, ASSET_GROUP_NAME, description=_ASSET_GROUP_DESCRIPTION)
+    except AssetLibraryRequestError as exc:
+        # 素材组只是容器，没有提交素材，失败即可判定入库未发生。
+        await _fail_before_submit(session_factory, link.id, now, exc.code or f"request_{exc.kind}", exc.message)
+        return
+    raise_if_cancel_absorbed()
+
+    # 发出 CreateAsset 前确认任务仍被选定且未被处理过；之后进程中断，按结果不确定处理。
+    started = await _update(
+        session_factory,
+        link.id,
+        ProviderAssetLink.state == "pending",
+        ProviderAssetLink.selected.is_(True),
+        state="submitting",
+        submitted_at=now,
+        provider_group_id=group_id,
+    )
+    if not started:
+        current = await _load(session_factory, link.id)
+        if current is not None and current.state == "pending":
+            await _fail(session_factory, link.id, now, "unlinked_before_submit")
+        return
+
+    try:
+        asset_id = await create_asset(credentials, group_id=group_id, url=url, name=link.submit_name)
+    except AssetLibraryRequestError as exc:
+        values: dict[str, Any] = {
+            "error_code": (exc.code or f"request_{exc.kind}")[:128],
+            "error_message": _clip(exc.message),
+        }
+        if exc.outcome_unknown:
+            values |= {"state": "uncertain", "next_check_at": now + CHECK_INITIAL_DELAY, "check_attempts": 0}
+        else:
+            values |= {"state": "failed", "settled_at": now, "next_check_at": None}
+        await run_noninterruptible_async(
+            _update(session_factory, link.id, ProviderAssetLink.state == "submitting", **values)
+        )
+        return
+    # 供应商已经接受：素材 ID 落账不可中断，否则重启后只能按结果不确定去查回。
+    await run_noninterruptible_async(
+        _update(
+            session_factory,
+            link.id,
+            ProviderAssetLink.state == "submitting",
+            state="processing",
+            provider_asset_id=asset_id,
+            error_code=None,
+            error_message=None,
+            next_check_at=now + CHECK_INITIAL_DELAY,
+            check_attempts=0,
+        )
+    )
+    raise_if_cancel_absorbed()
+
+
+async def _hold_formal_object(
+    session_factory: async_sessionmaker[AsyncSession],
+    link: _LinkSnapshot,
+    content_version: ContentVersion,
+    now: datetime,
+) -> bool:
+    """签发正式对象地址前，以入库任务的引用方键登记引用，并把保留起点记为这次签发；返回对象是否仍可用。"""
+    assert content_version.stored is not None
+    holder = ingest_holder(link.id)
+    if not await add_reference(content_version.stored, holder, link.content_version_id, session_factory):
+        return False
+    async with session_factory() as session:
+        await session.execute(
+            update(FormalObjectRef).where(FormalObjectRef.project_name == holder).values(updated_at=now)
+        )
+        await session.commit()
+    return True
+
+
+async def release_ingest_holds(session_factory: async_sessionmaker[AsyncSession], *, now: datetime) -> int:
+    """撤下保留期已过的入库任务引用，并回收因此失去全部引用的正式对象；返回删除的对象数量。
+
+    保留期与中转副本相同（:func:`~lib.object_storage.relay.signed_content_retained_until`），自最近一次签发起算：
+    任务有定论后至少一小时，没有定论（处理中、结果不确定、已解除、账号不可用）或任务记录已不在时保留到地址过期
+    再加一小时。进程重启不影响，引用与签发时间都在数据库里。
+    """
+    async with session_factory() as session:
+        rows = (
+            await session.execute(
+                select(FormalObjectRef.project_name, FormalObjectRef.updated_at).where(
+                    FormalObjectRef.project_name.startswith(INGEST_HOLDER_PREFIX),
+                    FormalObjectRef.state == REF_ACTIVE,
+                )
+            )
+        ).all()
+        signed: dict[str, datetime] = {}
+        for holder, held_at in rows:
+            held_at = _aware(held_at) or now
+            signed[holder] = max(signed.get(holder, held_at), held_at)
+        expired: list[str] = []
+        for holder, signed_at in signed.items():
+            link_id = holder.removeprefix(INGEST_HOLDER_PREFIX)
+            link = await session.get(ProviderAssetLink, int(link_id)) if link_id.isdigit() else None
+            if signed_content_retained_until(signed_at, signed_at + RELAY_URL_TTL, link) <= now:
+                expired.append(holder)
+    deleted = 0
+    for holder in expired:
+        deleted += await release_holder(holder, session_factory)
+    return deleted
+
+
+def _schedule_after(link: _LinkSnapshot, now: datetime, window: timedelta) -> datetime | None:
+    """下一次自动查询的时间；超出窗口后不再自动查询。"""
+    started = link.submitted_at or now
+    if now - started >= window:
+        return None
+    return _next_check(now, link.check_attempts)
+
+
+async def _check_processing(
+    session_factory: async_sessionmaker[AsyncSession], link: _LinkSnapshot, now: datetime
+) -> None:
+    async with session_factory() as session:
+        account = await session.get(AssetLibraryAccount, link.account_id)
+    if not _account_matches(account, link):
+        await _update(
+            session_factory,
+            link.id,
+            check_error="account_unavailable",
+            next_check_at=None,
+        )
+        return
+    assert account is not None
+    assert link.provider_asset_id is not None
+    try:
+        detail = await get_asset(credentials_of(account), link.provider_asset_id)
+    except AssetLibraryRequestError as exc:
+        await _update(
+            session_factory,
+            link.id,
+            check_error=(exc.code or f"request_{exc.kind}")[:128],
+            check_attempts=link.check_attempts + 1,
+            next_check_at=_schedule_after(link, now, POLL_WINDOW),
+        )
+        return
+    raise_if_cancel_absorbed()
+    if detail.status == "active":
+        await _update(session_factory, link.id, state="active", settled_at=now, next_check_at=None, check_error=None)
+    elif detail.status == "failed":
+        await _update(
+            session_factory,
+            link.id,
+            state="failed",
+            error_code=(detail.error_code or "provider_failed")[:128],
+            error_message=_clip(detail.error_message),
+            settled_at=now,
+            next_check_at=None,
+            check_error=None,
+        )
+    else:
+        await _update(
+            session_factory,
+            link.id,
+            state="processing",
+            check_error=None,
+            check_attempts=link.check_attempts + 1,
+            next_check_at=_schedule_after(link, now, POLL_WINDOW),
+        )
+
+
+async def _check_uncertain(
+    session_factory: async_sessionmaker[AsyncSession], link: _LinkSnapshot, now: datetime
+) -> None:
+    """提交结果不确定：按提交时的唯一名称在素材组里查回素材，查到即转为处理中，不重新创建。"""
+    async with session_factory() as session:
+        account = await session.get(AssetLibraryAccount, link.account_id)
+    if not _account_matches(account, link) or not link.provider_group_id:
+        await _update(session_factory, link.id, check_error="account_unavailable", next_check_at=None)
+        return
+    assert account is not None
+    try:
+        found = await find_assets_by_name(
+            credentials_of(account), group_id=link.provider_group_id, name=link.submit_name
+        )
+    except AssetLibraryRequestError as exc:
+        await _update(
+            session_factory,
+            link.id,
+            check_error=(exc.code or f"request_{exc.kind}")[:128],
+            check_attempts=link.check_attempts + 1,
+            next_check_at=_schedule_after(link, now, UNCERTAIN_LOOKUP_WINDOW),
+        )
+        return
+    raise_if_cancel_absorbed()
+    if len(found) == 1:
+        await _update(
+            session_factory,
+            link.id,
+            ProviderAssetLink.state == "uncertain",
+            state="processing",
+            provider_asset_id=found[0].id,
+            check_error=None,
+            check_attempts=0,
+            next_check_at=now,
+        )
+        return
+    await _update(
+        session_factory,
+        link.id,
+        check_error="ambiguous_match" if found else "not_found_yet",
+        check_attempts=link.check_attempts + 1,
+        next_check_at=None if found else _schedule_after(link, now, UNCERTAIN_LOOKUP_WINDOW),
+    )
+
+
+async def _load(session_factory: async_sessionmaker[AsyncSession], link_id: int) -> _LinkSnapshot | None:
+    async with session_factory() as session:
+        link = await session.get(ProviderAssetLink, link_id)
+        return _snapshot(link) if link is not None else None
+
+
+async def _due_links(session_factory: async_sessionmaker[AsyncSession], now: datetime) -> list[_LinkSnapshot]:
+    async with session_factory() as session:
+        stmt = (
+            select(ProviderAssetLink)
+            .where(ProviderAssetLink.next_check_at.is_not(None), ProviderAssetLink.next_check_at <= now)
+            .order_by(ProviderAssetLink.next_check_at, ProviderAssetLink.id)
+        )
+        return [_snapshot(link) for link in (await session.execute(stmt)).scalars()]
+
+
+async def recover_interrupted(session_factory: async_sessionmaker[AsyncSession], *, now: datetime | None = None) -> int:
+    """启动时把中断在提交中的任务改为结果不确定：CreateAsset 可能已经被供应商接受，不能重新提交。"""
+    now = now or utc_now()
+    async with session_factory() as session:
+        result = await session.execute(
+            update(ProviderAssetLink)
+            .where(ProviderAssetLink.state == "submitting")
+            .values(state="uncertain", next_check_at=now, check_attempts=0, updated_at=now)
+        )
+        await session.commit()
+        return int(getattr(result, "rowcount", 0) or 0)
+
+
+async def run_once(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    now: datetime | None = None,
+    project_path_of: Callable[[str], Path] = _default_project_path,
+) -> None:
+    """处理一轮：到期的入库任务逐条推进，然后清理到期的中转副本。单条失败不影响其余。"""
+    now = now or utc_now()
+    for link in await _due_links(session_factory, now):
+        try:
+            if link.state == "pending":
+                await _submit(session_factory, link, now, project_path_of)
+            elif link.state == "processing" and link.provider_asset_id:
+                await _check_processing(session_factory, link, now)
+            elif link.state == "uncertain":
+                if link.provider_asset_id:
+                    await _check_processing(session_factory, link, now)
+                else:
+                    await _check_uncertain(session_factory, link, now)
+            else:
+                await _update(session_factory, link.id, next_check_at=None)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("推进入库任务失败，稍后重试 link=%s", link.id, exc_info=True)
+            await _update(
+                session_factory,
+                link.id,
+                check_attempts=link.check_attempts + 1,
+                next_check_at=_next_check(now, link.check_attempts + 1),
+            )
+    try:
+        await sweep_relay_objects(session_factory, now=now)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.warning("清理中转副本失败，等下一轮", exc_info=True)
+    try:
+        await release_ingest_holds(session_factory, now=now)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.warning("撤下到期的入库任务引用失败，等下一轮", exc_info=True)
+
+
+class AssetIngestRunner:
+    """在应用生命周期里循环调用 :func:`run_once`。"""
+
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        interval_seconds: float = LOOP_INTERVAL_SECONDS,
+    ) -> None:
+        self._session_factory = session_factory
+        self._interval = interval_seconds
+        self._wake = asyncio.Event()
+        self._task: asyncio.Task[None] | None = None
+
+    def wake(self) -> None:
+        self._wake.set()
+
+    async def _loop(self) -> None:
+        try:
+            await recover_interrupted(self._session_factory)
+        except Exception:
+            logger.warning("恢复中断的入库任务失败", exc_info=True)
+        while True:
+            self._wake.clear()
+            try:
+                await run_once(self._session_factory)
+            except Exception:
+                logger.warning("入库任务处理异常，等下一轮", exc_info=True)
+            raise_if_cancel_absorbed()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._wake.wait(), timeout=self._interval)
+
+    def start(self) -> asyncio.Task[None]:
+        self._task = asyncio.get_running_loop().create_task(self._loop(), name="asset-library-ingest")
+        return self._task
+
+    async def stop(self) -> None:
+        if self._task is None:
+            return
+        self._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._task
+        self._task = None
+
+
+_runner: list[AssetIngestRunner | None] = [None]
+
+
+def start_asset_ingest(session_factory: async_sessionmaker[AsyncSession]) -> AssetIngestRunner:
+    """启动后台入库循环：启动时先恢复中断的提交，之后每隔一段时间或被唤醒时处理一轮。"""
+    runner = AssetIngestRunner(session_factory)
+    runner.start()
+    _runner[0] = runner
+    return runner
+
+
+async def stop_asset_ingest(runner: AssetIngestRunner) -> None:
+    await runner.stop()
+    if _runner[0] is runner:
+        _runner[0] = None
+
+
+def wake_asset_ingest() -> None:
+    """有新任务或需要立即查询时提前唤醒后台循环；循环没有运行时不做任何事。"""
+    runner = _runner[0]
+    if runner is not None:
+        runner.wake()
+
+
+__all__ = [
+    "ASSET_GROUP_NAME",
+    "CHECK_INITIAL_DELAY",
+    "INGEST_HOLDER_PREFIX",
+    "POLL_WINDOW",
+    "AssetIngestRunner",
+    "ingest_holder",
+    "recover_interrupted",
+    "release_ingest_holds",
+    "run_once",
+    "start_asset_ingest",
+    "stop_asset_ingest",
+    "wake_asset_ingest",
+]

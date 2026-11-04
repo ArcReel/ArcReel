@@ -10,6 +10,11 @@ from typing import assert_never
 from .model import AudioFacts, CatalogEntry, ImageFacts, Meter, ModelFacts, PriceTable, TextFacts, VideoFacts
 
 
+def _put_recorded(raw: dict[str, object], optional: dict[str, object]) -> None:
+    """写入已收录的可选模型事实；``None`` 表示未收录，不写出。显式 ``0`` 与 ``false`` 照常写出。"""
+    raw.update({key: value for key, value in optional.items() if value is not None})
+
+
 def _facts(facts: ModelFacts) -> dict[str, object]:
     match facts:
         case TextFacts():
@@ -18,14 +23,22 @@ def _facts(facts: ModelFacts) -> dict[str, object]:
                 raw["max_output_tokens"] = facts.max_output_tokens
             return raw
         case ImageFacts():
-            return {
+            raw = {
                 "text_to_image": facts.text_to_image,
                 "image_to_image": facts.image_to_image,
                 "resolutions": list(facts.resolutions),
             }
+            _put_recorded(
+                raw,
+                {
+                    "max_reference_images": facts.max_reference_images,
+                    "output_token_bases": dict(facts.output_token_bases) or None,
+                },
+            )
+            return raw
         case VideoFacts():
             constraints = facts.duration_constraints
-            return {
+            raw = {
                 "durations": list(facts.durations),
                 "resolutions": list(facts.resolutions),
                 "duration_constraints": {
@@ -33,6 +46,19 @@ def _facts(facts: ModelFacts) -> dict[str, object]:
                     "with_reference_images": list(constraints.with_reference_images),
                 },
             }
+            _put_recorded(
+                raw,
+                {
+                    "max_reference_images": facts.max_reference_images,
+                    "text_to_video": facts.text_to_video,
+                    "first_frame": facts.first_frame,
+                    "last_frame": facts.last_frame,
+                    "reference_audio": facts.reference_audio,
+                    "max_reference_audio_count": facts.max_reference_audio_count,
+                    "max_reference_audio_total_seconds": facts.max_reference_audio_total_seconds,
+                },
+            )
+            return raw
         case AudioFacts():
             return {}
         case _:
@@ -72,6 +98,12 @@ def dump_entry(entry: CatalogEntry) -> dict[str, object]:
         raw["discontinued"] = True
     if entry.context_length is not None:
         raw["context_length"] = entry.context_length
+    if entry.release_date is not None:
+        raw["release_date"] = entry.release_date.isoformat()
+    if entry.shutdown_date is not None:
+        raw["shutdown_date"] = entry.shutdown_date.isoformat()
+    if entry.successor is not None:
+        raw["successor"] = entry.successor
     raw["facts"] = _facts(entry.facts)
     if entry.price is not None:
         raw["price"] = _price(entry.price)

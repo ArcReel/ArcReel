@@ -384,13 +384,11 @@ class TestFromProject:
         pm.update_project("demo", _set_fields)
 
         real_copyfile = assets.shutil.copyfile
-        calls = {"n": 0}
 
-        def flaky_copyfile(src, dst):
-            calls["n"] += 1
-            if calls["n"] == 2:
+        def flaky_copyfile(src, dst, **kwargs):
+            if str(src).endswith(".wav"):
                 raise OSError("disk full")
-            return real_copyfile(src, dst)
+            return real_copyfile(src, dst, **kwargs)
 
         monkeypatch.setattr(assets.shutil, "copyfile", flaky_copyfile)
 

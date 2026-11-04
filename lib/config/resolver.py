@@ -27,16 +27,13 @@ from lib.backends.backend_assembly.specs import (
     builtin_video_capabilities_for_model,
 )
 from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
+from lib.catalog import builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import (
-    DEFAULT_AUDIO_BACKEND,
-    DEFAULT_IMAGE_BACKEND,
     DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
     DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
-    DEFAULT_TEXT_BACKEND,
-    DEFAULT_VIDEO_BACKEND,
     ConfigService,
 )
 from lib.custom_provider import is_custom_provider, parse_provider_id
@@ -110,38 +107,41 @@ def _split_pair(raw: object) -> tuple[str, str] | None:
     return provider, model
 
 
+def _bare_provider(raw: object) -> str | None:
+    """project.json provider 字段的裸供应商覆盖（裸 ``"provider"``，或带尾斜杠缺 model 的脏值如 ``"openai/"``）→ 供应商 id。
+
+    完整的 ``"provider/model"``、非字符串与空值为 None。"""
+    if not isinstance(raw, str) or _split_pair(raw) is not None:
+        return None
+    return raw.strip().rstrip("/").strip() or None
+
+
 def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | None:
-    """解析 project.json 的 provider 字段，兼容裸供应商覆盖。
+    """解析 project.json 的 provider 字段，兼容裸供应商覆盖；纯读目录、不查 DB。
 
     - ``"provider/model"`` → (provider, model)
     - 裸 ``"provider"``（registry 中存在且有该 media_type 默认 model）→ (provider, 默认 model)
     - 其余 → None（交由全局默认解析）
 
     裸供应商经写边界（``validate_backend_value`` 只放行 registry key）保证是规范 id，这里
-    pin 住该供应商并补全其默认 model，避免静默回退到全局默认的**另一**供应商。补不出默认 model
-    的裸内置供应商同样不回退，由解析骨架报错（``_reject_bare_builtin_without_default``）。"""
+    pin 住该供应商并补全其默认 model，避免静默回退到全局默认的**另一**供应商。供没有配置库会话的同步路径使用；
+    解析骨架另按用户的停用状态补默认（``ConfigResolver._resolve_layered_backend``）。"""
     pair = _split_pair(raw)
     if pair is not None:
         return pair
-    if isinstance(raw, str):
-        # 裸供应商，或带尾斜杠缺 model 的脏值（如 "openai/"）→ 取该供应商默认 model
-        provider = raw.strip().rstrip("/").strip()
-        if provider:
-            model = catalog.default_model(provider, media_type)
-            if model is not None:
-                return provider, model
+    provider = _bare_provider(raw)
+    if provider is not None:
+        model = catalog.default_model(provider, media_type)
+        if model is not None:
+            return provider, model
     return None
 
 
-def _reject_bare_builtin_without_default(raw: object, media_type: str) -> None:
-    """项目层的裸内置供应商在该媒体类型下没有默认模型（如 openai 已无视频模型）时报错。
+def _reject_bare_builtin_without_default(provider: str, media_type: str) -> None:
+    """项目层的裸内置供应商在该媒体类型下没有可用的默认模型（如 openai 已无视频模型、默认模型已下线或被停用）时报错。
 
-    只在 ``_parse_project_provider`` 返回 None 之后调用：此时裸值若是内置供应商，说明它在模型目录里
-    没有这一媒体类型的模型。报「不在模型清单中」让用户重新选择，不回退到另一供应商去生成和计费。
+    报「不在模型清单中」让用户重新选择，不回退到另一供应商去生成和计费。
     """
-    if not isinstance(raw, str):
-        return
-    provider = raw.strip().rstrip("/").strip()
     if provider in PROVIDER_REGISTRY:
         raise ModelNotInCatalogError(provider_id=provider, model_id="", media_type=media_type)
 
@@ -162,14 +162,16 @@ def _trusted_payload_provider(provider_id: object) -> str | None:
     return None
 
 
-def _payload_model_or_default(raw_model: object, provider_id: str, media_type: str) -> str | None:
-    """payload 显式 model（非空字符串）优先；缺失则补该 provider 在模型目录中的默认 model。
+async def _payload_model_or_default(
+    session: AsyncSession, raw_model: object, provider_id: str, media_type: str
+) -> str | None:
+    """payload 显式 model（非空字符串）优先；缺失则补该 provider 可用的默认 model（已下线或被用户停用的不算）。
 
     避免「半截 payload」（只有 provider、缺 model）把空 model 带到执行层。补不出默认 model 时
     返回 None，由调用方回退 project/global。"""
     if isinstance(raw_model, str) and raw_model.strip():
         return raw_model.strip()
-    return catalog.default_model(provider_id, media_type)
+    return await builtin_models.default_builtin_model(session, provider_id, media_type)
 
 
 @dataclass(frozen=True)
@@ -182,8 +184,6 @@ class _LayeredBackendKeys:
     """
 
     media_type: str
-    # 全局层值含 "/" 但解析异常时的兜底，形如 "provider/model"（ConfigService._parse_backend 的 fallback）
-    parse_fallback: str
     project_bucket_key: str | None = None
     project_default_key: str | None = None
     global_bucket_key: str | None = None
@@ -199,7 +199,6 @@ class _LayeredBackendKeys:
 _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
     generation_type: _LayeredBackendKeys(
         media_type="image",
-        parse_fallback=DEFAULT_IMAGE_BACKEND,
         project_bucket_key=f"image_provider_{generation_type}",
         project_default_key="default_image_backend",
         global_bucket_key=f"default_image_backend_{generation_type}",
@@ -215,7 +214,6 @@ _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
 _VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
     generation_type: _LayeredBackendKeys(
         media_type="video",
-        parse_fallback=DEFAULT_VIDEO_BACKEND,
         project_bucket_key=f"video_provider_{generation_type}",
         project_default_key="video_backend",
         global_bucket_key=f"default_video_backend_{generation_type}",
@@ -229,7 +227,6 @@ _VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
 # 任务类型桶的调用方（费用估算、限流路由兜底、配置展示）解析，不施加桶键覆盖也不过能力闸。
 _VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
     media_type="video",
-    parse_fallback=DEFAULT_VIDEO_BACKEND,
     project_default_key="video_backend",
     global_default_key="default_video_backend",
 )
@@ -239,7 +236,6 @@ _VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
 # audio_backend 字段，全局默认层用 default_audio_backend 设置键。
 _AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
     media_type="audio",
-    parse_fallback=DEFAULT_AUDIO_BACKEND,
     project_default_key="audio_backend",
     global_default_key="default_audio_backend",
 )
@@ -399,7 +395,6 @@ _TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
 _TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
     tier: _LayeredBackendKeys(
         media_type="text",
-        parse_fallback=DEFAULT_TEXT_BACKEND,
         project_bucket_key=tier_key,
         project_default_key="default_text_backend",
         global_bucket_key=tier_key,
@@ -786,7 +781,7 @@ class ConfigResolver:
         """解析当前项目应使用的视频 (provider_id, model_id)。
 
         优先级：项目级 `project.json.video_backend` > 系统设置 `default_video_backend` >
-        系统默认 `DEFAULT_VIDEO_BACKEND` > auto-resolve（按 registry 顺序挑第一个 ready）。
+        auto-resolve（按 registry 顺序挑第一个 ready 且目录里有可用默认视频模型的供应商）。
 
         返回字面配置结果，不做自定义供应商的身份收敛——供配置展示与「当前选的是哪个」类
         判断使用；要拿运行时实际执行的身份请用 ``resolve_video_backend()``。
@@ -821,6 +816,7 @@ class ConfigResolver:
         payload: dict | None,
         *,
         generation_type: VideoGenerationType | None = None,
+        submitted_job: bool = False,
     ) -> ProviderModel:
         """解析视频任务应使用的 ProviderModel。
 
@@ -840,10 +836,15 @@ class ConfigResolver:
           model（**运行时有效身份**），无可用默认则抛 ``ValueError``。供不承诺能力的调用方
           （费用估算、限流路由兜底）使用。
 
+        ``submitted_job`` 为真表示续跑已提交给厂商的任务（只轮询厂商侧已存在的任务、不发起新的生成）：payload 必须锁定
+        执行身份，身份可用性校验不拦已下线的模型，其余校验照旧。只由续跑入口声明，新提交恒为假。
+
         provider id 不做归一化。只要字面配置结果（不经收敛）请改用 ``video_backend()``。
         """
         async with self._open_session() as (session, svc):
-            return await self._resolve_video_provider_model(svc, session, project, payload, generation_type)
+            return await self._resolve_video_provider_model(
+                svc, session, project, payload, generation_type, submitted_job=submitted_job
+            )
 
     async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str | None:
         """按 project.model_settings → legacy video_model_settings → 自定义供应商默认 → None。
@@ -1020,6 +1021,7 @@ class ConfigResolver:
                     model_id=model_id,
                     overrides=model.capability_overrides,
                     endpoint_spec=endpoint_spec,
+                    entry_binding=model.entry_binding,
                 )
             except ValueError:
                 return None
@@ -1107,6 +1109,14 @@ class ConfigResolver:
         async with self._open_session() as (session, svc):
             return await self._resolve_provider_config(svc, session, provider_id)
 
+    async def provider_config_with_credential(self, provider_id: str) -> tuple[dict[str, str], int | None]:
+        """获取单个供应商配置，连同叠加进来的生效凭证记录 ID；没有生效凭证时 ID 为 None。
+
+        两者在同一次读取里取得：素材库绑定按凭证记录与它的实际内容核对，分开读会在中途切换凭证时对不上。
+        """
+        async with self._open_session() as (session, svc):
+            return await self._resolve_provider_config_and_credential(svc, session, provider_id)
+
     async def all_provider_configs(self) -> dict[str, dict[str, str]]:
         """批量获取所有供应商配置。"""
         async with self._open_session() as (session, svc):
@@ -1179,7 +1189,7 @@ class ConfigResolver:
         """「默认 + 任务类型桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
 
         媒体类型无关，各层键位由 ``_LayeredBackendKeys`` 声明（见 ``docs/adr/0054``）。项目层
-        字段兼容裸供应商覆盖（``_parse_project_provider``）；全局层要求 ``provider/model``
+        字段兼容裸供应商覆盖（补该供应商可用的默认模型，已下线或被用户停用的不算，补不出时报错）；全局层要求 ``provider/model``
         完整形态。payload 层与运行时身份收敛（如视频自定义供应商的有效身份收敛）不属于
         骨架，由各媒体的调用方在骨架外处理。
         """
@@ -1188,19 +1198,27 @@ class ConfigResolver:
                 if project_key is None:
                     continue
                 raw = project.get(project_key)
-                parsed = _parse_project_provider(raw, keys.media_type)
-                if parsed is not None:
-                    return parsed
-                _reject_bare_builtin_without_default(raw, keys.media_type)
+                provider = _bare_provider(raw)
+                if provider is None:
+                    pair = _split_pair(raw)
+                    if pair is not None:
+                        return pair
+                    continue
+                default = await builtin_models.default_builtin_model(session, provider, keys.media_type)
+                if default is not None:
+                    return provider, default
+                _reject_bare_builtin_without_default(provider, keys.media_type)
         settings = await svc.get_all_settings()
         if keys.global_bucket_key is not None:
             raw = settings.get(keys.global_bucket_key, "")
             if "/" in raw:
-                return ConfigService._parse_backend(raw, keys.parse_fallback)
+                provider_id, model_id = raw.split("/", 1)
+                return provider_id, model_id
         if keys.global_default_key is not None:
             raw = settings.get(keys.global_default_key, "")
             if "/" in raw:
-                return ConfigService._parse_backend(raw, keys.parse_fallback)
+                provider_id, model_id = raw.split("/", 1)
+                return provider_id, model_id
         return await self._auto_resolve_backend(svc, session, keys.media_type, keys.generation_type)
 
     async def _resolve_image_provider_model(
@@ -1227,7 +1245,7 @@ class ConfigResolver:
         if payload:
             provider_id = _trusted_payload_provider(payload.get("image_provider"))
             if provider_id is not None:
-                model = _payload_model_or_default(payload.get("image_model"), provider_id, "image")
+                model = await _payload_model_or_default(session, payload.get("image_model"), provider_id, "image")
                 if model is not None:
                     selected = ProviderModel(provider_id, model)
         if selected is None:
@@ -1283,6 +1301,8 @@ class ConfigResolver:
         project: dict | None,
         payload: dict | None,
         generation_type: VideoGenerationType | None = None,
+        *,
+        submitted_job: bool = False,
     ) -> ProviderModel:
         """payload 优先解析视频 ProviderModel；无 payload 时按 ``generation_type`` 走桶骨架或不定桶骨架。
 
@@ -1290,14 +1310,22 @@ class ConfigResolver:
         ``_payload_video_pinned_pair``）：原样返回、不过能力闸，只过身份可用性
         （``_ensure_video_identity_resolvable``），悬空即报错。锁定形态不丢弃不可信供应商——
         供应商已下线时回退等于换供应商执行。各层语义见 ``resolve_video_backend`` docstring。
+
+        ``submitted_job`` 只作用于锁定身份：续跑的身份来自提交时冻结的检查点，没有锁定身份时说明调用方不是续跑，
+        直接报错，不让豁免落到按当前配置解析出的身份上。
         """
-        if payload:
-            pinned = _payload_video_pinned_pair(payload, generation_type)
-            if pinned is not None:
-                pinned_generation_type, pair = pinned
-                selected = ProviderModel(*pair)
-                await self._ensure_video_identity_resolvable(session, selected, pinned_generation_type)
-                return selected
+        pinned = _payload_video_pinned_pair(payload, generation_type) if payload else None
+        if pinned is not None:
+            pinned_generation_type, pair = pinned
+            selected = ProviderModel(*pair)
+            await self._ensure_video_identity_resolvable(
+                session, selected, pinned_generation_type, submitted_job=submitted_job
+            )
+            return selected
+        if submitted_job:
+            raise ValueError(
+                "续跑已提交的视频任务须在 payload 里锁定提交时的执行身份（video_provider_<generation_type>）"
+            )
         if generation_type is None:
             provider_id, model_id = await self._resolve_layered_backend(
                 svc, session, project, _VIDEO_DEFAULT_LAYERED_KEYS
@@ -1315,41 +1343,47 @@ class ConfigResolver:
         session: AsyncSession,
         selected: ProviderModel,
         generation_type: VideoGenerationType,
+        *,
+        submitted_job: bool = False,
     ) -> CustomProviderModel | None:
         """校验视频身份现在仍解析得到，悬空即报错。
 
-        判的是身份存在性而非能力声明：内置模型看模型目录，不在该供应商的视频模型清单里（已下架、
-        已改名，或所引模型不是视频模型）时抛 ``ModelNotInCatalogError``，与装配层、图片路径同一个
-        「请重新选择模型」；自定义模型看 DB（供应商被删、模型被删或禁用、endpoint 改成其它媒体类型），
-        悬空抛 ``VideoBucketCapabilityError``。自定义模型命中时返回该行，供调用方就地合成能力、不重复
+        判的是身份存在性而非能力声明：内置模型看模型目录，已下线时抛 ``ModelDiscontinuedError``（带下线日期与后继），
+        不在该供应商的视频模型清单里（已改名，或所引模型不是视频模型）时抛 ``ModelNotInCatalogError``，与装配层、
+        图片路径同一个「请重新选择模型」（``catalog.require_callable``）；自定义模型看 DB（供应商被删、模型被删或禁用、endpoint 改成其它媒体类型），
+        悬空抛 ``VideoBucketCapabilityError``，所对应的条目已下线同样抛 ``ModelDiscontinuedError``。自定义模型命中时返回该行，供调用方就地合成能力、不重复
         查库；内置返回 None。
 
         backend caps 函数不都校验 model 存在性、也不都校验 media_type（部分 provider 对任意 model id
         返回静态能力，同一 provider 的图片模型也会拿到 first_frame=True），故身份需单独判。
+
+        ``submitted_job`` 为真（续跑已提交给厂商的任务）时不拦已下线的模型，其余判定不变。
         """
         provider_id, model_id = selected.provider_id, selected.model_id
         if not is_custom_provider(provider_id):
-            if catalog.get_model(provider_id, model_id, media_type="video") is None:
-                raise ModelNotInCatalogError(provider_id=provider_id, model_id=model_id, media_type="video")
+            if submitted_job:
+                catalog.require_listed(provider_id, model_id, "video")
+            else:
+                catalog.require_callable(provider_id, model_id, "video")
             return None
 
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
         # 该符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
-        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
-        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+        from lib.custom_provider.default_models import requested_model
 
         try:
             db_pid = parse_provider_id(provider_id)
         except ValueError as exc:
             raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
-        model = await CustomProviderRepository(session).get_model_by_ids(db_pid, model_id)
-        if model is None or not model.is_enabled:
-            raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id)
-        try:
-            endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-        except ValueError as exc:
-            raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
-        if endpoint_spec.media_type != "video":
+        model = await requested_model(
+            session,
+            provider_id=provider_id,
+            db_id=db_pid,
+            model_id=model_id,
+            media_type="video",
+            submitted_job=submitted_job,
+        )
+        if model is None:
             raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id)
         return model
 
@@ -1385,6 +1419,7 @@ class ConfigResolver:
                     model_id=model_id,
                     overrides=model.capability_overrides,
                     endpoint_spec=endpoint_spec,
+                    entry_binding=model.entry_binding,
                 )
             except ValueError as exc:
                 raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
@@ -1409,8 +1444,9 @@ class ConfigResolver:
     ) -> ProviderModel:
         """把选择身份收敛为 backend 构造时会实际使用的视频身份。
 
-        内置供应商的 registry 身份已是有效身份；自定义供应商需与 loader 共用同一规则：
-        model 不存在、禁用或 endpoint 已改成其它 media_type 时，回退到默认启用 video model。
+        内置供应商的 registry 身份已是有效身份；自定义供应商需与 loader 共用同一规则
+        （``lib.custom_provider.default_models.requested_model``）：model 不存在、禁用或 endpoint 已改成其它
+        media_type 时，回退到默认启用 video model；所对应的条目已下线时抛 ``ModelDiscontinuedError``，不回退。
 
         已物化的身份不走这条收敛（见 ``_resolve_video_provider_model``）：换 model 执行等于
         静默换模型。
@@ -1421,30 +1457,23 @@ class ConfigResolver:
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
         # 而该符号所在的装配层反过来依赖 lib.config，模块级导入会成环；内置分支不用它，
         # 也就不必为此拉起整个装配层。
-        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
-        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+        from lib.custom_provider.default_models import requested_model, resolve_default_model
 
         try:
             db_pid = parse_provider_id(selected.provider_id)
         except ValueError as exc:
             raise ValueError(f"invalid custom provider_id: {selected.provider_id}") from exc
-        repo = CustomProviderRepository(session)
-        model = await repo.get_model_by_ids(db_pid, selected.model_id)
-        if model is not None and model.is_enabled:
-            try:
-                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-            except ValueError:
-                endpoint_spec = None
-            if endpoint_spec is not None and endpoint_spec.media_type == "video":
-                return selected
+        model = await requested_model(
+            session, provider_id=selected.provider_id, db_id=db_pid, model_id=selected.model_id, media_type="video"
+        )
+        if model is not None:
+            return selected
 
         logger.warning(
             "自定义模型 %s/%s 已不存在 / 已禁用 / 媒体类型不符（期望 video），身份解析回退到默认模型",
             selected.provider_id,
             selected.model_id,
         )
-        from lib.custom_provider.default_models import resolve_default_model
-
         try:
             default_model = await resolve_default_model(
                 session, provider_id=selected.provider_id, db_id=db_pid, media_type="video"
@@ -1475,7 +1504,7 @@ class ConfigResolver:
         if payload:
             provider_id = _trusted_payload_provider(payload.get("audio_provider"))
             if provider_id is not None:
-                model = _payload_model_or_default(payload.get("audio_model"), provider_id, "audio")
+                model = await _payload_model_or_default(session, payload.get("audio_model"), provider_id, "audio")
                 if model is not None:
                     return ProviderModel(provider_id, model)
         provider_id, model_id = await self._resolve_layered_backend(svc, session, project, _AUDIO_LAYERED_KEYS)
@@ -1556,6 +1585,7 @@ class ConfigResolver:
                     model_id=model_id,
                     overrides=model.capability_overrides,
                     endpoint_spec=endpoint_spec,
+                    entry_binding=model.entry_binding,
                 )
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
@@ -1714,13 +1744,22 @@ class ConfigResolver:
         session: AsyncSession,
         provider_id: str,
     ) -> dict[str, str]:
+        config, _credential_id = await self._resolve_provider_config_and_credential(svc, session, provider_id)
+        return config
+
+    async def _resolve_provider_config_and_credential(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        provider_id: str,
+    ) -> tuple[dict[str, str], int | None]:
         config = await svc.get_provider_config(provider_id)
         cred_repo = CredentialRepository(session)
         active = await cred_repo.get_active(provider_id)
         if active:
             # 凭证叠加会探测 Vertex 凭证文件是否存在，放进工作线程。
             await asyncio.to_thread(active.overlay_config, config)
-        return config
+        return config, active.id if active else None
 
     async def _resolve_reference_payload_limits(
         self,
@@ -1845,7 +1884,7 @@ class ConfigResolver:
         for provider_id in PROVIDER_REGISTRY:
             if provider_id not in ready:
                 continue
-            # 供应商一级的默认只在没有任何默认模型设置时用于自动挑选；用户停用了它就不挑。
+            # 供应商一级的默认只在没有任何默认模型设置时用于自动挑选；已下线时目录不给默认，用户停用了它也不挑。
             model_id = catalog.default_model(provider_id, media_type)
             if model_id is not None and model_id not in ready[provider_id].disabled_models:
                 return provider_id, model_id
@@ -1853,12 +1892,13 @@ class ConfigResolver:
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
         # 这些符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
         from lib.custom_provider import make_provider_id
-        from lib.custom_provider.default_models import filter_by_bucket
+        from lib.custom_provider.default_models import callable_models, filter_by_bucket
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
         repo = CustomProviderRepository(session)
         custom_models = await repo.list_enabled_models_by_media_type(media_type)
-        defaults = [model for model in custom_models if model.is_default]
+        # 自定义供应商的默认模型同样跳过所对应条目已下线的
+        defaults = callable_models([model for model in custom_models if model.is_default], media_type)
         candidates = await filter_by_bucket(session, defaults, generation_type)
         if candidates:
             return make_provider_id(candidates[0].provider_id), candidates[0].model_id

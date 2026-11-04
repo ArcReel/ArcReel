@@ -33,7 +33,6 @@ dependencies = [
     "charset-normalizer>=3.4.6",
     "docx2txt>=0.9",
     "mammoth>=1.12.0",
-    "ebooklib>=0.20",
     "beautifulsoup4>=4.14.3",
     "lxml>=6.1.0",
     "packaging>=24.0",
@@ -52,6 +51,7 @@ dependencies = [
     "imageio-ffmpeg>=0.6.0",
     # 1.x 改用 httpx2，respx 与基于 httpx 的自定义 transport 拦截不到；约束见 docs/agents/dependencies.md。
     "anthropic>=0.125.0,<1",
+    "tos>=2.9.3",
 ]
 
 [dependency-groups]

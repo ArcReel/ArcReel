@@ -1129,6 +1129,29 @@ class TestWan2Aliases:
 class TestWan3:
     """wan3.0-video：单模型通吃三条路径，首尾帧 + 独立参考音频条目 + 可控音轨。"""
 
+    @pytest.mark.parametrize("model", ["ep-opaque", "wan2.7-r2v"])
+    def test_bound_model_uses_wan3_request_shape_and_endpoint(self, tmp_path, model):
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+        from lib.catalog import query as catalog
+
+        entry = catalog.find_entry("wan3.0-video", media_type="video")
+        assert entry is not None
+        backend = DashScopeVideoBackend(
+            api_key="TEST-INFERENCE-KEY",
+            model=model,
+            wan3_base_url="https://maas.example.invalid/api/v1",
+        ).with_catalog_entry(entry)
+
+        payload = backend._build_payload(
+            VideoGenerationRequest(prompt="test", output_path=tmp_path / "o.mp4", generate_audio=False)
+        )
+
+        assert backend.video_capabilities.text_to_video is True
+        assert payload["model"] == model
+        assert payload["parameters"]["audio"] is False
+        assert "media" not in payload["input"]
+        assert backend._request_base_url == "https://maas.example.invalid/api/v1"
+
     @staticmethod
     def _backend(**kwargs):
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend

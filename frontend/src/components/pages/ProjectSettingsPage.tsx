@@ -430,6 +430,7 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
           audioBackends={loaded.options.audioBackends}
           providerNames={providerNames}
           modelNames={modelNames}
+          lifecycle={candidates?.lifecycle}
         />
       );
       break;

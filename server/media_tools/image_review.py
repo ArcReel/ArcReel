@@ -20,6 +20,7 @@ from lib.artifacts.version_manager import VersionManager
 from lib.final_cut.basis import version_snapshot
 from lib.infra.image_utils import compress_image_bytes
 from lib.infra.path_safety import try_safe_join
+from lib.material.work_files import local_work_files
 from lib.script.script_editor import ScriptEditError
 from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import get_storyboard_items
@@ -220,7 +221,25 @@ async def inspect_images(
                 )
             return images
 
-        inspected = await asyncio.to_thread(inspect_all)
+        def snapshot_files() -> tuple[Path, list[str]]:
+            project_path = services.projects.get_project_path(scope.project_name)
+            versions = VersionManager(project_path)
+            files: list[str] = []
+            for item_id, _pointer in resolved:
+                version = request.value.version
+                if version is None:
+                    version = versions.get_current_version(version_type, item_id)
+                for record in versions.get_versions(version_type, item_id).get("versions", []):
+                    if isinstance(record, Mapping) and record.get("version") == version:
+                        file = record.get("file")
+                        if isinstance(file, str):
+                            files.append(file)
+            return project_path, files
+
+        # 要看的版本快照是缓存已清理的远端内容版本时先取回，读图期间登记使用
+        project_path, files = await asyncio.to_thread(snapshot_files)
+        async with local_work_files(project_path, files):
+            inspected = await asyncio.to_thread(inspect_all)
         if isinstance(inspected, ToolOutcome):
             return inspected
         return ToolOutcome(value=InspectImagesResult(resource_type=resource_type, images=tuple(inspected)))

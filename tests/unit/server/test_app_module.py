@@ -69,6 +69,33 @@ class TestAppModule:
         ]
         assert bool(warnings) is expect_warning
 
+    @pytest.mark.asyncio
+    async def test_lifespan_keeps_model_references_to_retired_models(self, monkeypatch, file_db_factory):
+        """设置里引用的旧型号启动后原样保留：下线只经目录条目的生命周期提示，启动时不按写死的映射改写。"""
+        from lib.config.repository import SystemSettingRepository
+
+        references = {
+            "text_backend_simple": "grok/grok-4-1-fast-reasoning",
+            "default_text_backend": "ark/doubao-seed-2-0-lite-260215",
+            "default_image_backend": "gemini-aistudio/gemini-3-pro-image-preview",
+        }
+        async with file_db_factory() as session:
+            repo = SystemSettingRepository(session)
+            for key, value in references.items():
+                await repo.set(key, value)
+            await session.commit()
+        stub_lifespan_dependencies(monkeypatch)
+        monkeypatch.setattr(app_module, "async_session_factory", file_db_factory)
+
+        app = app_module.app
+        app.state = SimpleNamespace()
+        async with app_module.lifespan(app):
+            pass
+
+        async with file_db_factory() as session:
+            repo = SystemSettingRepository(session)
+            assert {key: await repo.get(key) for key in references} == references
+
     @pytest.fixture
     def startup_state_reset(self):
         """用例改动的进程级启动状态（.env 读取记录、签名密钥缓存）在结束后清掉。"""

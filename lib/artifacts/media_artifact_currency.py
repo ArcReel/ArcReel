@@ -34,6 +34,7 @@ from lib.artifacts.visual_artifact_provenance import (
     build_storyboard_video_artifact_visual_basis,
     project_basis_style_description,
 )
+from lib.material.work_files import material_file_present
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_manager import ProjectManager, resolve_episode_script_binding
 from lib.project.project_schema import parse_project_schema_version
@@ -299,6 +300,9 @@ def _can_open(path: Path) -> bool:
     try:
         with path.open("rb"):
             return True
+    except FileNotFoundError:
+        # 缓存已清理的远端内容版本仍可取回，按记录的摘要参与依据
+        return material_file_present(path)
     except OSError:
         return False
 

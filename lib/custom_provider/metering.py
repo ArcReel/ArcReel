@@ -12,9 +12,9 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest, VideoGenerationResult
@@ -28,11 +28,24 @@ from lib.db.repositories.custom_provider_repo import CustomModelPricing, CustomP
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from arcreel_catalog_core import CatalogEntry
     from lib.custom_provider.endpoints import EndpointSpec
 
 logger = logging.getLogger(__name__)
 
-VideoMetering = Callable[[str, VideoGenerationRequest, VideoGenerationResult | None], Usage]
+
+class VideoMetering(Protocol):
+    """视频调用通道的计量声明：``(API 模型名, 请求, 结果, entry=模型对应的条目)``，见 :mod:`lib.backends.video_backends.metering`。"""
+
+    def __call__(
+        self,
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None,
+        /,
+        *,
+        entry: CatalogEntry | None = None,
+    ) -> Usage: ...
 
 
 def generic_video_usage(request: VideoGenerationRequest, result: VideoGenerationResult | None = None) -> Usage:
@@ -79,8 +92,15 @@ def video_metering_for(metering_backend: object | None, definition: object | Non
 
         frozen = definition
 
-        def _declarative(model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None) -> Usage:
-            del model
+        def _declarative(
+            model: str,
+            request: VideoGenerationRequest,
+            result: VideoGenerationResult | None,
+            /,
+            *,
+            entry: CatalogEntry | None = None,
+        ) -> Usage:
+            del model, entry
             return declarative_video_usage(frozen, request, result)
 
         return _declarative
@@ -92,11 +112,17 @@ def custom_video_usage(
     model: str,
     request: VideoGenerationRequest,
     result: VideoGenerationResult | None = None,
+    *,
+    entry: CatalogEntry | None = None,
 ) -> Usage:
-    """一次自定义视频请求的计量：调用通道认得这个模型时取它的声明，认不得（抛 ``ValueError``）或没有声明时取通用口径。"""
+    """一次自定义视频请求的计量：调用通道认得这个模型时取它的声明，认不得（抛 ``ValueError``）或没有声明时取通用口径。
+
+    ``entry`` 是模型对应的条目（条目绑定优先，见 :func:`lib.custom_provider.model_facts.model_entry`），调用通道按它
+    认定模型，与能力和请求构造同一个；请求里仍是 API 模型名 ``model``。
+    """
     if metering is not None:
         try:
-            return metering(model, request, result)
+            return metering(model, request, result, entry=entry)
         except (ValueError, KeyError):
             logger.debug("调用通道不认得模型 %s 的计量，改按通用口径上报", model, exc_info=True)
     return generic_video_usage(request, result)
@@ -131,11 +157,15 @@ class CustomPriceSource:
         """一次视频请求的预估用量，与结算同一组计量声明。
 
         请求没带能力时补上系统判定叠加用户覆盖后的能力，与执行时 ``CustomVideoBackend`` 注入的那份同源；
-        系统判定不可得时按不带能力计量。
+        系统判定不可得时按不带能力计量。调用通道按模型对应的条目（条目绑定优先）认定模型，与执行时工厂交给
+        调用通道的条目同一个。
         """
         spec = self.endpoint_spec
         if spec is None:
             return custom_video_usage(None, model, request)
+        from lib.custom_provider.model_facts import model_entry
+
+        entry = model_entry(model, spec.media_type, self.pricing.entry_binding)
         if request.video_capabilities is None and self.pricing.endpoint:
             from lib.custom_provider.capabilities import synthesize_video_capabilities
 
@@ -145,12 +175,15 @@ class CustomPriceSource:
                     model_id=model,
                     overrides=self.pricing.capability_overrides,
                     endpoint_spec=spec,
+                    entry_binding=self.pricing.entry_binding,
                 )
             except ValueError:
                 logger.debug("自定义模型 %s 的视频能力判定不出，预估按不带能力计量", model, exc_info=True)
             else:
                 request = replace(request, video_capabilities=caps)
-        return custom_video_usage(video_metering_for(spec.metering_backend, spec.definition), model, request)
+        return custom_video_usage(
+            video_metering_for(spec.metering_backend, spec.definition), model, request, entry=entry
+        )
 
     def image_usage(self, facts: ImageRequestFacts) -> Usage:
         """一次图片请求的预估用量。"""

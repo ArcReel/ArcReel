@@ -427,7 +427,7 @@ export function ProviderModelList({
                               {t("pm_default_badge")}
                             </span>
                           )}
-                          <ProviderModelFlags flags={model.flags} />
+                          <ProviderModelFlags flags={model.flags} shutdownDate={model.lifecycle.shutdown_date} />
                         </span>
                         <span className="flex min-w-0 flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
                           <TruncatedText text={model.model_id} focusable={false} className="font-mono" />

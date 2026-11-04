@@ -62,6 +62,7 @@ from lib.prompts.prompt_utils import (
 from lib.references.reference_admission import admit_storyboard_item
 from lib.references.reference_catalog import build_reference_catalog
 from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
+from lib.script.reference_video.provider_asset_links import configured_asset_link_check
 from lib.script.reference_video.request_projection import (
     ProjectionProblem,
     ReferenceRequestOptions,
@@ -588,9 +589,10 @@ async def admit_reference_video_batch(
     rather than being reported next to a batch that went ahead without them.
     """
 
-    request_facts_lookup = configured_reference_request_facts(
-        project, config_resolver or ConfigResolver(async_session_factory)
-    )
+    resolver = config_resolver or ConfigResolver(async_session_factory)
+    request_facts_lookup = configured_reference_request_facts(project, resolver)
+    # 整批共用一份供应商素材关联核对：每个执行模型只装配一次调用通道。
+    asset_links = configured_asset_link_check(project_path=project_path, resolver=resolver)
     unit_ids = [str(unit.get("unit_id") or "") for unit in units if str(unit.get("unit_id") or "")]
     conflicts = await _active_conflicts(
         project_name=project_name,
@@ -660,8 +662,9 @@ async def admit_reference_video_batch(
                 unit=unit,
                 project_path=project_path,
                 options=unit_options,
-                resolver=config_resolver,
+                resolver=resolver,
                 shared_assets=shared_assets,
+                asset_links=asset_links,
             )
         except VideoRequestFactsError as exc:
             tickets.append(

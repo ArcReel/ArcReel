@@ -22,6 +22,8 @@ from lib.artifacts.visual_artifact_provenance import (
     build_reference_video_artifact_visual_basis,
     project_basis_style_description,
 )
+from lib.asset_library.generation_inputs import ReferenceAssetChoice, ReferenceImageSource, reference_image_sources
+from lib.backends.provider_assets import ProviderInputImageRejectedError
 from lib.config.resolver import VideoGenerationType
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
@@ -38,9 +40,11 @@ from lib.generation.video_request_facts import (
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
+from lib.material.work_files import local_work_files
 from lib.project.project_manager import get_project_manager
 from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.script.reference_video.execution_checkpoint import (
+    ProviderAssetReference,
     ProviderMediaInput,
     ReferenceSubmissionCheckpoint,
     StagedProviderMedia,
@@ -54,6 +58,7 @@ from lib.script.reference_video.prompt_render import (
     render_video_unit_prompt,
     resolve_reference_audio_paths,
 )
+from lib.script.reference_video.provider_asset_links import lane_asset_link_check
 from lib.script.reference_video.request_projection import (
     ReferenceProjectionBlockedError,
     ReferenceRequestOptions,
@@ -268,6 +273,24 @@ def materialized_reference_video_visual_basis_digest(
     ).digest
 
 
+def _asset_uris(choices: Sequence[ReferenceAssetChoice | None]) -> list[str | None] | None:
+    """与实发参考图同序的素材引用；没有一张以素材引用发出时为 None，请求与未接入素材库时完全一致。"""
+    if all(choice is None for choice in choices):
+        return None
+    return [choice.asset_uri if choice is not None else None for choice in choices]
+
+
+async def _named_rejection[T](entries: Sequence[ResolvedReferenceAsset], call: Awaitable[T]) -> T:
+    """供应商拒绝输入图片且能确定是哪一张时，按提示词里的图片编号点名那张资产图或衍生图。"""
+    try:
+        return await call
+    except ProviderInputImageRejectedError as exc:
+        index = exc.reference_index
+        if index is None or not 0 <= index < len(entries):
+            raise
+        raise exc.name_reference(index=index + 1, name=str(entries[index].reference.name)) from exc
+
+
 async def execute_reference_video_task(
     project_name: str,
     resource_id: str,
@@ -370,7 +393,11 @@ async def execute_reference_video_task(
             return VideoRequestFactsFailure("reference_capability_unavailable", (("capability", generation_type),))
         return lane_request_facts
 
-    projection = await ReferenceUnitRequestProjector(_lane_request_facts, asset_availability).project_current(
+    # 供应商素材关联与读侧同一规则核对，按实际调用通道求范围；暂存参考图之后再按实发字节核对一次。
+    asset_links = lane_asset_link_check(choose=generator.choose_reference_image_assets, project_path=project_path)
+    projection = await ReferenceUnitRequestProjector(
+        _lane_request_facts, asset_availability, asset_links
+    ).project_current(
         project=project,
         script=script,
         unit=unit,
@@ -459,6 +486,16 @@ async def execute_reference_video_task(
     provider_audio = reference_audio_files or None
     staged_media: tuple[StagedProviderMedia, ...] = ()
     checkpoint_hook: Callable[[], Awaitable[Mapping[str, object] | None]] | None = None
+    # 供应商素材：按实际发出的字节与调用通道的推理凭证选用，结果同时进请求、检查点与记账输入。
+    asset_choices: tuple[ReferenceAssetChoice | None, ...] = ()
+    if task_id is None:
+        asset_choices = await generator.choose_reference_image_assets(
+            await asyncio.to_thread(
+                reference_image_sources,
+                project_path,
+                [(entry.path, str(entry.reference.name)) for entry in constrained_entries],
+            )
+        )
     if task_id is not None:
         artifact_episode = script_input.episode
         artifact_speech_preparation = admit_script_unit("video_units", unit).preparation
@@ -528,6 +565,21 @@ async def execute_reference_video_task(
                 return claims, image_paths, audio_paths
 
             formal_input_claims, provider_refs, staged_audio_paths = await asyncio.to_thread(_bind_staged_media)
+            asset_choices = await generator.choose_reference_image_assets(
+                [
+                    ReferenceImageSource(locator=media.source_locator, sha256=media.sha256, name=media.logical_name)
+                    for media in staged_media
+                    if media.role == "reference_image"
+                ]
+            )
+            # 参考图在暂存清单的前段，按 constrained_entries 的顺序排列，选择的下标即 media 下标。
+            provider_asset_references = tuple(
+                ProviderAssetReference(
+                    media_index=index, content_version_id=choice.content_version_id, asset_uri=choice.asset_uri
+                )
+                for index, choice in enumerate(asset_choices)
+                if choice is not None
+            )
             provider_audio = staged_audio_paths or None
             visual_basis_digest = await asyncio.to_thread(
                 materialized_reference_video_visual_basis_digest,
@@ -602,6 +654,7 @@ async def execute_reference_video_task(
                     artifact_currency=artifact_currency,
                     media=staged_media,
                     reference_audio_targets=audio_targets_tuple,
+                    provider_asset_references=provider_asset_references,
                 )
 
             async def _checkpoint_before_submit() -> Mapping[str, object]:
@@ -649,26 +702,34 @@ async def execute_reference_video_task(
         )
         # MediaGenerator compresses only transient derivatives of the immutable staged images. A 413 retry keeps
         # the same high-level media identities and cannot rewrite the once-only checkpoint.
-        output_path, version, _, video_uri = await generator.generate_video_async(
-            prompt=rendered_prompt,
-            resource_type="reference_videos",
-            resource_id=resource_id,
-            reference_images=provider_refs,
-            reference_audio_files=provider_audio,
-            reference_audio_targets=reference_audio_targets,
-            aspect_ratio=aspect_ratio,
-            duration_seconds=effective_duration,
-            resolution=resolution,
-            task_id=task_id,
-            before_submit=checkpoint_hook,
-            formal_output=task_id is not None,
-            before_formal_commit=artifact_committer.prepare_selection if artifact_committer is not None else None,
-            commit_formal_output=artifact_committer,
-            visual_basis_digest=visual_basis_digest,
-            generate_audio=request_facts.requested_generate_audio,
-            poll_timeout_seconds=poll_timeout_seconds,
-            warnings=warnings,
-        )
+        # 直接调用把项目里的参考图交给供应商：缓存已清理的远端内容版本先取回，调用期间登记使用
+        async with local_work_files(project_path, provider_refs if task_id is None else []):
+            output_path, version, _, video_uri = await _named_rejection(
+                constrained_entries,
+                generator.generate_video_async(
+                    prompt=rendered_prompt,
+                    resource_type="reference_videos",
+                    resource_id=resource_id,
+                    reference_images=provider_refs,
+                    reference_image_asset_uris=_asset_uris(asset_choices),
+                    reference_audio_files=provider_audio,
+                    reference_audio_targets=reference_audio_targets,
+                    aspect_ratio=aspect_ratio,
+                    duration_seconds=effective_duration,
+                    resolution=resolution,
+                    task_id=task_id,
+                    before_submit=checkpoint_hook,
+                    formal_output=task_id is not None,
+                    before_formal_commit=artifact_committer.prepare_selection
+                    if artifact_committer is not None
+                    else None,
+                    commit_formal_output=artifact_committer,
+                    visual_basis_digest=visual_basis_digest,
+                    generate_audio=request_facts.requested_generate_audio,
+                    poll_timeout_seconds=poll_timeout_seconds,
+                    warnings=warnings,
+                ),
+            )
 
         async def _finalize() -> dict[str, Any]:
             return await finalize_reference_video_unit(

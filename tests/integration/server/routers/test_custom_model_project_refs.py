@@ -14,8 +14,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.config.model_setting_keys import GLOBAL_MODEL_SETTING_KEYS, PROJECT_MODEL_SETTING_KEYS
 from lib.config.resolver import ConfigResolver
-from lib.config.retired_model_ids import GLOBAL_MODEL_SETTING_KEYS, PROJECT_MODEL_SETTING_KEYS
 from lib.config.service import ConfigService
 from lib.db import get_async_session
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository

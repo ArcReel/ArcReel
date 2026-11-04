@@ -5,7 +5,7 @@
   "body": {
     "id": "gemini-aistudio",
     "display_name": "AI Studio",
-    "description": "Google AI Studio 提供 Gemini 系列模型，支持图片、视频和语音生成，适合快速原型和个人项目。",
+    "description": "Google 开发的网页端集成开发环境，用于基于生成式 AI 模型设计应用原型。",
     "status": "unconfigured",
     "media_types": [
       "audio",

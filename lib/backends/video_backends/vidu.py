@@ -13,6 +13,7 @@ import logging
 from dataclasses import replace
 from pathlib import Path
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
     VideoAudioMode,
     VideoCapabilities,
@@ -30,7 +31,11 @@ from lib.backends.backend_runtime import (
 from lib.backends.providers import PROVIDER_VIDU
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, match_by_names
+from lib.backends.video_backends.name_family import (
+    UNRECOGNIZED_MODEL_CAPABILITIES,
+    EntryBoundCapabilities,
+    match_by_names,
+)
 from lib.backends.vidu_shared import (
     VIDU_RETRYABLE_ERRORS,
     assert_vidu_body_size,
@@ -141,12 +146,12 @@ _ENDPOINTS_WITH_ASPECT_RATIO = frozenset({"/text2video", "/reference2video"})
 _KNOWN_MODELS = frozenset().union(*_ENDPOINT_MODELS.values())
 
 
-def _known_model(model: str) -> str | None:
+def _known_model(model: str, entry: CatalogEntry | None = None) -> str | None:
     """模型按名字认得的 Vidu 型号，即端点白名单与逐型号规则表的键；认不得时为 ``None``。
 
-    名字按 name_family 的规则取，逐个精确比对端点白名单。
+    名字按 name_family 的规则取（``entry`` 是对应的条目），逐个精确比对端点白名单。
     """
-    return match_by_names(model, lambda name: name if name in _KNOWN_MODELS else None)
+    return match_by_names(model, lambda name: name if name in _KNOWN_MODELS else None, entry=entry)
 
 
 def _serves_only_reference2video(model: str) -> bool:
@@ -160,7 +165,7 @@ def _serves_only_reference2video(model: str) -> bool:
     )
 
 
-class ViduVideoBackend:
+class ViduVideoBackend(EntryBoundCapabilities):
     """Vidu 视频生成后端，按 request 字段分派到不同端点。"""
 
     def __init__(
@@ -178,6 +183,9 @@ class ViduVideoBackend:
         # 端点白名单与逐型号规则按认得的型号查；认不得的模型不做型号级校正，原样发给上游。
         self._known_model = _known_model(self._model)
 
+    def _on_catalog_entry_changed(self) -> None:
+        self._known_model = _known_model(self._model, self._catalog_entry)
+
     @property
     def name(self) -> str:
         return PROVIDER_VIDU
@@ -187,7 +195,7 @@ class ViduVideoBackend:
         return self._model
 
     @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
         """按模型名纯计算 caps —— 不构造 client。认不得的型号（见 ``_known_model``）取 name_family 的
         统一回落，音轨按恒无声声明（只有 q3 系列下发音轨开关），prompt 上限取宽值。
 
@@ -200,7 +208,7 @@ class ViduVideoBackend:
         白名单的 model 不可能提交参考图，声明非零容量会误导展示层（如自定义供应商的
         `/video-capabilities`）。
         """
-        known = _known_model(model)
+        known = _known_model(model, entry)
         if known is None:
             return replace(
                 UNRECOGNIZED_MODEL_CAPABILITIES,
@@ -232,7 +240,7 @@ class ViduVideoBackend:
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model)
+        return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         # Vidu 不支持 resume：poll 完全内联在 generate，没有可供接续的独立轮询入口。
@@ -382,14 +390,19 @@ class ViduVideoBackend:
 
     @staticmethod
     def metered_usage(
-        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         时长与参考图张数取 ``_build_request`` 校正后的发送值，分辨率取请求原值；参考生视频按端点判定，Vidu 的
-        参考生视频与图生、文生视频单价不同。是否有声只对 q3 系列成立（只有它们发送 ``audio``）。
+        参考生视频与图生、文生视频单价不同。是否有声只对 q3 系列成立（只有它们发送 ``audio``）。型号按模型对应的
+        条目认定（``entry``），与请求构造同一个。
         """
-        known = _known_model(model)
+        known = _known_model(model, entry)
         endpoint = _endpoint_for(request)
         seconds = _coerce_duration(known or model, endpoint, request.duration_seconds)
         return video_usage(
