@@ -25,13 +25,16 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from lib.backends.audio_backends.base import AudioCapability, VoiceOption
 from lib.backends.backend_assembly import assemble_backend, callable_model_key
+from lib.backends.backend_assembly.specs import builtin_model_endpoint
 from lib.backends.gemini_shared import get_shared_rate_limiter
 from lib.backends.image_capabilities import backend_reference_image_limit
+from lib.backends.resume_guard import builtin_endpoint_guard
 from lib.config.resolver import (
     ConfigResolver,
     VideoGenerationType,
     video_bucket_for_generation_mode,
 )
+from lib.custom_provider import is_custom_provider
 from lib.custom_provider.backends import CustomVideoBackend
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.media_generator import MediaGenerator
@@ -294,9 +297,9 @@ class VideoLaneResult:
     request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
     # 未声明路线的续跑保留用户音频意图；声明路线时只读视频请求事实。
     requested_generate_audio_fallback: bool = True
-    # 自定义供应商解析出的协议标识（endpoint 键，有路径覆盖时连同覆盖，见
-    # CustomVideoBackend.endpoint_guard）；内置供应商无该维度，为 None。续跑据此与执行检查点
-    # 冻结的标识比对，见 server.services.tasks.resume_executor。
+    # 续跑比对的协议标识：自定义供应商为 endpoint 键（有路径覆盖时连同覆盖，见
+    # CustomVideoBackend.endpoint_guard），内置供应商为模型挂接的内置调用端点（lib.backends.resume_guard）。
+    # 续跑据此与执行检查点冻结的标识比对，见 server.services.tasks.resume_executor。
     endpoint: str | None = None
 
     @property
@@ -373,6 +376,17 @@ class GenerationContext:
         if self.audio_lane is None:
             raise _lane_not_declared("audio", "audio=AudioLaneRequest()")
         return self.audio_lane
+
+
+def _video_endpoint_guard(provider_id: str, model_id: str, backend: object) -> str | None:
+    """提交时冻结、续跑时比对的协议标识（见 lib.backends.resume_guard）。
+
+    内置供应商取模型挂接的内置调用端点；自定义供应商取包装层给出的端点键与路径覆盖。显式按类型分流而非 getattr
+    探测：属性一旦改名，探测式取值会静默失效且无任何信号。
+    """
+    if not is_custom_provider(provider_id):
+        return builtin_endpoint_guard(builtin_model_endpoint(provider_id, "video", model_id))
+    return backend.endpoint_guard if isinstance(backend, CustomVideoBackend) else None
 
 
 async def resolve_generation_context(
@@ -471,9 +485,7 @@ async def resolve_generation_context(
                 resolution=resolution,
                 request_facts=request_facts,
                 requested_generate_audio_fallback=requested_generate_audio_fallback,
-                # 显式按类型分流而非 getattr 探测：endpoint 为 None 恰好是「跳过续跑比对」
-                # 这条最宽松分支，属性一旦改名，探测式取值会静默失效且无任何信号。
-                endpoint=video_backend.endpoint_guard if isinstance(video_backend, CustomVideoBackend) else None,
+                endpoint=_video_endpoint_guard(resolved.provider_id, actual_model, video_backend),
             )
 
         if audio is not None:

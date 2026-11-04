@@ -66,7 +66,9 @@ class TestRegistry:
             "openai-video",
             "newapi-video",
             "v2-video-generations",
-            "ark-seedance",
+            "ark-seedance-1",
+            "ark-seedance-2",
+            "ark-seedance-2-5",
             "ark-seedream",
             "vidu-video",
             "openrouter-video",
@@ -159,7 +161,9 @@ class TestRegistry:
         """v2/ark/vidu/dashscope/minimax/kling 不在 endpoint 维度声明上限，由 resolver 调 backend 纯 caps 函数读取。"""
         for key in (
             "v2-video-generations",
-            "ark-seedance",
+            "ark-seedance-1",
+            "ark-seedance-2",
+            "ark-seedance-2-5",
             "vidu-video",
             "dashscope-async-video",
             "minimax-hailuo-v1",
@@ -183,7 +187,9 @@ class TestRegistry:
         # None-cap 的 video endpoint 必须绑定纯 caps 函数
         for key in (
             "v2-video-generations",
-            "ark-seedance",
+            "ark-seedance-1",
+            "ark-seedance-2",
+            "ark-seedance-2-5",
             "vidu-video",
             "dashscope-async-video",
             "minimax-hailuo-v1",
@@ -261,7 +267,7 @@ class TestRegistry:
 
         # 非 callable 真值（字符串）冒充 caps_fn；同时清掉 int cap 避免先撞 XOR 校验
         bad = dataclasses.replace(
-            ENDPOINT_REGISTRY["ark-seedance"],
+            ENDPOINT_REGISTRY["ark-seedance-2"],
             video_max_reference_images=None,
             video_caps_for_model="not-callable",
         )
@@ -279,7 +285,13 @@ class TestRegistry:
     def test_audio_capable_endpoints_match_backends_that_send_audio(self):
         """运输声明与 backend 实现同步：声明 True 的 endpoint 必须真的组装参考音频。"""
         audio_capable = {k for k, s in ENDPOINT_REGISTRY.items() if s.reference_audio_capable}
-        assert audio_capable == {"ark-seedance", "dashscope-async-video", "minimax-h3"}
+        assert audio_capable == {
+            "ark-seedance-1",
+            "ark-seedance-2",
+            "ark-seedance-2-5",
+            "dashscope-async-video",
+            "minimax-h3",
+        }
 
     def test_audio_endpoint_spec(self):
         spec = ENDPOINT_REGISTRY["openai-tts"]
@@ -314,7 +326,9 @@ class TestRegistry:
             "openai-video",
             "newapi-video",
             "v2-video-generations",
-            "ark-seedance",
+            "ark-seedance-1",
+            "ark-seedance-2",
+            "ark-seedance-2-5",
             "vidu-video",
             "openrouter-video",
             "xai-video",
@@ -429,8 +443,9 @@ class TestInferEndpoint:
             ("gemini-2.0-flash-exp-image-generation", "openai", "gemini-image"),
             ("gemini-3-pro-image-preview", "openai", "gemini-image"),
             # ── 新视频分支路由 ──
-            ("seedance-1.0", "openai", "ark-seedance"),
-            ("doubao-seedance-2-0", "openai", "ark-seedance"),
+            ("seedance-1.0", "openai", "ark-seedance-1"),
+            ("doubao-seedance-2-0", "openai", "ark-seedance-2"),
+            ("dreamina-seedance-2.5-260628", "openai", "ark-seedance-2-5"),
             ("viduq3", "openai", "vidu-video"),
             ("viduq3-mix", "openai", "vidu-video"),
             ("viduq3-pro", "openai", "vidu-video"),
@@ -628,7 +643,7 @@ class TestInferEndpoint:
         ("model_id", "discovery_format", "media_type", "expected"),
         [
             # 名字规则推出的端点就在这个媒体类型里：照用
-            ("seedance-2.0-pro", "openai", "video", "ark-seedance"),
+            ("seedance-2.0-pro", "openai", "video", "ark-seedance-2"),
             ("gpt-5.5", "openai", "text", "openai-chat"),
             ("doubao-seedream-5-0-260128", "openai", "image", "ark-seedream"),
             # 两栖模型按条目的媒体类型在名字族内选

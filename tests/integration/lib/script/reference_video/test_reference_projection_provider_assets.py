@@ -107,7 +107,7 @@ class _World:
                 discovery_format="openai",
                 base_url="https://relay.example.test",
                 api_key="TEST-relay-key-0001",
-                models=[{"display_name": m["model_id"], "endpoint": "ark-seedance", **m} for m in models],
+                models=[{"display_name": m["model_id"], "endpoint": "ark-seedance-2", **m} for m in models],
             )
             await session.commit()
             return provider.id
@@ -221,20 +221,20 @@ async def test_precheck_and_execution_report_the_same_unusable_link_for_builtin_
 
 
 @pytest.mark.parametrize(
-    ("model", "entry_binding", "applies"),
+    ("model", "endpoint", "applies"),
     [
-        (OPAQUE_MODEL, "bytedance/doubao-seedance-2.0", True),
-        (OPAQUE_MODEL, None, False),
-        (FORGED_MODEL, None, False),
+        (OPAQUE_MODEL, "ark-seedance-2", True),
+        (OPAQUE_MODEL, "ark-seedance-2-5", True),
+        (FORGED_MODEL, "ark-seedance-1", False),
     ],
-    ids=["opaque-id-bound-to-seedance", "opaque-id-unbound", "forged-seedance-name"],
+    ids=["seedance-2", "seedance-2-5", "seedance-1-with-2-0-name"],
 )
-async def test_custom_endpoint_asset_support_comes_from_the_model_entry(
-    world: _World, model: str, entry_binding: str | None, applies: bool
+async def test_custom_endpoint_asset_support_comes_from_the_endpoint(
+    world: _World, model: str, endpoint: str, applies: bool
 ):
-    """自定义「火山方舟 (Seedance)」端点：是否发素材引用按模型对应的条目认定，绑定 Seedance 条目的不透明模型 ID
-    适用，名字里带 Seedance 字样但对应不上条目的不适用；读侧与执行侧结论一致。"""
-    db_id = await world.custom_provider([{"model_id": model, "is_default": True, "entry_binding": entry_binding}])
+    """自定义供应商的 Seedance 端点：是否发素材引用由模型挂接的端点决定（2.0 / 2.5 有素材引用契约，1.x 没有），
+    与型号名无关；读侧与执行侧结论一致。"""
+    db_id = await world.custom_provider([{"model_id": model, "is_default": True, "endpoint": endpoint}])
     await world.bind("custom", db_id)
     await world.link(state="failed", error_code="DownloadFailed", error_message="cannot fetch")
     provider_id = make_provider_id(db_id)

@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 from urllib.parse import urlsplit
@@ -44,7 +45,7 @@ from lib.backends.text_backends.anthropic import AnthropicTextBackend
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
 from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBackend
-from lib.backends.video_backends.ark import ArkVideoBackend
+from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
 from lib.backends.video_backends.gemini import GeminiVideoBackend
 from lib.backends.video_backends.kling import KlingVideoBackend
@@ -663,11 +664,16 @@ def _custom_inference_credential(provider) -> InferenceCredentialRef | None:
 
 
 def _build_ark_seedance(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider,
+    model_id: str,
+    path_overrides: PathOverrides = NO_PATH_OVERRIDES,
+    *,
+    endpoint: str,
 ) -> CustomVideoBackend:
+    """Seedance 各代端点共用的构造：``endpoint`` 选实现这一代请求结构与计量的调用通道。"""
     base_url = _ensure_url_path_suffix(provider.base_url, "/api/v3")
     layer = path_override_layer(_ARK_SEEDANCE_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
-    delegate = ArkVideoBackend(
+    delegate = SEEDANCE_BACKENDS[endpoint](
         api_key=provider.api_key,
         base_url=base_url,
         model=model_id,
@@ -911,21 +917,25 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         # OpenAI Sora input_reference 为单张首帧图。
         video_max_reference_images=1,
     ),
-    "ark-seedance": EndpointSpec(
-        key="ark-seedance",
-        media_type="video",
-        family="ark",
-        display_name_key="endpoint_ark_seedance_display",
-        request_method="POST",
-        request_path_template="/api/v3/contents/generations/tasks",
-        build_backend=_build_ark_seedance,
-        requests=_ARK_SEEDANCE_REQUESTS,
-        metering_backend=ArkVideoBackend,
-        video_caps_for_model=ArkVideoBackend.video_capabilities_for_model,
-        end_image_capable=True,
-        # _create_task 为 reference_audio_files 逐段组装 audio_url + role: reference_audio
-        reference_audio_capable=True,
-    ),
+    # Seedance 1、2、2.5 共用创建任务与轮询接口，请求体与计量不同，各是一个端点（见 ark.SeedanceEndpoint）
+    **{
+        key: EndpointSpec(
+            key=key,
+            media_type="video",
+            family="ark",
+            display_name_key=f"endpoint_{key.replace('-', '_')}_display",
+            request_method="POST",
+            request_path_template="/api/v3/contents/generations/tasks",
+            build_backend=partial(_build_ark_seedance, endpoint=key),
+            requests=_ARK_SEEDANCE_REQUESTS,
+            metering_backend=backend_class,
+            video_caps_for_model=backend_class.video_capabilities_for_model,
+            end_image_capable=True,
+            # _create_task 为 reference_audio_files 逐段组装 audio_url + role: reference_audio
+            reference_audio_capable=True,
+        )
+        for key, backend_class in SEEDANCE_BACKENDS.items()
+    },
     "ark-seedream": EndpointSpec(
         key="ark-seedream",
         media_type="image",
@@ -1530,7 +1540,8 @@ _MINIMAX_S2V_MODELS = frozenset({"s2v-01", "minimax-s2v-01"})
 _FAMILY_ENDPOINTS: tuple[tuple[str, Mapping[str, str]], ...] = (
     ("kling", {"image": "kling-image", "video": "kling-video"}),
     ("gemini", {"text": "gemini-generate", "image": "gemini-image", "audio": "gemini-tts"}),
-    ("seedance", {"video": "ark-seedance"}),
+    # Seedance 的代际按名字再细分，见 _seedance_endpoint
+    ("seedance", {"video": "ark-seedance-1"}),
     ("seedream", {"image": "ark-seedream"}),
     ("viduq3", {"video": "vidu-video"}),
     ("hailuo", {"video": "minimax-hailuo-v1"}),
@@ -1545,6 +1556,13 @@ _DEFAULT_ENDPOINTS: Mapping[str, tuple[str, str]] = {
 }
 
 
+def _seedance_endpoint(model_id: str) -> str:
+    """名字含 seedance 的视频模型预填的端点：名字写明 2.5 / 2.0 时取对应代际，否则取 1.x 端点。"""
+    from lib.backends.backend_assembly.specs import seedance_endpoint_for_name
+
+    return seedance_endpoint_for_name(model_id) or "ark-seedance-1"
+
+
 def infer_endpoint(model_id: str, discovery_format: str, media_type: str | None = None) -> str:
     """推默认调用端点；``media_type`` 是模型已知的媒体类型（对应上的条目给出），不给时按名字一并推断。
 
@@ -1557,7 +1575,7 @@ def infer_endpoint(model_id: str, discovery_format: str, media_type: str | None 
     lowered = model_id.lower()
     for token, endpoints in _FAMILY_ENDPOINTS:
         if token in lowered and media_type in endpoints:
-            return endpoints[media_type]
+            return _seedance_endpoint(model_id) if endpoints[media_type] in SEEDANCE_BACKENDS else endpoints[media_type]
     google_default, other_default = _DEFAULT_ENDPOINTS[media_type]
     return google_default if discovery_format == "google" else other_default
 
@@ -1596,8 +1614,8 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
        默认归视频、图像手动选。
     3) gemini 原生模型（非 video）→ TTS 走 "gemini-tts"，image 形态走 "gemini-image"，否则文本走
        "gemini-generate"（不分 discovery_format）
-    4) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、Veo 且 discovery_format=google→
-       "gemini-video"、否则 "openai-video"
+    4) 视频家族 → seedance 按名字里的代际取 "ark-seedance-2-5" / "ark-seedance-2"，没写明代际取
+       "ark-seedance-1"；viduq3→"vidu-video"、Veo 且 discovery_format=google→"gemini-video"、否则 "openai-video"
     5) 图像家族 → seedream→"ark-seedream"（不分 discovery_format），其余 discovery_format=google 走
        "gemini-image" 否则 "openai-images"（imagen 随图像家族推断，不再单独拦截）
     6) TTS 家族（tts/speech/cosyvoice）→ qwen-tts / qwen3-tts 走 "dashscope-tts"，MiniMax 的
@@ -1701,7 +1719,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
         return "gemini-image" if is_image else "gemini-generate"
     if is_video:
         if "seedance" in lowered:
-            return "ark-seedance"
+            return _seedance_endpoint(model_id)
         if "viduq3" in lowered:
             return "vidu-video"
         # Veo 的 OpenAI 兼容层沿用 /v1/videos，只有 google 发现协议才是原生 predictLongRunning

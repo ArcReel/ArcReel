@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
@@ -37,7 +38,6 @@ from lib.backends.provider_assets import (
 from lib.backends.providers import PROVIDER_ARK
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import EntryBoundCapabilities, match_by_names
 from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -90,6 +90,49 @@ _SEEDANCE_2_5_PIXELS: dict[tuple[str, str], tuple[int, int]] = {
 
 # 请求的服务档取值 → 价目表的服务档取值：方舟请求里的 ``default`` 即标准档。
 _CATALOG_SERVICE_TIERS = {"default": "standard"}
+
+
+@dataclass(frozen=True)
+class SeedanceEndpoint:
+    """一个 Seedance 内置调用端点的请求结构与计量（通道事实，与型号名无关）。
+
+    Seedance 1、2、2.5 共用同一个创建任务与轮询接口，差别在请求体、计量和素材引用的契约上，各是一个调用端点。
+    同一端点下各型号接受哪些输入是模型事实，记在模型条目上（``lib.backends.video_capabilities``）。
+    """
+
+    #: 内置调用端点名，与自定义供应商共用（``lib.custom_provider.endpoints.ENDPOINT_REGISTRY`` 的键）。
+    key: str
+    #: 请求体是否带 ``service_tier``：只有 1.x 接受；2.0 在参考生视频下以 400 拒绝该参数，2.5 按同代口径不带。
+    sends_service_tier: bool
+    #: 视频 token 预估用的「分辨率 × 宽高比 → 输出像素」表；``None`` 表示不按视频 token 预估（1.x 按次计价）。
+    token_pixels: Mapping[tuple[str, str], tuple[int, int]] | None
+    #: 参考图槽位是否接受 ``asset://`` 素材引用：官方《Seedance 人像素材使用指南》只给出 2.0 / 2.5 的契约。
+    reference_image_asset: bool
+    #: 首帧在场时比例是否只能交给上游按首帧自适应（2.5），见 ``VideoCapabilities.first_frame_ratio_adaptive_only``。
+    first_frame_ratio_adaptive_only: bool
+
+
+SEEDANCE_1 = SeedanceEndpoint(
+    key="ark-seedance-1",
+    sends_service_tier=True,
+    token_pixels=None,
+    reference_image_asset=False,
+    first_frame_ratio_adaptive_only=False,
+)
+SEEDANCE_2 = SeedanceEndpoint(
+    key="ark-seedance-2",
+    sends_service_tier=False,
+    token_pixels=_SEEDANCE_2_PIXELS,
+    reference_image_asset=True,
+    first_frame_ratio_adaptive_only=False,
+)
+SEEDANCE_2_5 = SeedanceEndpoint(
+    key="ark-seedance-2-5",
+    sends_service_tier=False,
+    token_pixels=_SEEDANCE_2_5_PIXELS,
+    reference_image_asset=True,
+    first_frame_ratio_adaptive_only=True,
+)
 
 
 def _retry_ark_download(exc: Exception) -> bool:
@@ -174,8 +217,13 @@ def _task_failure(task: Any, request: VideoGenerationRequest) -> str | None:
     return f"Ark 视频生成失败(status={task.status}): {error or 'Unknown error'}"
 
 
-class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
-    """Ark (火山方舟) 视频生成后端。"""
+class ArkVideoBackend(ProviderJobIdPersistenceMixin):
+    """Ark (火山方舟) 视频生成后端：Seedance 各代端点的公共实现，请求结构与计量的差异由 :attr:`endpoint` 给出。
+
+    三个端点各是一个子类（:class:`Seedance1VideoBackend` 等），注册表、能力声明与计量按子类认定端点，不按型号名。
+    """
+
+    endpoint: ClassVar[SeedanceEndpoint]
 
     def __init__(
         self,
@@ -185,7 +233,6 @@ class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         base_url: str | None = None,
         transport_layer: TransportLayer | None = None,
         inference_credential: InferenceCredentialRef | None = None,
-        catalog_entry: CatalogEntry | None = None,
     ):
         self._client = create_ark_client(api_key=api_key, base_url=base_url, transport_layer=transport_layer)
         self._transport_layer = transport_layer
@@ -196,16 +243,7 @@ class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         if not model:
             raise ValueError("ArkVideoBackend 需要指定模型")
         self._model = model
-        # service_tier 参数仅 seedance-1.x 等老模型支持；2.0 上游在 r2v 下会 400 拒绝该参数，
-        # 必须不下传。2.5 按同代口径一并剔除，该口径系从 2.0 的拒绝行为推断，收窄判定
-        # 只影响 2.5 一支。判定见 _is_seedance_2 / _is_seedance_2_5：用
-        # `in` 子串兼容多套前缀命名（doubao-/dreamina-），版本号逐个收窄到已登记的世代——收窄
-        # 的粒度是世代而非具体型号：同代的未知后缀照样按族群剔除 service_tier，这正是要的，
-        # 该参数是整代都不接受。这是 backend 内部的运输细节，不进 VideoCapabilities——后者只
-        # 声明调用方需要据以取舍的输入路径。模型对应的条目属于这两代时同样不带。
-        self._supports_service_tier = self._accepts_service_tier_for(self._model, catalog_entry)
         self._inference_credential = inference_credential
-        self._catalog_entry = catalog_entry
 
     @property
     def name(self) -> str:
@@ -218,65 +256,23 @@ class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     @property
     def provider_asset_roles(self) -> frozenset[str]:
-        """当前模型可以用 ``asset://`` 素材引用代替图片内容的槽位，按装配时给出的模型条目认定。"""
-        return self.provider_asset_roles_for_entry(self._catalog_entry)
+        """可以用 ``asset://`` 素材引用代替图片内容的槽位，由端点声明（见 :attr:`SeedanceEndpoint.reference_image_asset`）。
 
-    @staticmethod
-    def _accepts_service_tier_for(model: str, entry: CatalogEntry | None) -> bool:
-        """请求体是否带 ``service_tier``：API 模型名或所对应条目的名字属于 Seedance 2.0 / 2.5 时都不带。
-
-        不透明的 API 模型名绑定了 2.x 条目时，只看 API 模型名会误判为 1.x 而下发这个参数，上游在参考生视频下拒绝。
+        首帧、尾帧没有官方契约，不声明；未声明的槽位照常发送图片内容。
         """
-        names = (model,) if entry is None else (model, entry.name, *entry.aliases)
-        return all(ArkVideoBackend._accepts_service_tier(name) for name in names)
-
-    def _on_catalog_entry_changed(self) -> None:
-        self._supports_service_tier = self._accepts_service_tier_for(self._model, self._catalog_entry)
-
-    @staticmethod
-    def provider_asset_roles_for_entry(entry: CatalogEntry | None) -> frozenset[str]:
-        """模型条目在方舟协议下可以用 ``asset://`` 素材引用代替图片内容的槽位。
-
-        官方《Seedance 人像素材使用指南》只给出 Seedance 2.0 / 2.5 在 ``reference_image`` 槽位使用素材 ID 的
-        契约，没有说明首帧、尾帧，也没有说明 1.x 系列，所以只为这两代的参考图槽位声明。名字取条目的官方模型名与
-        模型别名；供应商模型对应不上条目时不声明，不按 API 模型名推断：中转站可以给任意模型起含 Seedance 字样的
-        名字，用户要为改了名的模型启用，在模型上绑定对应的条目。未声明的槽位照常发送图片内容。
-        """
-        if entry is None:
-            return frozenset()
-        names = (entry.name, *entry.aliases)
-        if any(ArkVideoBackend._is_seedance_2(name) or ArkVideoBackend._is_seedance_2_5(name) for name in names):
-            return frozenset({REFERENCE_IMAGE_ROLE})
-        return frozenset()
+        return frozenset({REFERENCE_IMAGE_ROLE}) if self.endpoint.reference_image_asset else frozenset()
 
     @property
     def model(self) -> str:
         return self._model
 
-    @staticmethod
-    def _accepts_service_tier(model: str) -> bool:
-        """请求体是否带 ``service_tier``：Seedance 2.0 与 2.5 两代都不带。"""
-        return not (ArkVideoBackend._is_seedance_2(model) or ArkVideoBackend._is_seedance_2_5(model))
+    @classmethod
+    def estimate_video_tokens(cls, *, resolution: str | None, ratio: str, seconds: int) -> float | None:
+        """按官方公式估算一次请求的视频 token；端点不按视频 token 计量、宽高比为 ``adaptive`` 或档位不在像素表里时为 ``None``。
 
-    @staticmethod
-    def _seedance_pixels(name: str) -> dict[tuple[str, str], tuple[int, int]] | None:
-        """名字所属世代的输出像素表；不是 Seedance 2.0 / 2.5 时为 ``None``。"""
-        if ArkVideoBackend._is_seedance_2_5(name):
-            return _SEEDANCE_2_5_PIXELS
-        if ArkVideoBackend._is_seedance_2(name):
-            return _SEEDANCE_2_PIXELS
-        return None
-
-    @staticmethod
-    def estimate_video_tokens(
-        model: str, *, resolution: str | None, ratio: str, seconds: int, entry: CatalogEntry | None = None
-    ) -> float | None:
-        """按官方公式估算一次 Seedance 2.x 请求的视频 token；宽高比为 ``adaptive``、档位或型号不在像素表里时为 ``None``。
-
-        世代按模型对应条目的名字认定（``entry`` 是对应的条目，见 name_family），与能力声明同一套名字：不透明的
-        API 模型名绑定了 2.x 条目时按该条目的像素表估算。内置调用通道不发送输入视频，输入视频时长恒为 0。
+        内置调用通道不发送输入视频，输入视频时长恒为 0。
         """
-        pixels = match_by_names(model, ArkVideoBackend._seedance_pixels, entry=entry)
+        pixels = cls.endpoint.token_pixels
         if pixels is None:
             return None
         size = pixels.get(((resolution or _SEEDANCE_DEFAULT_RESOLUTION).lower(), ratio))
@@ -285,29 +281,27 @@ class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         width, height = size
         return seconds * width * height * _SEEDANCE_FPS / 1024
 
-    @staticmethod
+    @classmethod
     def metered_usage(
+        cls,
         model: str,
         request: VideoGenerationRequest,
         result: VideoGenerationResult | None = None,
         *,
         entry: CatalogEntry | None = None,
     ) -> Usage:
-        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`），按端点认定，与型号名和条目无关。
 
         视频 token 结算取供应商回报的 ``completion_tokens``（``result.usage_tokens``），预估按
-        :meth:`estimate_video_tokens` 换算。服务档只在请求体带它的型号上上报，与请求构造同一判定。``entry`` 是
-        模型对应的条目，两项都按它认定世代。
+        :meth:`estimate_video_tokens` 换算。服务档只在请求体带它的端点上上报，与请求构造同一判定。
+        ``model`` 与 ``entry`` 是计量契约的统一入参，本通道不读。
         """
+        del model, entry
         tokens = (
             result.usage_tokens
             if result is not None
-            else ArkVideoBackend.estimate_video_tokens(
-                model,
-                resolution=request.resolution,
-                ratio=request.aspect_ratio,
-                seconds=request.duration_seconds,
-                entry=entry,
+            else cls.estimate_video_tokens(
+                resolution=request.resolution, ratio=request.aspect_ratio, seconds=request.duration_seconds
             )
         )
         tier = request.service_tier
@@ -319,48 +313,24 @@ class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             audio=request.generate_audio,
             video_tokens=tokens,
             dimensions=(
-                {"service_tier": _CATALOG_SERVICE_TIERS.get(tier, tier)}
-                if ArkVideoBackend._accepts_service_tier_for(model, entry)
-                else None
+                {"service_tier": _CATALOG_SERVICE_TIERS.get(tier, tier)} if cls.endpoint.sends_service_tier else None
             ),
         )
 
-    @staticmethod
-    def _is_seedance_2(model: str) -> bool:
-        """按 model_id 子串识别已验证的 seedance-2-0 / seedance-2.0 系列（含 fast 变体）。
-
-        只匹配 2-0 与 2.0 两种写法，2.5 由 _is_seedance_2_5 单独识别——两代的请求形态与计量不同。用 `in` 子串
-        而非前缀匹配，以兼容上游多套前缀命名（doubao- 火山国内站 / dreamina- BytePlus 国际站）。
-        service_tier 剔除、视频 token 估算与素材引用槽位共用本判定；输入能力不按它认定，见模型条目。
-        """
-        model_lower = model.lower()
-        return "seedance-2-0" in model_lower or "seedance-2.0" in model_lower
-
-    @staticmethod
-    def _is_seedance_2_5(model: str) -> bool:
-        """按 model_id 子串识别 seedance-2-5 / seedance-2.5 系列。
-
-        与 _is_seedance_2 同为宽松族群识别（供 service_tier 剔除、视频 token 估算与首帧比例约束复用）。
-        """
-        model_lower = model.lower()
-        return "seedance-2-5" in model_lower or "seedance-2.5" in model_lower
-
-    @staticmethod
-    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """方舟视频调用通道的声明（通道事实）—— 纯计算，不构造 SDK client（无需 api_key）。
+    @classmethod
+    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
+        """方舟视频调用通道的声明（通道事实）—— 纯计算，不构造 SDK client（无需 api_key），与型号名无关。
 
         通道对任何型号都按同一份请求构造发出首帧、尾帧（``role: first_frame / last_frame``）、参考图
-        （``role: reference_image``）与参考音频（``role: reference_audio``），不限张数与段数。各代 Seedance 接受哪些
+        （``role: reference_image``）与参考音频（``role: reference_audio``），不限张数与段数。各型号接受哪些
         输入、能接受多少是模型事实，记在模型条目上，与本声明两侧求值（``lib.backends.video_capabilities``，
-        docs/adr/0104）。
-
-        仍按名字族认定的只有请求形态（待按代际拆成调用端点）：Seedance 2.5 在首帧在场时比例必须交给上游按首帧
-        自适应（见 ``first_frame_ratio_adaptive_only``），下发固定 ratio 会与首帧尺寸冲突。名字按 ``name_family`` 的
-        规则取（``entry`` 是模型对应的条目，不给时按 ``model`` 现查）。
+        docs/adr/0104）。首帧比例约束随端点声明（Seedance 2.5 在首帧在场时比例必须交给上游按首帧自适应，下发
+        固定 ratio 会与首帧尺寸冲突）。``model`` 与 ``entry`` 是能力契约的统一入参，本通道不读。
 
         音轨形态全系取 ``VideoCapabilities`` 的默认值（开关可控）：``_build_payload`` 无条件把
         ``generate_audio`` 放进请求体，各档 Seedance 都认这个开关，故无需分支声明。
         """
+        del model, entry
         return VideoCapabilities(
             text_to_video=True,
             first_frame=True,
@@ -368,15 +338,12 @@ class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             max_reference_images=None,
             reference_audio_mode=ReferenceAudioMode.DIRECT,
             max_reference_audio_count=None,
-            first_frame_ratio_adaptive_only=match_by_names(
-                model, lambda name: True if ArkVideoBackend._is_seedance_2_5(name) else None, entry=entry
-            )
-            is True,
+            first_frame_ratio_adaptive_only=cls.endpoint.first_frame_ratio_adaptive_only,
         )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model, self._catalog_entry)
+        return self.video_capabilities_for_model(self._model)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
@@ -456,8 +423,8 @@ class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         }
         if request.resolution is not None:
             create_params["resolution"] = request.resolution
-        # seedance-2.0 等模型不接受 service_tier
-        if self._supports_service_tier:
+        # 只有 Seedance 1.x 端点接受 service_tier，见 SeedanceEndpoint.sends_service_tier
+        if self.endpoint.sends_service_tier:
             create_params["service_tier"] = request.service_tier
         if request.seed is not None:
             create_params["seed"] = request.seed
@@ -593,6 +560,30 @@ class ArkVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             task_id=task_id,
             generate_audio=request.generate_audio,
         )
+
+
+class Seedance1VideoBackend(ArkVideoBackend):
+    """``ark-seedance-1``：Seedance 1.x 的请求结构与计量。"""
+
+    endpoint = SEEDANCE_1
+
+
+class Seedance2VideoBackend(ArkVideoBackend):
+    """``ark-seedance-2``：Seedance 2.0 的请求结构与计量。"""
+
+    endpoint = SEEDANCE_2
+
+
+class Seedance25VideoBackend(ArkVideoBackend):
+    """``ark-seedance-2-5``：Seedance 2.5 的请求结构与计量。"""
+
+    endpoint = SEEDANCE_2_5
+
+
+#: Seedance 内置调用端点名 → 实现它的调用通道，按声明顺序（1、2、2.5）。
+SEEDANCE_BACKENDS: Mapping[str, type[ArkVideoBackend]] = {
+    backend.endpoint.key: backend for backend in (Seedance1VideoBackend, Seedance2VideoBackend, Seedance25VideoBackend)
+}
 
 
 def _is_ark_not_found(exc: BaseException) -> bool:

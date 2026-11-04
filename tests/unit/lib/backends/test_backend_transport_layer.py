@@ -34,7 +34,7 @@ from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
 from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBackend
 from lib.backends.transport_layer import TransportLayer
-from lib.backends.video_backends.ark import ArkVideoBackend
+from lib.backends.video_backends.ark import Seedance2VideoBackend
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 from lib.backends.video_backends.gemini import GeminiVideoBackend
 from lib.backends.video_backends.kling import KlingVideoBackend
@@ -119,8 +119,8 @@ _CALLS: dict[str, Call] = {
     "gemini-video": lambda layer, tmp_path: GeminiVideoBackend(
         api_key="k", base_url=BASE, transport_layer=layer
     ).generate(_video(tmp_path)),
-    "ark-seedance": lambda layer, tmp_path: ArkVideoBackend(
-        api_key="k", model="doubao-seedance-1-5-pro-251215", base_url=f"{BASE}/api/v3", transport_layer=layer
+    "ark-seedance-2": lambda layer, tmp_path: Seedance2VideoBackend(
+        api_key="k", model="doubao-seedance-2-0-260128", base_url=f"{BASE}/api/v3", transport_layer=layer
     ).generate(_video(tmp_path)),
     "vidu-video": lambda layer, tmp_path: ViduVideoBackend(
         api_key="k", base_url=f"{BASE}/ent/v2", transport_layer=layer

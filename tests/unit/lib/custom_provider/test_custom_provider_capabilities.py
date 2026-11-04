@@ -230,7 +230,7 @@ class TestSynthesize:
     def test_missing_key_follows_system(self):
         """字典存在但缺某键 → 该维度跟随系统判定，其余键照常覆盖。"""
         caps = synthesize_video_capabilities(
-            endpoint="ark-seedance", model_id="doubao-seedance-1-0-pro-fast-251015", overrides={"first_frame": False}
+            endpoint="ark-seedance-2", model_id="doubao-seedance-1-0-pro-fast-251015", overrides={"first_frame": False}
         )
         assert caps.first_frame is False
         # 对应不上条目：尾帧按保守回落不开，参考图上限只受通道约束（Ark 通道不设上限，为未收录）
@@ -239,7 +239,7 @@ class TestSynthesize:
 
     def test_force_on(self):
         caps = synthesize_video_capabilities(
-            endpoint="ark-seedance",
+            endpoint="ark-seedance-2",
             model_id="doubao-seedance-1-0-pro-fast-251015",
             overrides={"last_frame": True, "max_reference_images": 4},
         )
@@ -276,9 +276,9 @@ class TestSynthesize:
     def test_system_capabilities_not_mutated_across_calls(self):
         """合成返回新实例，不得就地改写系统判定（caps_fn 可能返回共享对象）。"""
         first = synthesize_video_capabilities(
-            endpoint="ark-seedance", model_id="doubao-seedance-1-0-pro-fast-251015", overrides={"last_frame": True}
+            endpoint="ark-seedance-2", model_id="doubao-seedance-1-0-pro-fast-251015", overrides={"last_frame": True}
         )
-        second = two_sided_video_capabilities(endpoint="ark-seedance", model_id="doubao-seedance-1-0-pro-fast-251015")
+        second = two_sided_video_capabilities(endpoint="ark-seedance-2", model_id="doubao-seedance-1-0-pro-fast-251015")
         assert first.last_frame is True
         assert second.last_frame is False
 
@@ -293,7 +293,7 @@ class TestTolerance:
     def test_unknown_key_ignored_with_warning(self, caplog: pytest.LogCaptureFixture):
         with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
             caps = synthesize_video_capabilities(
-                endpoint="ark-seedance",
+                endpoint="ark-seedance-2",
                 model_id="doubao-seedance-1-0-pro-fast-251015",
                 overrides={"last_frame": True, "audio_track": True},
             )
@@ -397,7 +397,7 @@ class TestReferenceAudioOverrideGuards:
 
     def test_direct_override_applies_on_audio_capable_endpoint(self):
         caps = synthesize_video_capabilities(
-            endpoint="ark-seedance",
+            endpoint="ark-seedance-2",
             model_id="doubao-seedance-1-0-pro-fast-251015",
             overrides={"reference_audio_mode": "direct", "max_reference_audio_count": 2},
         )
@@ -424,7 +424,7 @@ class TestReferenceAudioOverrideGuards:
     def test_invalid_enum_value_falls_back_to_system_judgement(self, caplog: pytest.LogCaptureFixture):
         with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
             caps = synthesize_video_capabilities(
-                endpoint="ark-seedance",
+                endpoint="ark-seedance-2",
                 model_id="doubao-seedance-2-0-260128",
                 overrides={"reference_audio_mode": "DIRECT"},
             )
@@ -440,7 +440,7 @@ class TestReferenceAudioOverrideGuards:
         """
         with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
             caps = synthesize_video_capabilities(
-                endpoint="ark-seedance",
+                endpoint="ark-seedance-2",
                 model_id="doubao-seedance-1-0-pro-fast-251015",
                 overrides={"reference_audio_mode": "direct"},
             )
@@ -452,7 +452,7 @@ class TestReferenceAudioOverrideGuards:
     def test_zero_count_override_disables_audio_on_capable_model(self):
         """反向凑法同样收敛：系统判定 direct，用户把上限压成 0，模式随之降到 none。"""
         caps = synthesize_video_capabilities(
-            endpoint="ark-seedance",
+            endpoint="ark-seedance-2",
             model_id="doubao-seedance-2-0-260128",
             overrides={"max_reference_audio_count": 0},
         )
@@ -461,7 +461,7 @@ class TestReferenceAudioOverrideGuards:
     def test_none_mode_with_positive_count_is_not_a_violation(self):
         """反向组合不算违约：模式为 none 时上限不参与判定，判违约反会把用户关掉的能力顶回开启。"""
         caps = synthesize_video_capabilities(
-            endpoint="ark-seedance",
+            endpoint="ark-seedance-2",
             model_id="doubao-seedance-2-0-260128",
             overrides={"reference_audio_mode": "none"},
         )

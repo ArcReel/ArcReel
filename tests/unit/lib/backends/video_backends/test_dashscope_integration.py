@@ -166,7 +166,7 @@ class TestInferEndpoint:
             ("wan2.7-i2v", "dashscope-async-video"),
             ("wan2.7-image", "openai-images"),
             ("qwen-image-2.0", "openai-images"),
-            ("doubao-seedance-1.5-pro", "ark-seedance"),
+            ("doubao-seedance-1.5-pro", "ark-seedance-1"),
             ("sora-2", "openai-video"),
             ("gpt-5.4", "openai-chat"),
         ],

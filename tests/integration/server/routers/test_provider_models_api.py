@@ -857,9 +857,9 @@ def test_builtin_user_added_model_prefills_and_switches_its_endpoint(models_clie
     ]
     assert declared_builtin_video_capabilities("minimax", "MiniMax-H3-Preview").text_to_video is True
 
-    rejected = models_client.patch(url, json={"endpoint": "ark-seedance"})
+    rejected = models_client.patch(url, json={"endpoint": "ark-seedance-2"})
     assert rejected.status_code == 422
-    assert "ark-seedance" in rejected.json()["detail"]
+    assert "ark-seedance-2" in rejected.json()["detail"]
 
     switched = models_client.patch(url, json={"endpoint": "minimax-hailuo-v1-fast"})
     assert switched.status_code == 200

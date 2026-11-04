@@ -42,7 +42,7 @@ async def test_async_video_overriding_only_poll_keeps_submit_on_the_default_path
 
 async def test_sdk_endpoint_override_is_relative_to_the_raw_base_url_and_expands_the_model():
     # 方舟 SDK 走同步 httpx 客户端；有覆盖的提交不再补 /api/v3
-    backend = ENDPOINT_REGISTRY["ark-seedance"].build_backend(
+    backend = ENDPOINT_REGISTRY["ark-seedance-2"].build_backend(
         _PROVIDER, "seedance-x", {"submit": "/ark/{{ model }}/tasks?async=1"}
     )
     with capture_http() as router, bounded_poll_clock():

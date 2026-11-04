@@ -137,8 +137,8 @@ class TestCandidatesAndExecutionReadTheSameResult:
 
     def test_unrecorded_model_follows_the_channel(self, tmp_path: Path):
         """对应不上条目：参考生视频是候选，上限未收录，执行时不裁剪；尾帧与参考音频不开。"""
-        caps = two_sided_video_capabilities(endpoint="ark-seedance", model_id="relay-video-x1")
-        assert custom_model_buckets(endpoint="ark-seedance", model_id="relay-video-x1") == frozenset({"i2v", "r2v"})
+        caps = two_sided_video_capabilities(endpoint="ark-seedance-2", model_id="relay-video-x1")
+        assert custom_model_buckets(endpoint="ark-seedance-2", model_id="relay-video-x1") == frozenset({"i2v", "r2v"})
         _gate(caps, tmp_path, reference_images=_images(tmp_path, 12))
         with pytest.raises(VideoCapabilityError) as exc:
             _gate(caps, tmp_path, has_first_frame=True, end_image=_images(tmp_path, 1, "e")[0])
