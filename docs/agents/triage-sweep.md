@@ -24,12 +24,11 @@
 
 外部 PR 的请求明显命中 `.out-of-scope/` 条目，或关联 issue 带 `ready-for-agent`（理由见 `CONTRIBUTING.md`）时，评论引用对应条目或理由，打类别标签与 `wontfix` 并关闭，不再做以下检查。
 
-其余外部 PR 在审查前依次检查以下两项。未通过的 PR 停在这一步，打 `needs-info`；`needs-info` 超过 14 天仍未通过的，不论期间有无回复，评论说明补齐后可以重开，然后关闭：
+其余外部 PR 在审查前检查 CLA：`license/cla` 状态为 success。PR 的最新提交上没有这个状态时，先访问 `https://cla-assistant.io/check/ArcReel/ArcReel?pullRequest=<PR 号>` 触发重新检查，再读状态；仍然没有状态的，不按未签署处理，列入巡检摘要。
 
-1. **CLA**：`license/cla` 状态为 success。PR 的最新提交上没有这个状态时，先访问 `https://cla-assistant.io/check/ArcReel/ArcReel?pullRequest=<PR 号>` 触发重新检查，再读状态；仍然没有状态的，不按未签署处理，列入巡检摘要。未通过时发一条签署提醒；同一 PR 只提醒一次。
-2. **先讨论方向**：新功能、新供应商、新端点，或增删合计超过 200 行的改动，需要有关联 issue。没有时，请作者先开 issue 讨论方向；只因增删行数超限时，也可以把 PR 拆小。
+未通过的 PR 停在这一步：发一条签署提醒，同一 PR 只提醒一次，打 `needs-info`。`needs-info` 超过 14 天仍未签署的，不论期间有无回复，评论说明签署后可以重开，然后关闭。
 
-曾因前置检查打上 `needs-info` 的 PR 通过两项检查后，摘掉 `needs-info`，继续第 3 步。
+曾因前置检查打上 `needs-info` 的 PR 通过检查后，摘掉 `needs-info`，继续第 3 步。
 
 ## 3. 检查
 
@@ -39,22 +38,25 @@
 
 第 1 步中维护者已换上状态标签的对象，直接按第 5 步执行。其余对象按下表取第一条匹配的结果。
 
+外部 PR 按方向分两类：修复可复现的 bug 或修正文档的，方向无需判断；其余的，例如新功能、新供应商、新端点、重构和行为变更，方向由维护者判断。
+
 | 情况 | 处理 |
 | --- | --- |
 | 请求的行为已经实现 | 评论指出实现位置，打 `wontfix` 并关闭 |
 | `needs-info` 超过 14 天，提问者或作者没有回复、提交或修改正文 | 评论说明补充信息后可以重开，然后关闭 |
 | 信息不足，或按提供的步骤复现不了 | 按 skill 的 needs-info 模板发 Triage Notes，打 `needs-info` |
 | `needs-info` 期间提问者或作者有了新回复、提交或正文修改 | 摘掉 `needs-info`，回到第 3 步重新检查 |
+| 外部 PR 的方向由维护者判断 | 转交维护者；`code-review` 意见等维护者按第 5 步做出决定后再发给作者 |
 | 外部 PR 满足「可直接合并」的全部条件 | 打 `ready-for-human` 与 `merge-ready`，评论写明「建议合并」及依据 |
 | 其他 | 转交维护者 |
 
-所有检查过的对象都打类别标签 `bug` 或 `enhancement`。外部 PR 的 `code-review` 意见作为 PR 评论发给作者。
+所有检查过的对象都打类别标签 `bug` 或 `enhancement`。方向无需判断的外部 PR，`code-review` 意见作为 PR 评论发给作者。
 
 ### 可直接合并
 
 外部 PR 同时满足以下条件：
 
-- 只改 Markdown 文档，或是增删合计不超过 50 行的 bug 修复。
+- 方向无需判断。
 - `license/cla`、`ci-required`、`codeql-required` 均为 success。
 - `code-review` 与验证均未发现需要修改的问题。
 - 改动不涉及敏感路径：定价与计费（`lib/config/`、`lib/billing/`）、模型目录与预设（`lib/catalog/`、`packages/arcreel-catalog-core/`）、界面文案（`lib/i18n/`、`frontend/src/i18n/`）、提示词（`lib/prompts/`、`agent_runtime_profile/`）、数据库与项目迁移（`alembic/`、`lib/project/project_migrations/`）、CI（`.github/`）、依赖清单与锁文件。
