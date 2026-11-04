@@ -841,6 +841,56 @@ async def test_custom_add_by_id_infers_endpoint_and_takes_default(
     )
 
 
+def test_builtin_user_added_model_prefills_and_switches_its_endpoint(models_client: TestClient) -> None:
+    """内置供应商下添加的模型按名字预填调用端点，候选只有这个供应商的端点；换端点后调用通道随之改变。"""
+    from lib.backends.backend_assembly.specs import declared_builtin_video_capabilities
+
+    _add_user_model(models_client, "minimax", "MiniMax-H3-Preview", "video")
+    url = "/api/v1/providers/minimax/models/MiniMax-H3-Preview"
+    detail = models_client.get(url).json()
+    assert detail["endpoint"] == "minimax-h3"
+    assert [option["key"] for option in detail["endpoint_options"]] == [
+        "minimax-hailuo-v1",
+        "minimax-hailuo-v1-fast",
+        "minimax-s2v-01",
+        "minimax-h3",
+    ]
+    assert declared_builtin_video_capabilities("minimax", "MiniMax-H3-Preview").text_to_video is True
+
+    rejected = models_client.patch(url, json={"endpoint": "ark-seedance"})
+    assert rejected.status_code == 422
+    assert "ark-seedance" in rejected.json()["detail"]
+
+    switched = models_client.patch(url, json={"endpoint": "minimax-hailuo-v1-fast"})
+    assert switched.status_code == 200
+    assert switched.json()["endpoint"] == "minimax-hailuo-v1-fast"
+    # Fast 只接受图生视频
+    assert switched.json()["capabilities"]["base"]["text_to_video"] is False
+    assert declared_builtin_video_capabilities("minimax", "MiniMax-H3-Preview").text_to_video is False
+
+
+def test_builtin_add_rejects_an_endpoint_of_another_provider(models_client: TestClient) -> None:
+    resp = models_client.post(
+        "/api/v1/providers/grok/models",
+        json={"model_id": "grok-imagine-video-2", "media_type": "video", "endpoint": "openai-video"},
+    )
+    assert resp.status_code == 422
+    accepted = models_client.post(
+        "/api/v1/providers/grok/models",
+        json={"model_id": "grok-imagine-video-2", "media_type": "video"},
+    )
+    assert accepted.status_code == 201
+    detail = models_client.get("/api/v1/providers/grok/models/grok-imagine-video-2").json()
+    assert (detail["endpoint"], [o["key"] for o in detail["endpoint_options"]]) == ("grok-video", ["grok-video"])
+
+
+def test_official_builtin_models_have_no_endpoint_setting(models_client: TestClient) -> None:
+    detail = models_client.get("/api/v1/providers/minimax/models/MiniMax-H3").json()
+    assert (detail["endpoint"], detail["endpoint_options"]) == (None, [])
+    resp = models_client.patch("/api/v1/providers/minimax/models/MiniMax-H3", json={"endpoint": "minimax-h3"})
+    assert resp.status_code == 422
+
+
 # 供应商模型 Sheet：关联其他模型、手动填写模型信息
 # ---------------------------------------------------------------------------
 

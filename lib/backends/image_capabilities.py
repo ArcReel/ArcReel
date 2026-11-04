@@ -24,7 +24,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
-from lib.backends.backend_assembly.specs import get_provider_spec
+from lib.backends.backend_assembly.specs import builtin_model_spec, get_provider_spec
 from lib.backends.image_backends.base import ImageCapability, ImageCapabilityError
 from lib.backends.image_backends.registry import channel_capabilities, channel_reference_limit
 from lib.backends.input_limits import InputLimit, effective_input_limit
@@ -33,20 +33,32 @@ from lib.custom_provider import is_custom_provider
 from lib.custom_provider.model_facts import image_model_facts
 
 if TYPE_CHECKING:
+    from lib.backends.backend_assembly.specs import ProviderSpec
     from lib.backends.image_backends.base import ImageBackend
 
 
-def builtin_channel_capabilities(provider_id: str) -> frozenset[ImageCapability]:
-    """内置供应商的图片调用通道实现了文生图还是图生图（通道事实）；供应商没有图片调用通道时抛 ``ValueError``。"""
-    return channel_capabilities(get_provider_spec(provider_id, "image").registry_backend)
+def _builtin_image_spec(provider_id: str, model_id: str, endpoint: str | None) -> ProviderSpec:
+    if endpoint is not None:
+        return get_provider_spec(provider_id, "image", endpoint)
+    return builtin_model_spec(provider_id, "image", model_id)
 
 
-def builtin_channel_reference_limit(provider_id: str) -> int | None:
-    """内置供应商图片调用通道静态声明的参考图上限（通道事实），``None`` 为通道不限张数。
+def builtin_channel_capabilities(
+    provider_id: str, model_id: str, *, endpoint: str | None = None
+) -> frozenset[ImageCapability]:
+    """内置供应商模型挂接的图片调用端点实现了文生图还是图生图（通道事实）；供应商没有图片调用通道时抛 ``ValueError``。
+
+    ``endpoint`` 给出时按它求值，供保存前核对换端点后的能力覆盖。
+    """
+    return channel_capabilities(_builtin_image_spec(provider_id, model_id, endpoint).registry_backend)
+
+
+def builtin_channel_reference_limit(provider_id: str, model_id: str) -> int | None:
+    """内置供应商模型挂接的图片调用端点静态声明的参考图上限（通道事实），``None`` 为通道不限张数。
 
     供应商没有图片调用通道时抛 ``ValueError``。
     """
-    return channel_reference_limit(get_provider_spec(provider_id, "image").registry_backend)
+    return channel_reference_limit(builtin_model_spec(provider_id, "image", model_id).registry_backend)
 
 
 def image_model_capabilities(

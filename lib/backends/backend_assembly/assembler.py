@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
-from lib.backends.backend_assembly.specs import get_provider_spec
+from lib.backends.backend_assembly.specs import builtin_model_spec, get_provider_endpoints
 from lib.catalog import builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
@@ -71,8 +71,10 @@ async def assemble_backend(
                 generation_type=generation_type,
                 submitted_job=submitted_job,
             )
-    spec = get_provider_spec(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
+    get_provider_endpoints(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
     model_id = await _callable_builtin_model(provider_id, media_type, model_id, resolver, submitted_job=submitted_job)
+    # 先定下供应商模型挂接的内置调用端点，再由端点构造：供应商给凭证，端点决定请求
+    spec = builtin_model_spec(provider_id, media_type, model_id)
     config = await _load_builtin_config(resolver, provider_id, rate_limiter)
     # 构造闭包可能读凭证文件（Vertex 服务账号 JSON），放线程里跑，不阻塞事件循环。工作线程里没有事件循环，
     # backend 构造时不能创建要求事件循环的 SDK 客户端（xai_sdk.AsyncClient 的做法见 grok_shared.LazyGrokClient）。

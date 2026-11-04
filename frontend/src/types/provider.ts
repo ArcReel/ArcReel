@@ -296,11 +296,21 @@ export interface ProviderModelDetail {
   /** 用户指定的条目绑定（「模型厂商/官方模型名」）；按名字对应或官方收录的模型为 null。 */
   entry_binding: string | null;
   capabilities: ProviderModelCapabilities;
-  /** 以下只有自定义供应商的模型有。 */
+  /** 调用端点：自定义供应商的模型，以及内置供应商下用户添加的模型有；官方收录的模型为 null，端点跟随官方。 */
   endpoint: string | null;
+  /** 以下只有自定义供应商的模型有。 */
   resolution: string | null;
   path_overrides: PathOverrides | null;
   requests: EndpointRequest[];
+  /** 内置供应商下用户添加的模型可选的调用端点（这个供应商在该媒体类型下的内置调用端点）；其余为空。 */
+  endpoint_options: BuiltinEndpointOption[];
+}
+
+/** 内置供应商的一个调用端点选项。`display_name_key` 为空串时显示 `display_name`。 */
+export interface BuiltinEndpointOption {
+  key: string;
+  display_name_key: string;
+  display_name: string | null;
 }
 
 /** 保存供应商模型 Sheet 的供应商设置与模型信息；没有传的字段不改。 */

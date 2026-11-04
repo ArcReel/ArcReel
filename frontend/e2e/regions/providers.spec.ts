@@ -339,6 +339,7 @@ const klingDetail = {
   resolution: "1080p",
   path_overrides: null,
   requests: [],
+  endpoint_options: [],
 };
 
 const gptImageDetail = {
@@ -359,6 +360,7 @@ const gptImageDetail = {
   resolution: null,
   path_overrides: null,
   requests: [],
+  endpoint_options: [],
 };
 
 const CUSTOM_PROVIDER_DETAIL: ApiOverrides = {

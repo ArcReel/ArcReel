@@ -316,9 +316,9 @@ def _image_reference_limit_json(
     ).to_json()
 
 
-def _image_channel(provider_id: str) -> frozenset[ImageCapability]:
+def _image_channel(provider_id: str, model_id: str, endpoint: str | None = None) -> frozenset[ImageCapability]:
     try:
-        return builtin_channel_capabilities(provider_id)
+        return builtin_channel_capabilities(provider_id, model_id, endpoint=endpoint)
     except ValueError:
         return frozenset()
 
@@ -336,10 +336,10 @@ def builtin_capability_view(
     base = _catalog_model_facts(provider_id, model_id, base_model)
     editable = set(overridable_keys(media_type)) if not official else set()
     if media_type == "image":
-        implemented = _image_channel(provider_id)
+        implemented = _image_channel(provider_id, model_id)
         editable = {key for key in editable if _IMAGE_CAPABILITY_BY_KEY[key] in implemented}
         try:
-            channel_limit = builtin_channel_reference_limit(provider_id)
+            channel_limit = builtin_channel_reference_limit(provider_id, model_id)
         except ValueError:
             channel_limit = None
         base["max_reference_images"] = _image_reference_limit_json(
@@ -381,12 +381,18 @@ class OverrideRejected(Exception):
 
 
 def check_user_added_overrides(
-    provider_id: str, model_id: str, media_type: str, overrides: Mapping[str, object] | None
+    provider_id: str,
+    model_id: str,
+    media_type: str,
+    overrides: Mapping[str, object] | None,
+    *,
+    endpoint: str | None = None,
 ) -> dict[str, object] | None:
     """内置供应商下用户添加的模型的能力覆盖写入校验，通过时返回要存下的覆盖（空覆盖为 ``None``）。
 
     与自定义供应商的写入校验同一组规则：维度须属于该媒体类型，值的形状与维度一致；图片的文生图、图生图覆盖为
-    开启时调用通道须实现了它；音频两维合起来须有意义（不足的一维取调用通道的声明）。
+    开启时调用通道须实现了它；音频两维合起来须有意义（不足的一维取调用通道的声明）。调用通道取模型挂接的内置调用
+    端点，``endpoint`` 给出时取它（同一次保存里换了端点）。
     """
     if not overrides:
         return None
@@ -410,14 +416,18 @@ def check_user_added_overrides(
                 "capability_override_invalid_value", model_id=model_id, capability=key, expected=expected_name
             )
         image_capability = _IMAGE_CAPABILITY_BY_KEY.get(key)
-        if image_capability is not None and value is True and image_capability not in _image_channel(provider_id):
+        if (
+            image_capability is not None
+            and value is True
+            and image_capability not in _image_channel(provider_id, model_id, endpoint)
+        ):
             raise OverrideRejected(
                 "capability_override_image_unsupported", model_id=model_id, endpoint=provider_id, capability=key
             )
     if any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
         try:
             base = two_sided_builtin_video_capabilities(
-                declared_builtin_video_capabilities(provider_id, model_id), provider_id, model_id
+                declared_builtin_video_capabilities(provider_id, model_id, endpoint=endpoint), provider_id, model_id
             )
         except ValueError:
             base = VideoCapabilities()

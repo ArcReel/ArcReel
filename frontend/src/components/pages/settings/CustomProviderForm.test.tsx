@@ -134,6 +134,7 @@ function detailOf(item: ProviderModelItem): ProviderModelDetail {
     resolution: null,
     path_overrides: null,
     requests: [],
+    endpoint_options: [],
   };
 }
 
