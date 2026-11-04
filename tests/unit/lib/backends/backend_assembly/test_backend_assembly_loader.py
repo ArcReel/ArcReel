@@ -173,6 +173,22 @@ class TestAssembleBuiltinEndToEnd:
             await assemble_backend(provider_id="ark", media_type="video", model_id=None, resolver=resolver)
         assert built[0]["kwargs"]["model"] == "doubao-seedance-2-0-mini-260615"
 
+    async def test_missing_model_skips_a_disabled_default(self, db_factory):
+        """用户停用了目录默认模型：没给模型的装配不取它，按没有默认模型报错，不构造 backend。"""
+        from lib.db.models.builtin_provider_model import BuiltinProviderModelState
+
+        await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
+        async with db_factory() as session:
+            session.add(
+                BuiltinProviderModelState(provider_id="ark", model_id="doubao-seedance-2-0-mini-260615", enabled=False)
+            )
+            await session.commit()
+        resolver = ConfigResolver(db_factory)
+        with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as excinfo:
+            await assemble_backend(provider_id="ark", media_type="video", model_id=None, resolver=resolver)
+        assert built == []
+        assert excinfo.value.code == "provider_unsupported_media"
+
     async def test_unknown_provider_media_fails_loud(self, db_factory):
         resolver = ConfigResolver(db_factory)
         with pytest.raises(ValueError, match="no builtin ProviderSpec"):

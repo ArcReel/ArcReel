@@ -232,6 +232,7 @@ class SharedProviderResponse(BaseModel):
 class EntryInfoResponse(BaseModel):
     """供应商模型对应到的条目（合成后），供 Sheet 下段「模型信息」。
 
+    - ``discontinued``：条目在今天（UTC 日期）是否已下线，含关停日期已到的条目。
     - ``price``：价目表（目录数据的格式，可直接作为 ``EntryUpdate.price`` 回写）；没有价目表时为 ``null``。
     - ``source``：``official`` 跟随官方；``modified`` 用户改过，不再随官方更新；``user_created`` 用户新建、由用户填写。
     - ``official``：用户改过、或用户新建的条目日后被官方数据收录时，官方数据里的值（可「恢复官方数据」「改用官方数据」）；
@@ -776,7 +777,7 @@ async def _entry_info(session: AsyncSession, entry: CatalogEntry | None, provide
         display_name=entry.display_name,
         media_type=entry.media_type,
         aliases=list(entry.aliases),
-        discontinued=entry.discontinued,
+        discontinued=entry_lifecycle(entry).discontinued,
         context_length=entry.context_length,
         facts=_facts_json(entry),
         price=_price_json(entry),

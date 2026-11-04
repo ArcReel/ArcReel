@@ -27,6 +27,7 @@ from lib.backends.backend_assembly.specs import (
     builtin_video_capabilities_for_model,
 )
 from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
+from lib.catalog import builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
@@ -106,38 +107,41 @@ def _split_pair(raw: object) -> tuple[str, str] | None:
     return provider, model
 
 
+def _bare_provider(raw: object) -> str | None:
+    """project.json provider 字段的裸供应商覆盖（裸 ``"provider"``，或带尾斜杠缺 model 的脏值如 ``"openai/"``）→ 供应商 id。
+
+    完整的 ``"provider/model"``、非字符串与空值为 None。"""
+    if not isinstance(raw, str) or _split_pair(raw) is not None:
+        return None
+    return raw.strip().rstrip("/").strip() or None
+
+
 def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | None:
-    """解析 project.json 的 provider 字段，兼容裸供应商覆盖。
+    """解析 project.json 的 provider 字段，兼容裸供应商覆盖；纯读目录、不查 DB。
 
     - ``"provider/model"`` → (provider, model)
     - 裸 ``"provider"``（registry 中存在且有该 media_type 默认 model）→ (provider, 默认 model)
     - 其余 → None（交由全局默认解析）
 
     裸供应商经写边界（``validate_backend_value`` 只放行 registry key）保证是规范 id，这里
-    pin 住该供应商并补全其默认 model，避免静默回退到全局默认的**另一**供应商。补不出默认 model
-    的裸内置供应商同样不回退，由解析骨架报错（``_reject_bare_builtin_without_default``）。"""
+    pin 住该供应商并补全其默认 model，避免静默回退到全局默认的**另一**供应商。供没有配置库会话的同步路径使用；
+    解析骨架另按用户的停用状态补默认（``ConfigResolver._resolve_layered_backend``）。"""
     pair = _split_pair(raw)
     if pair is not None:
         return pair
-    if isinstance(raw, str):
-        # 裸供应商，或带尾斜杠缺 model 的脏值（如 "openai/"）→ 取该供应商默认 model
-        provider = raw.strip().rstrip("/").strip()
-        if provider:
-            model = catalog.default_model(provider, media_type)
-            if model is not None:
-                return provider, model
+    provider = _bare_provider(raw)
+    if provider is not None:
+        model = catalog.default_model(provider, media_type)
+        if model is not None:
+            return provider, model
     return None
 
 
-def _reject_bare_builtin_without_default(raw: object, media_type: str) -> None:
-    """项目层的裸内置供应商在该媒体类型下没有默认模型（如 openai 已无视频模型）时报错。
+def _reject_bare_builtin_without_default(provider: str, media_type: str) -> None:
+    """项目层的裸内置供应商在该媒体类型下没有可用的默认模型（如 openai 已无视频模型、默认模型已下线或被停用）时报错。
 
-    只在 ``_parse_project_provider`` 返回 None 之后调用：此时裸值若是内置供应商，说明它在模型目录里
-    没有这一媒体类型的模型。报「不在模型清单中」让用户重新选择，不回退到另一供应商去生成和计费。
+    报「不在模型清单中」让用户重新选择，不回退到另一供应商去生成和计费。
     """
-    if not isinstance(raw, str):
-        return
-    provider = raw.strip().rstrip("/").strip()
     if provider in PROVIDER_REGISTRY:
         raise ModelNotInCatalogError(provider_id=provider, model_id="", media_type=media_type)
 
@@ -158,14 +162,16 @@ def _trusted_payload_provider(provider_id: object) -> str | None:
     return None
 
 
-def _payload_model_or_default(raw_model: object, provider_id: str, media_type: str) -> str | None:
-    """payload 显式 model（非空字符串）优先；缺失则补该 provider 在模型目录中的默认 model。
+async def _payload_model_or_default(
+    session: AsyncSession, raw_model: object, provider_id: str, media_type: str
+) -> str | None:
+    """payload 显式 model（非空字符串）优先；缺失则补该 provider 可用的默认 model（已下线或被用户停用的不算）。
 
     避免「半截 payload」（只有 provider、缺 model）把空 model 带到执行层。补不出默认 model 时
     返回 None，由调用方回退 project/global。"""
     if isinstance(raw_model, str) and raw_model.strip():
         return raw_model.strip()
-    return catalog.default_model(provider_id, media_type)
+    return await builtin_models.default_builtin_model(session, provider_id, media_type)
 
 
 @dataclass(frozen=True)
@@ -1183,7 +1189,7 @@ class ConfigResolver:
         """「默认 + 任务类型桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
 
         媒体类型无关，各层键位由 ``_LayeredBackendKeys`` 声明（见 ``docs/adr/0054``）。项目层
-        字段兼容裸供应商覆盖（``_parse_project_provider``）；全局层要求 ``provider/model``
+        字段兼容裸供应商覆盖（补该供应商可用的默认模型，已下线或被用户停用的不算，补不出时报错）；全局层要求 ``provider/model``
         完整形态。payload 层与运行时身份收敛（如视频自定义供应商的有效身份收敛）不属于
         骨架，由各媒体的调用方在骨架外处理。
         """
@@ -1192,10 +1198,16 @@ class ConfigResolver:
                 if project_key is None:
                     continue
                 raw = project.get(project_key)
-                parsed = _parse_project_provider(raw, keys.media_type)
-                if parsed is not None:
-                    return parsed
-                _reject_bare_builtin_without_default(raw, keys.media_type)
+                provider = _bare_provider(raw)
+                if provider is None:
+                    pair = _split_pair(raw)
+                    if pair is not None:
+                        return pair
+                    continue
+                default = await builtin_models.default_builtin_model(session, provider, keys.media_type)
+                if default is not None:
+                    return provider, default
+                _reject_bare_builtin_without_default(provider, keys.media_type)
         settings = await svc.get_all_settings()
         if keys.global_bucket_key is not None:
             raw = settings.get(keys.global_bucket_key, "")
@@ -1233,7 +1245,7 @@ class ConfigResolver:
         if payload:
             provider_id = _trusted_payload_provider(payload.get("image_provider"))
             if provider_id is not None:
-                model = _payload_model_or_default(payload.get("image_model"), provider_id, "image")
+                model = await _payload_model_or_default(session, payload.get("image_model"), provider_id, "image")
                 if model is not None:
                     selected = ProviderModel(provider_id, model)
         if selected is None:
@@ -1492,7 +1504,7 @@ class ConfigResolver:
         if payload:
             provider_id = _trusted_payload_provider(payload.get("audio_provider"))
             if provider_id is not None:
-                model = _payload_model_or_default(payload.get("audio_model"), provider_id, "audio")
+                model = await _payload_model_or_default(session, payload.get("audio_model"), provider_id, "audio")
                 if model is not None:
                     return ProviderModel(provider_id, model)
         provider_id, model_id = await self._resolve_layered_backend(svc, session, project, _AUDIO_LAYERED_KEYS)

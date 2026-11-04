@@ -21,7 +21,7 @@ from lib.project.project_schema import parse_project_schema_version
 
 TARGET_SCHEMA_VERSION = 17
 
-#: 冻结的退役模型映射：移除设置启动改写时从共享映射逐字复制，此后不再增删，历史项目的升级结果因此可以复现。
+#: 冻结的退役模型映射：只供这一步迁移使用，不再增删，历史项目的升级结果因此可以复现。
 #: 运行期不再按写死的映射改写引用，之后的退役只通过模型目录条目的生命周期表达（docs/adr/0106）。
 _RETIRED_MODEL_REFERENCES: dict[str, str] = {
     # 文本
