@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
+from lib.config.model_setting_keys import MODEL_SETTING_MEDIA_TYPES
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoGenerationType
 from lib.infra.api_errors import BadRequestError
@@ -90,28 +91,6 @@ async def require_audio_switch_supported(project: dict, generation_type: VideoGe
     raise BadRequestError("video_audio_switch_not_supported", provider=provider_id, model=model_id)
 
 
-# backend 字段名 → 期望 media_type，驱动 validate_backend_value 的档位/模型能力匹配校验。
-# 未登记的字段名视为不做该项校验（新增字段忘记登记时静默放行，而非误报）。
-_FIELD_MEDIA_TYPES: dict[str, str] = {
-    "video_backend": "video",
-    "video_provider_i2v": "video",
-    "video_provider_r2v": "video",
-    "default_video_backend": "video",
-    "default_video_backend_i2v": "video",
-    "default_video_backend_r2v": "video",
-    "image_provider_t2i": "image",
-    "image_provider_i2i": "image",
-    "default_image_backend": "image",
-    "default_image_backend_t2i": "image",
-    "default_image_backend_i2i": "image",
-    "audio_backend": "audio",
-    "default_audio_backend": "audio",
-    "text_backend_simple": "text",
-    "text_backend_complex": "text",
-    "default_text_backend": "text",
-}
-
-
 def validate_backend_value(value: str, field_name: str) -> None:
     """校验 ``provider/model`` 格式的 backend 字段值。
 
@@ -119,7 +98,7 @@ def validate_backend_value(value: str, field_name: str) -> None:
     （``gemini``/``aistudio``/``vertex``/``seedance``）一律拒绝——它们是待清除的历史数据，由一次性项目迁移
     转为规范 id 后即不再被接受（见 ``docs/adr/0001``）。
 
-    额外校验模型目录内登记模型的 ``media_type`` 与 ``field_name``（经 ``_FIELD_MEDIA_TYPES``）期望的
+    额外校验模型目录内登记模型的 ``media_type`` 与 ``field_name``（经 ``MODEL_SETTING_MEDIA_TYPES``）期望的
     一致（如 text 档位字段不接受 video 模型）；只对模型目录内登记的内置模型判定，目录外
     （自定义供应商等）无逐模型能力事实，放行交由供应商 API 把关，不做猜测。
 
@@ -134,7 +113,8 @@ def validate_backend_value(value: str, field_name: str) -> None:
     provider_id, model_id = value.split("/", 1)
     if provider_id not in PROVIDER_REGISTRY and not provider_id.startswith("custom-"):
         raise BadRequestError("unknown_provider", value=provider_id).with_diagnostic(f"field: {field_name}")
-    expected_media_type = _FIELD_MEDIA_TYPES.get(field_name)
+    # 未登记的字段名不做这项校验：新增字段忘记登记时静默放行，而不是误报
+    expected_media_type = MODEL_SETTING_MEDIA_TYPES.get(field_name)
     if expected_media_type is not None:
         model_info = catalog.get_model(provider_id, model_id)
         if model_info is not None and model_info.media_type != expected_media_type:

@@ -118,7 +118,8 @@ async def execute_resume_video_task(
     resolver_payload = {
         f"video_provider_{checkpoint.generation_type}": f"{checkpoint.provider_id}/{checkpoint.provider_model_id}"
     }
-    video_request = VideoLaneRequest(generation_type=checkpoint.generation_type)
+    # 厂商侧的任务已经提交（可能已经计费），续跑只轮询它：模型在提交之后下线，结果也要照常取回。
+    video_request = VideoLaneRequest(generation_type=checkpoint.generation_type, submitted_job=True)
 
     project, project_path = await asyncio.to_thread(
         lambda: (

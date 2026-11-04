@@ -379,19 +379,24 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     @staticmethod
     def metered_usage(
-        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         两版契约的分辨率都由请求档位决定，未指定时按 720p 下发（2.5 的 ``size``、v2.0 的短边）；结算的输出秒数
-        取 Agnes 回报的成片时长。2.5 契约的成片有声，v2.0 无声。
+        取 Agnes 回报的成片时长。2.5 契约的成片有声，v2.0 无声；契约按模型对应的条目认定（``entry``），与请求
+        构造的 :attr:`_contract_model` 同一个。
         """
         return video_usage(
             request,
             result,
             seconds=request.duration_seconds,
             resolution=request.resolution or "720p",
-            audio=_uses_v25_contract(model),
+            audio=_uses_v25_contract(_known_model(model, entry)),
         )
 
     # ── request building ────────────────────────────────────────────────

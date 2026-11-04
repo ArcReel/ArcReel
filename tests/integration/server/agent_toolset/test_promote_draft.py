@@ -741,7 +741,7 @@ async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolH
 async def test_promote_draft_surfaces_model_not_in_catalog_with_reselect_guidance(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """晋升时文本模型已下架：不被包成 draft_promote_failed，给出重新选择模型的指引。"""
+    """晋升时文本模型已不在供应商的模型清单中：不被包成 draft_promote_failed，给出重新选择模型的指引。"""
     from lib.catalog.errors import ModelNotInCatalogError
 
     rv_project(fake_ctx)

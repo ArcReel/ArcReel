@@ -80,6 +80,21 @@ def test_dump_preserves_optional_model_facts(factory, additions):
     assert check_entry(dumped) == []
 
 
+def test_dump_preserves_lifecycle_fields():
+    raw = text_entry()
+    raw.update(release_date="2025-11-18", shutdown_date="2026-12-11", successor="google/gemini-3.5-pro")
+
+    entry = parse_entry(raw)
+    dumped = json.loads(json.dumps(dump_entry(entry)))
+
+    assert (dumped["release_date"], dumped["shutdown_date"], dumped["successor"]) == (
+        "2025-11-18",
+        "2026-12-11",
+        "google/gemini-3.5-pro",
+    )
+    assert parse_entry(dumped) == entry
+
+
 def test_dump_omits_empty_optional_fields():
     raw = {
         "maker": "acme",

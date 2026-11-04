@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
 
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
+from lib.material.formal_objects import reconcile_and_collect
 from lib.project import project_trash
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
 from server.auth import reject_embedded_agent
 from server.routers.file_view import content_media_type, stream_file
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_name}/trash")
 
@@ -25,6 +29,17 @@ def _project_dir(project_name: str) -> Path:
         raise BadRequestError("invalid_project_name", name=project_name) from exc
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
+
+
+async def _collect_released_objects(project_name: str) -> None:
+    """彻底删除的记录不再持有正式对象：重算项目的引用，回收失去全部引用的对象。
+
+    失败只记日志：记录已删除，引用多留只会让对象晚些回收，维护循环会再重算一次。
+    """
+    try:
+        await reconcile_and_collect(project_name, await asyncio.to_thread(_project_dir, project_name))
+    except Exception:
+        logger.warning("回收站清除后回收正式对象失败 project=%s", project_name, exc_info=True)
 
 
 @router.get("")
@@ -69,6 +84,7 @@ async def purge_trash_record(project_name: str, record_id: str):
             project_trash.purge(_project_dir(project_name), record_id)
 
     await run_sync_transaction(_sync)
+    await _collect_released_objects(project_name)
     return {"success": True}
 
 
@@ -78,4 +94,6 @@ async def empty_trash(project_name: str):
         with project_change_source("webui"):
             return project_trash.empty(_project_dir(project_name))
 
-    return {"purged": await run_sync_transaction(_sync)}
+    purged = await run_sync_transaction(_sync)
+    await _collect_released_objects(project_name)
+    return {"purged": purged}

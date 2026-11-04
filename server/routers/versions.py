@@ -25,6 +25,7 @@ from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.infra.api_errors import BadRequestError
 from lib.infra.async_thread import run_sync_transaction
+from lib.material.work_files import local_work_files
 from lib.project.asset_derivatives import DerivativeSheetTarget, derivative_artifact_id, split_derivative_artifact_id
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
@@ -365,6 +366,21 @@ async def restore_version(
     return await restore_resource_version(project_name, resource_type, resource_id, version)
 
 
+async def _locate_version_work_file(
+    project_name: str, resource_type: str, resource_id: str, version: int
+) -> tuple[Path, str | None]:
+    """定位待还原快照，调用方在取回与整个还原期间登记使用。"""
+
+    def _locate() -> tuple[Path, str | None]:
+        project_path = get_project_manager().get_project_path(project_name)
+        records = get_version_manager(project_name).get_versions(resource_type, resource_id)["versions"]
+        record = next((item for item in records if item.get("version") == version), None)
+        file = record.get("file") if isinstance(record, dict) else None
+        return project_path, file if isinstance(file, str) else None
+
+    return await asyncio.to_thread(_locate)
+
+
 async def restore_resource_version(
     project_name: str,
     resource_type: str,
@@ -383,6 +399,8 @@ async def restore_resource_version(
                     resource_id=resource_id,
                     version=version,
                 )
+
+        project_path, file = await _locate_version_work_file(project_name, resource_type, resource_id, version)
 
         def _sync():
             # 还原同样是一条联合图写入路径（换回历史联合图 + 复位宫格记录），
@@ -417,7 +435,8 @@ async def restore_resource_version(
                 "asset_fingerprints": asset_fingerprints,
             }
 
-        return await run_sync_transaction(_sync)
+        async with local_work_files(project_path, [file] if file is not None else []):
+            return await run_sync_transaction(_sync)
 
     except ValueError as e:
         # 非法项目名 / 越界 resource_id 等坏请求，str(e) 可能含路径只进日志

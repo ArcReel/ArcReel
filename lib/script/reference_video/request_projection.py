@@ -33,6 +33,7 @@ from lib.generation.video_request_facts import (
 )
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int
+from lib.material.work_files import material_file_present
 from lib.project.asset_types import AssetSpec, asset_name_comparison_key
 from lib.references.reference_admission import (
     SHEET_REQUIRED_ASSET_TYPES,
@@ -392,10 +393,11 @@ class FilesystemReferenceAssets:
 
     def is_available(self, asset: ResolvedReferenceAsset) -> bool:
         try:
-            safe_join(self._project_path, asset.path, require_file=True)
-        except (FileNotFoundError, OSError, PathTraversalError, TypeError):
+            path = safe_join(self._project_path, asset.path)
+        except (OSError, PathTraversalError, TypeError):
             return False
-        return True
+        # 缓存已清理的远端内容版本仍可取回，不算缺图
+        return material_file_present(path)
 
 
 def _candidate_path(project_path: Path, value: object) -> Path | None:
@@ -572,6 +574,7 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
     "video_capability_missing_t2v": ("configure_video_model", (("text",),)),
     "video_capability_reference_unavailable": ("configure_video_model", (("text",),)),
     "model_not_in_provider_catalog": ("configure_video_model", (("text",),)),
+    "model_discontinued": ("configure_video_model", (("text",),)),
 }
 
 

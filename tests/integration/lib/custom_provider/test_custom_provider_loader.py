@@ -145,7 +145,7 @@ class TestVideoCapabilityOverridesReachExecution:
 
     @staticmethod
     async def _load_video_backend(
-        db_session, *, overrides: object | None, endpoint: str = "openai-video", model_id: str = "sora-2"
+        db_session, *, overrides: object | None, endpoint: str = "openai-video", model_id: str = "relay-sora"
     ):
         pid = await _seed(
             db_session,
@@ -166,7 +166,7 @@ class TestVideoCapabilityOverridesReachExecution:
     @patch("lib.custom_provider.endpoints.OpenAIVideoBackend", new=MagicMock())
     async def test_null_overrides_follow_system_judgement(self, db_session):
         backend = await self._load_video_backend(db_session, overrides=None)
-        assert backend.video_capabilities == system_video_capabilities(endpoint="openai-video", model_id="sora-2")
+        assert backend.video_capabilities == system_video_capabilities(endpoint="openai-video", model_id="relay-sora")
 
     @patch("lib.custom_provider.endpoints.ArkVideoBackend", new=MagicMock())
     async def test_override_forces_capability_on(self, db_session):

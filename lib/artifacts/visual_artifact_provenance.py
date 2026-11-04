@@ -14,7 +14,7 @@ from pathlib import Path
 
 from lib.artifacts.artifact_manifest import ArtifactBasis
 from lib.artifacts.input_gap import InputGap, add_absent_inputs
-from lib.infra.content_digest import sha256_file
+from lib.material.work_files import material_file_digest
 from lib.project.asset_types import ASSET_TYPES, asset_name_comparison_key, normalize_asset_name
 from lib.project.project_schema import parse_project_schema_version
 from lib.prompts.prompt_style import normalize_style_value
@@ -690,9 +690,14 @@ def _composite_evidence(composite_image: Path, source_composite_digest: str | No
 
 
 def visual_file_digest(path: Path) -> str:
-    """Hash one visual input without loading the whole file into memory."""
+    """Hash one visual input without loading the whole file into memory.
 
-    return sha256_file(path)
+    A remote content version whose local work file was evicted keeps its recorded digest: a cache miss is
+    not a missing formal image (``lib.material.work_files.material_file_digest``).  Readers of the bytes
+    fetch the work file first.
+    """
+
+    return material_file_digest(path)
 
 
 def _require_sha256(field: str, value: object) -> str:

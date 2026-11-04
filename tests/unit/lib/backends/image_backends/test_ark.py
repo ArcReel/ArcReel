@@ -140,7 +140,7 @@ class TestArkImageBackendProperties:
         assert backend.name == PROVIDER_ARK
 
     def test_default_model(self, backend):
-        assert backend.model == "doubao-seedream-5-0-lite-260128"
+        assert backend.model == "doubao-seedream-5-0-pro-260628"
 
     def test_custom_model(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("ARK_API_KEY", raising=False)
@@ -250,7 +250,7 @@ class TestArkImageBackendGenerate:
 
         # SDK called correctly
         call_kwargs = client.requests[-1]
-        assert call_kwargs["model"] == "doubao-seedream-5-0-lite-260128"
+        assert call_kwargs["model"] == "doubao-seedream-5-0-pro-260628"
         assert call_kwargs["prompt"] == "a cat"
         # 部分兼容网关即便吃 response_format 仍返回 url，所以请求端不再传该参数
         assert "response_format" not in call_kwargs
@@ -369,8 +369,8 @@ class TestArkImageBackendGenerate:
         )
 
         sent = client.requests[-1]["image"]
-        assert len(sent) == (await backend.reference_image_limit()) == 14
-        assert sent[-1] == "data:image/png;base64," + base64.b64encode(b"img-13").decode()
+        assert len(sent) == (await backend.reference_image_limit()) == 10
+        assert sent[-1] == "data:image/png;base64," + base64.b64encode(b"img-9").decode()
 
     async def test_i2i_multiple_refs(self, backend_and_client, tmp_path: Path):
         backend, client = backend_and_client

@@ -18,6 +18,7 @@
       }
     },
     "provider_names": {},
-    "model_names": {}
+    "model_names": {},
+    "lifecycle": {}
   }
 }

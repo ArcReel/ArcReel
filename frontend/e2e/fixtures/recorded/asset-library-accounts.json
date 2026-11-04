@@ -1,0 +1,23 @@
+{
+  "method": "GET",
+  "path": "/api/v1/asset-library/accounts",
+  "status": 200,
+  "body": {
+    "sites": [
+      {
+        "id": "volcengine",
+        "regions": [
+          "cn-beijing"
+        ]
+      },
+      {
+        "id": "byteplus",
+        "regions": [
+          "ap-southeast-1"
+        ]
+      }
+    ],
+    "default_project_name": "default",
+    "accounts": []
+  }
+}

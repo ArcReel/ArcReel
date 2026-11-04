@@ -313,6 +313,7 @@ export default {
   'problem_video_capability_missing_t2v': "The selected video model doesn't support text-to-video; a first-frame image is needed.",
   'problem_video_capability_reference_unavailable': 'The video model chosen in Settings is no longer available.',
   'problem_model_not_in_provider_catalog': "The model chosen in Settings is no longer in the provider's model list.",
+  'problem_model_discontinued': 'The model chosen in Settings has been discontinued.',
   'problem_generation_dependency_failed': "A unit this one depends on in the same batch didn't succeed, so this unit wasn't submitted.",
   'problem_fallback_retry': "The last attempt didn't succeed.",
   'problem_fallback_fix_input': "This unit's content needs changes before it can be generated.",

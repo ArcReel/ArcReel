@@ -630,7 +630,14 @@ def builtin_video_metered_usage(
 
     if request.video_capabilities is None:
         request = replace(request, video_capabilities=builtin_video_capabilities_for_model(provider_id, model_id))
-    return metered_usage_for_model(spec.registry_backend, model_id, request, result)
+    # 与能力声明、执行时实例装配同一个条目：官方收录的取清单所引的条目，用户添加的取条目绑定或按名字现查的结果。
+    return metered_usage_for_model(
+        spec.registry_backend,
+        model_id,
+        request,
+        result,
+        entry=catalog.provider_model_entry(provider_id, model_id, "video"),
+    )
 
 
 def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str) -> bool:
@@ -642,4 +649,6 @@ def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str) 
         return builtin_video_capabilities_for_model(provider_id, model_id).audio_track is not VideoAudioMode.ALWAYS_OFF
     from lib.backends.video_backends.registry import effective_generate_audio_for_model
 
-    return effective_generate_audio_for_model(spec.registry_backend, model_id)
+    return effective_generate_audio_for_model(
+        spec.registry_backend, model_id, catalog.provider_model_entry(provider_id, model_id, "video")
+    )

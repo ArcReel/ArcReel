@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,15 +16,19 @@ from lib.backends.backend_assembly.assembler import OutputLimitFacts, _load_buil
 from lib.backends.backend_assembly.specs import PROVIDER_SPEC_REGISTRY
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest
 from lib.catalog import query as catalog
-from lib.catalog.errors import ModelNotInCatalogError
+from lib.catalog.errors import ModelDiscontinuedError, ModelNotInCatalogError
+from lib.catalog.query import factory_snapshot
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
+from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes
 from tests.fakes import (
     captured_backend_construction,
     captured_openai_clients,
     captured_vertex_credentials,
     patched_instructor_from_openai,
 )
+
+SEEDREAM_LITE = "doubao-seedream-5-0-lite-260128"
 
 
 async def _seed_provider_config(factory, provider: str, **kv: str) -> None:
@@ -89,16 +94,77 @@ class TestAssembleBuiltinEndToEnd:
         ]
 
     async def test_model_outside_provider_listing_is_rejected_without_fallback(self, db_factory):
-        """已下架的模型不在供应商清单中：报错由用户重新选择，不构造 backend、不回落到别的模型。"""
+        """不在供应商清单中、本地也没有条目的模型：报错由用户重新选择，不构造 backend、不回落到别的模型。"""
+        await _seed_provider_config(db_factory, "openai", api_key="sk")
+        resolver = ConfigResolver(db_factory)
+        with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as excinfo:
+            await assemble_backend(
+                provider_id="openai", media_type="video", model_id="never-listed-video", resolver=resolver
+            )
+        assert built == []
+        assert (excinfo.value.code, excinfo.value.params) == (
+            "model_not_in_provider_catalog",
+            {"provider": "openai", "model": "never-listed-video"},
+        )
+
+    async def test_unlisted_model_with_a_discontinued_local_entry_reports_the_lifecycle(self, db_factory):
+        """清单里已经没有、但名字对应到本地已下线条目的模型（sora-2）：报下线错误，同样不构造 backend。"""
         await _seed_provider_config(db_factory, "openai", api_key="sk")
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as excinfo:
             await assemble_backend(provider_id="openai", media_type="video", model_id="sora-2", resolver=resolver)
         assert built == []
         assert (excinfo.value.code, excinfo.value.params) == (
-            "model_not_in_provider_catalog",
+            "model_discontinued",
             {"provider": "openai", "model": "sora-2"},
         )
+
+    async def test_discontinued_model_is_rejected_with_its_successor(self, db_factory, monkeypatch):
+        """调用已下线的内置模型：报错带下线日期与官方后继，不构造 backend。"""
+        install_catalog(
+            monkeypatch,
+            with_entry_changes(
+                factory_snapshot(),
+                "ark",
+                SEEDREAM_LITE,
+                shutdown_date=date(2026, 11, 24),
+                successor="bytedance/doubao-seedream-5-0-pro",
+            ),
+        )
+        set_catalog_today(monkeypatch, date(2026, 11, 24))
+        await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
+        resolver = ConfigResolver(db_factory)
+        with captured_backend_construction() as built, pytest.raises(ModelDiscontinuedError) as excinfo:
+            await assemble_backend(provider_id="ark", media_type="image", model_id=SEEDREAM_LITE, resolver=resolver)
+        assert built == []
+        assert excinfo.value.params == {
+            "provider": "ark",
+            "model": SEEDREAM_LITE,
+            "shutdown_date": "2026-11-24",
+            "successor": "bytedance/doubao-seedream-5-0-pro",
+        }
+
+    async def test_default_resolution_skips_a_discontinued_default(self, db_factory, monkeypatch):
+        """目录默认模型已下线：装配不取它、也不落到 backend 写死的模型名；自动推断同样跳过这个供应商。"""
+        from lib.db.repositories.credential_repository import CredentialRepository
+
+        async with db_factory() as session:
+            await CredentialRepository(session).create(provider="ark", name="主 Key", api_key="TEST-ark-key")
+            await session.commit()
+        resolver = ConfigResolver(db_factory)
+        snapshot = factory_snapshot()
+        default = snapshot.builtin_providers["ark"].defaults["image"]
+        resolved = await resolver.resolve_image_backend(None, None, generation_type="t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", default)
+
+        install_catalog(monkeypatch, with_entry_changes(snapshot, "ark", default, shutdown_date=date(2026, 1, 1)))
+        with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as excinfo:
+            await assemble_backend(provider_id="ark", media_type="image", model_id=None, resolver=resolver)
+        assert built == []
+        assert excinfo.value.code == "provider_unsupported_media"
+        # 唯一 ready 的供应商没有可用的默认图片模型：自动推断找不到候选，不选中已下线的模型
+        with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
+            await resolver.resolve_image_backend(None, None, generation_type="t2i")
 
     async def test_missing_model_takes_the_catalog_default(self, db_factory):
         await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
@@ -106,6 +172,22 @@ class TestAssembleBuiltinEndToEnd:
         with captured_backend_construction() as built:
             await assemble_backend(provider_id="ark", media_type="video", model_id=None, resolver=resolver)
         assert built[0]["kwargs"]["model"] == "doubao-seedance-2-0-mini-260615"
+
+    async def test_missing_model_skips_a_disabled_default(self, db_factory):
+        """用户停用了目录默认模型：没给模型的装配不取它，按没有默认模型报错，不构造 backend。"""
+        from lib.db.models.builtin_provider_model import BuiltinProviderModelState
+
+        await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
+        async with db_factory() as session:
+            session.add(
+                BuiltinProviderModelState(provider_id="ark", model_id="doubao-seedance-2-0-mini-260615", enabled=False)
+            )
+            await session.commit()
+        resolver = ConfigResolver(db_factory)
+        with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as excinfo:
+            await assemble_backend(provider_id="ark", media_type="video", model_id=None, resolver=resolver)
+        assert built == []
+        assert excinfo.value.code == "provider_unsupported_media"
 
     async def test_unknown_provider_media_fails_loud(self, db_factory):
         resolver = ConfigResolver(db_factory)
@@ -377,6 +459,99 @@ class TestAssembleCustomEndToEnd:
         resolver = ConfigResolver(db_factory)
         result = await assemble_backend(provider_id=pid, media_type="text", model_id="gpt-5", resolver=resolver)
         assert isinstance(result, CustomTextBackend)
+
+    @staticmethod
+    async def _seed_relay_image_models(db_factory, models: list[dict]) -> str:
+        from lib.custom_provider import make_provider_id
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        async with db_factory() as s:
+            provider = await CustomProviderRepository(s).create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://relay.test/v1",
+                api_key="sk-relay",
+                models=[{"display_name": m["model_id"], "endpoint": "openai-images", **m} for m in models],
+            )
+            await s.commit()
+            return make_provider_id(provider.id)
+
+    @staticmethod
+    def _retire_seedream_lite(monkeypatch) -> str:
+        """方舟 Seedream 5.0 lite 的条目于 2026-11-24 关停、后继为 Seedream 5.0 pro；今天即关停当天。返回条目引用。"""
+        install_catalog(
+            monkeypatch,
+            with_entry_changes(
+                factory_snapshot(),
+                "ark",
+                SEEDREAM_LITE,
+                shutdown_date=date(2026, 11, 24),
+                successor="bytedance/doubao-seedream-5-0-pro",
+            ),
+        )
+        set_catalog_today(monkeypatch, date(2026, 11, 24))
+        entry = catalog.provider_model_entry("ark", SEEDREAM_LITE, "image")
+        assert entry is not None
+        return entry.key.ref
+
+    @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
+    async def test_explicit_discontinued_custom_model_is_rejected_without_falling_back(
+        self, mock_cls, db_factory, monkeypatch
+    ):
+        """显式引用的自定义模型所绑定的条目已下线：报下线错误带日期与后继，不回退到默认模型、不构造 backend。"""
+        ref = self._retire_seedream_lite(monkeypatch)
+        pid = await self._seed_relay_image_models(
+            db_factory,
+            [
+                {"model_id": "relay-seedream", "entry_binding": ref, "is_enabled": True},
+                {"model_id": "dall-e-3", "is_enabled": True, "is_default": True},
+            ],
+        )
+        with pytest.raises(ModelDiscontinuedError) as excinfo:
+            await assemble_backend(
+                provider_id=pid, media_type="image", model_id="relay-seedream", resolver=ConfigResolver(db_factory)
+            )
+        assert excinfo.value.params == {
+            "provider": pid,
+            "model": "relay-seedream",
+            "shutdown_date": "2026-11-24",
+            "successor": "bytedance/doubao-seedream-5-0-pro",
+        }
+        mock_cls.assert_not_called()
+
+    @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
+    async def test_disabled_discontinued_custom_model_is_still_rejected(self, mock_cls, db_factory, monkeypatch):
+        """停用的模型本会回退默认；条目已下线时同样报下线错误，用户才知道要换模型。"""
+        self._retire_seedream_lite(monkeypatch)
+        pid = await self._seed_relay_image_models(
+            db_factory,
+            [
+                {"model_id": SEEDREAM_LITE, "is_enabled": False},
+                {"model_id": "dall-e-3", "is_enabled": True, "is_default": True},
+            ],
+        )
+        with pytest.raises(ModelDiscontinuedError):
+            await assemble_backend(
+                provider_id=pid, media_type="image", model_id=SEEDREAM_LITE, resolver=ConfigResolver(db_factory)
+            )
+        mock_cls.assert_not_called()
+
+    @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
+    async def test_default_resolution_skips_a_discontinued_custom_default(self, mock_cls, db_factory, monkeypatch):
+        """自定义供应商唯一的默认模型已下线（按名字对应到条目）：没给模型时按没有默认模型报错，不构造它。"""
+        self._retire_seedream_lite(monkeypatch)
+        pid = await self._seed_relay_image_models(
+            db_factory, [{"model_id": SEEDREAM_LITE, "is_enabled": True, "is_default": True}]
+        )
+        with pytest.raises(ValueError, match="没有默认 t2i image 模型"):
+            await assemble_backend(
+                provider_id=pid,
+                media_type="image",
+                model_id=None,
+                resolver=ConfigResolver(db_factory),
+                generation_type="t2i",
+            )
+        mock_cls.assert_not_called()
 
 
 class TestOutputLimitFacts:

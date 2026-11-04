@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_catalog_core import CatalogEntry, EntryKey, MediaType
 from lib.catalog import query as catalog
+from lib.catalog.lifecycle import entry_lifecycle
 from lib.catalog.user_entries import (
     EntryEditRejected,
     create_user_entry,
@@ -27,7 +28,10 @@ router = APIRouter(prefix="/catalog", tags=["Catalog"])
 
 
 class CatalogEntryHit(BaseModel):
-    """一个命中的模型条目。``maker``、``name`` 与 ``media_type`` 合起来标识条目，界面只展示显示名。"""
+    """一个命中的模型条目。``maker``、``name`` 与 ``media_type`` 合起来标识条目，界面只展示显示名。
+
+    ``discontinued`` 是条目在今天（UTC 日期）是否已下线，含关停日期已到的条目。
+    """
 
     maker: str
     name: str
@@ -69,7 +73,7 @@ async def get_new_entry_hints(
             name=entry.name,
             media_type=entry.media_type,
             display_name=entry.display_name,
-            discontinued=entry.discontinued,
+            discontinued=entry_lifecycle(entry).discontinued,
         )
         if entry is not None
         else None
@@ -134,7 +138,7 @@ async def create_catalog_entry(
         name=entry.name,
         media_type=entry.media_type,
         display_name=entry.display_name,
-        discontinued=entry.discontinued,
+        discontinued=entry_lifecycle(entry).discontinued,
     )
 
 

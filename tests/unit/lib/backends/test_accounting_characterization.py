@@ -308,7 +308,7 @@ class _FakeVideoBackend:
         self._resume_error = resume_error
         # 内置调用通道按用量契约上报计量（``metered_usage``）；不给时模拟没有声明它的通道。
         if metered is not None:
-            self.metered_usage = lambda _model, request, result=None: metered(request, result)
+            self.metered_usage = lambda _model, request, result=None, *, entry=None: metered(request, result)
 
     @property
     def name(self) -> str:

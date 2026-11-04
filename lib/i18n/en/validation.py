@@ -160,6 +160,10 @@ MESSAGES = {
         "Source file encoding could not be detected and was not converted to UTF-8: source/{name} "
         "(episode planning cannot read this file)"
     ),
+    "arch_provider_asset_links_not_restored": (
+        "The project was imported, but {count} asset library links could not be saved; generation sends these "
+        "images as image content. Upload them again or select them from the asset library if needed"
+    ),
     "arch_non_standard_entry_excluded": "Non-standard top-level directory/file '{entry}' was excluded from the export",
     "arch_invalid_project_json": "Cannot parse {file}: {path}",
     "arch_version_history_malformed": "{location}: the version history is not in the expected format",

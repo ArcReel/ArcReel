@@ -24,6 +24,7 @@ from lib.infra.image_utils import IMAGE_FILE_EXTENSIONS
 from lib.infra.mp4_faststart import ensure_faststart
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
+from lib.material.formal_objects import formal_commit
 from lib.material.storage import ContentVersion
 from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE, DerivativeSheetTarget, resolve_derivative_target
 from lib.project.asset_types import ASSET_SPECS
@@ -247,7 +248,11 @@ async def commit_manual_storyboard_upload(
     versions: VersionManager,
     original_filename: str | None,
 ) -> int:
-    """Atomically select an uploaded storyboard with its metadata, version, and claim."""
+    """Atomically select an uploaded storyboard with its metadata, version, and claim.
+
+    The new content version is saved where the global storage choice puts new images
+    (``formal_commit``); a remote save that is not confirmed publishes nothing.
+    """
 
     metadata: dict[str, str] = {"source": UPLOAD_VERSION_SOURCE}
     if original_filename:
@@ -274,7 +279,8 @@ async def commit_manual_storyboard_upload(
         return version
 
     try:
-        return await run_noninterruptible_sync(_commit)
+        async with formal_commit(project_name):
+            return await run_noninterruptible_sync(_commit)
     finally:
         await asyncio.to_thread(staged_image.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
 
@@ -293,6 +299,7 @@ async def commit_manual_derivative_upload(
     """把作者上传的衍生资产图作为成品选中：衍生条目指针、版本记录与清单登记同一次提交。
 
     上传只替换资产图，变化描述不动；登记由规划器按上传字节投影，本体资产图与描述都不参与。
+    新内容版本按全局存储选择保存（``formal_commit``），远端没有确认保存时不发布新版本。
     ``on_commit`` 在同一次提交的最后收到新选中的内容版本，抛错时整次提交回滚；
     导入供应商素材在这里记录关联。
     """
@@ -321,7 +328,8 @@ async def commit_manual_derivative_upload(
         return version
 
     try:
-        return await run_noninterruptible_sync(_commit)
+        async with formal_commit(project_name):
+            return await run_noninterruptible_sync(_commit)
     finally:
         await asyncio.to_thread(staged_image.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
 

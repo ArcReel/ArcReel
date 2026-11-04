@@ -320,6 +320,7 @@ describe("ModelConfigSection", () => {
       },
       provider_names: {},
       model_names: {},
+      lifecycle: {},
     };
 
     function renderWithCandidates(
@@ -371,6 +372,35 @@ describe("ModelConfigSection", () => {
       await user.click(screen.getByRole("combobox", { name: "图生视频" }));
       expect(await screen.findByRole("option", { name: /veo-3/ })).toBeInTheDocument();
       expect(screen.queryByRole("option", { name: /seedance/ })).not.toBeInTheDocument();
+    });
+
+    it("switches only the bucket reference whose model is retiring, to the successor that qualifies for that bucket", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      renderWithCandidates({
+        value: { ...EMPTY_VALUE, videoBackend: "ark/seedance", videoProviderR2V: "ark/seedance" },
+        onChange,
+        candidates: {
+          ...CANDIDATES,
+          lifecycle: {
+            "ark/seedance": {
+              status: "retiring",
+              shutdown_date: "2026-11-24",
+              successor: "bytedance/seedance-2",
+              successor_name: "Seedance 2",
+              // 后继只够格参考生视频这一处
+              switch_targets: { default: null, i2v: null, r2v: "ark/seedance-2" },
+            },
+          },
+        },
+      });
+
+      expect(screen.getAllByText(/即将下线（2026-11-24），官方建议改用/)).toHaveLength(2);
+      await user.click(screen.getByRole("button", { name: "切换到 seedance-2" }));
+
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ videoBackend: "ark/seedance", videoProviderR2V: "ark/seedance-2" }),
+      );
     });
 
     it("lets the project default model win over every global layer in the placeholder", async () => {
@@ -1317,6 +1347,7 @@ describe("音频开关的模型可控性", () => {
       },
       provider_names: {},
       model_names: {},
+      lifecycle: {},
     };
 
     function renderDropdowns(usesReferenceImages: boolean) {

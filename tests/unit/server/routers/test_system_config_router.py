@@ -102,7 +102,7 @@ def _make_mock_svc(
                     capabilities=catalog.provider_capabilities(name),
                     required_keys=list(meta.required_keys),
                     credential_count=1 if name in ready else 0,
-                    # 没有内置供应商模型状态行的实例：条目已下架的模型为停用
+                    # 没有内置供应商模型状态行的实例：条目已下线的模型为停用
                     disabled_models=disabled_without_state(name),
                 )
             )
@@ -196,7 +196,7 @@ class TestGetSystemConfig:
         assert options["audio_backends"] == []
 
     def test_options_exclude_hidden_models(self, monkeypatch):
-        """已下架条目的模型「从下拉剔除、条目保留供算价」，options 是那个下拉。"""
+        """已下线条目的模型「从下拉剔除、条目保留供算价」，options 是那个下拉。"""
         from lib.catalog.query import factory_snapshot
         from tests.catalog_support import install_catalog, with_entry_changes
 

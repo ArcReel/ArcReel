@@ -42,7 +42,7 @@ def match_entry(
     按名字查时，只看与 ``media_type`` 一致的条目（不给则不限），取命中最靠前的一档：精确的官方模型名、
     精确的模型别名、归一化的官方模型名、归一化的模型别名。一个名字同时命中同一媒体类型下的多个条目时按
     目录顺序取第一个；命中的是不同媒体类型的条目（两栖模型）而没有给 ``media_type`` 时无法选择，返回
-    ``None``，由调用方先确定媒体类型。已下架的条目照常对应。
+    ``None``，由调用方先确定媒体类型。已下线的条目照常对应。
     """
     candidates = [entry for entry in entries if media_type in (None, entry.media_type)]
     if binding is not None:

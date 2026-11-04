@@ -309,7 +309,7 @@ uv run uvicorn server.app:app --port 1241
 
 ### 项目 ZIP 与全站备份有什么区别？ {#project-zip-vs-full-backup}
 
-项目 ZIP 用于导入、迁移单个项目，可以选择仅导出当前版本或包含完整版本历史。它不包含全局供应商设置、登录配置、任务与费用记录、Agent 会话或 Agent 记忆。
+项目 ZIP 用于导入、迁移单个项目，可以选择仅导出当前版本或包含完整版本历史。它不包含全局供应商设置、登录配置、任务与费用记录、Agent 会话或 Agent 记忆。图片的可用供应商素材关联随项目 ZIP 带走，导入后的使用规则见[项目 ZIP 与供应商素材关联](./providers.md#asset-library-in-project-zip)。
 
 项目回收站不包含在项目 ZIP 中，完整数据根备份会保留其中的删除记录。项目回收站的用法见[文件视图与项目回收站](./files-and-trash.md)。
 

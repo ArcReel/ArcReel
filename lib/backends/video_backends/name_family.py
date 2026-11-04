@@ -80,6 +80,11 @@ class EntryBoundCapabilities:
 
     _catalog_entry: CatalogEntry | None = None
 
+    @property
+    def catalog_entry(self) -> CatalogEntry | None:
+        """装配时交给实例的条目；结算计量与能力、请求构造按它认定同一个模型（见 :func:`catalog_entry_of`）。"""
+        return self._catalog_entry
+
     def with_catalog_entry(self, entry: CatalogEntry | None) -> Self:
         """返回按 ``entry`` 认定通道能力的副本；客户端、凭证与模型等其余状态与本实例共用，不就地改写。"""
         clone = copy.copy(self)
@@ -89,3 +94,12 @@ class EntryBoundCapabilities:
 
     def _on_catalog_entry_changed(self) -> None:
         """构造时按模型名算好的派生状态在这里按新条目重算；没有这类状态时不用覆盖。"""
+
+
+def catalog_entry_of(backend: object) -> CatalogEntry | None:
+    """调用通道实例认定模型所按的条目：装配时交给它的条目；不按条目认定的通道（声明式、ComfyUI）为 ``None``。
+
+    结算计量按这个条目读名字族判定（如方舟的视频 token 与服务档、可灵的有声约束），与实例的能力和请求构造
+    同一个来源；提交前预估由调用方按同一规则取条目（内置取 ``provider_model_entry``，自定义取条目绑定）。
+    """
+    return getattr(backend, "catalog_entry", None)

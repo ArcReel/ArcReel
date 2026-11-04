@@ -16,8 +16,8 @@ from lib.artifacts.artifact_currency import (
 )
 from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ProjectArtifactManifestAdapter
 from lib.artifacts.artifact_planner import plan_artifact_target_state_by_gap_rule
+from lib.config.model_setting_keys import TEXT_BACKEND_SETTING_KEYS
 from lib.config.resolver import ConfigResolver
-from lib.config.retired_model_ids import TEXT_BACKEND_SETTING_KEYS
 from lib.edit_timeline import EditTimelineService
 from lib.infra.app_data_dir import app_data_dir
 from lib.infra.content_digest import sha256_file
@@ -59,7 +59,7 @@ async def test_schema_17_renamed_model_references_resolve_to_successors(db_facto
         **legacy,
         "default_image_backend": "gemini-aistudio/gemini-3.1-flash-image",
         "image_provider_i2i": "gemini-vertex/gemini-3-pro-image",
-        # 已下架而没有后继的模型原样保留，运行时报错由用户重新选择
+        # 已下线而没有后继的模型原样保留，运行时报错由用户重新选择
         "video_backend": "openai/sora-2",
         # 按旧 ID 存的分辨率跟到后继 ID 下；后继 ID 已有设置时以它为准，旧键原样留下
         "model_settings": {

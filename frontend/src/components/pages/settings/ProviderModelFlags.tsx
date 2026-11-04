@@ -4,18 +4,29 @@ import type { ProviderModelFlag } from "@/types";
 
 const FLAG_LABEL_KEY: Record<ProviderModelFlag, string> = {
   discontinued: "pm_flag_discontinued",
+  retiring: "pm_flag_retiring",
   unpriced: "pm_flag_unpriced",
   modified: "pm_flag_modified",
 };
 
 const FLAG_TONE: Record<ProviderModelFlag, string> = {
   discontinued: "border-destructive/50 text-destructive",
+  retiring: "border-warn/50 text-warn",
   unpriced: "border-warn/50 text-warn",
   modified: "border-border text-muted-foreground",
 };
 
-/** 模型的状态标记（已下架、未定价、已修改），列表行与 Sheet 标题共用。 */
-export function ProviderModelFlags({ flags }: { flags: ProviderModelFlag[] }) {
+/**
+ * 模型的状态标记（即将下线、已下线、未定价、已修改），列表行与 Sheet 标题共用。
+ * 「即将下线」写明关停日期，取自 `shutdownDate`。
+ */
+export function ProviderModelFlags({
+  flags,
+  shutdownDate = null,
+}: {
+  flags: ProviderModelFlag[];
+  shutdownDate?: string | null;
+}) {
   const { t } = useTranslation("dashboard");
   return flags.map((flag) => (
     <span
@@ -25,7 +36,7 @@ export function ProviderModelFlags({ flags }: { flags: ProviderModelFlag[] }) {
         FLAG_TONE[flag],
       )}
     >
-      {t(FLAG_LABEL_KEY[flag])}
+      {t(FLAG_LABEL_KEY[flag], { date: shutdownDate ?? "" })}
     </span>
   ));
 }

@@ -301,6 +301,29 @@ def idle_asset_library_ingest(monkeypatch):
     monkeypatch.setattr("server.app.start_asset_ingest", start_idle)
 
 
+@pytest.fixture(autouse=True)
+def idle_material_maintenance(monkeypatch):
+    """应用 lifespan 启动的远端素材维护循环换成空循环，理由同 ``idle_asset_library_ingest``。
+
+    结算、补偿删除与工作文件清理由 ``tests/integration/server/routers/test_remote_material_storage.py``
+    直接调用 ``lib.material`` 的入口覆盖。
+    """
+    from lib.material import maintenance
+
+    class _IdleMaintenance(maintenance.MaterialMaintenance):
+        async def _loop(self) -> None:
+            await asyncio.Event().wait()
+
+    def start_idle(
+        session_factory, projects_dir, deleted_projects_dir=None, data_root=None
+    ) -> maintenance.MaterialMaintenance:
+        runner = _IdleMaintenance(session_factory, projects_dir, deleted_projects_dir, data_root)
+        runner.start()
+        return runner
+
+    monkeypatch.setattr("server.app.start_material_maintenance", start_idle)
+
+
 #: 测试内主机名统一解析到的地址（TEST-NET-3，公网段、不可路由）。
 _OFFLINE_DNS_ADDRESS = "203.0.113.10"
 
