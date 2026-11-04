@@ -810,6 +810,7 @@ class ConfigResolver:
         payload: dict | None,
         *,
         generation_type: VideoGenerationType | None = None,
+        submitted_job: bool = False,
     ) -> ProviderModel:
         """解析视频任务应使用的 ProviderModel。
 
@@ -829,10 +830,15 @@ class ConfigResolver:
           model（**运行时有效身份**），无可用默认则抛 ``ValueError``。供不承诺能力的调用方
           （费用估算、限流路由兜底）使用。
 
+        ``submitted_job`` 为真表示续跑已提交给厂商的任务（只轮询厂商侧已存在的任务、不发起新的生成）：payload 必须锁定
+        执行身份，身份可用性校验不拦已下线的模型，其余校验照旧。只由续跑入口声明，新提交恒为假。
+
         provider id 不做归一化。只要字面配置结果（不经收敛）请改用 ``video_backend()``。
         """
         async with self._open_session() as (session, svc):
-            return await self._resolve_video_provider_model(svc, session, project, payload, generation_type)
+            return await self._resolve_video_provider_model(
+                svc, session, project, payload, generation_type, submitted_job=submitted_job
+            )
 
     async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str | None:
         """按 project.model_settings → legacy video_model_settings → 自定义供应商默认 → None。
@@ -1283,6 +1289,8 @@ class ConfigResolver:
         project: dict | None,
         payload: dict | None,
         generation_type: VideoGenerationType | None = None,
+        *,
+        submitted_job: bool = False,
     ) -> ProviderModel:
         """payload 优先解析视频 ProviderModel；无 payload 时按 ``generation_type`` 走桶骨架或不定桶骨架。
 
@@ -1290,14 +1298,22 @@ class ConfigResolver:
         ``_payload_video_pinned_pair``）：原样返回、不过能力闸，只过身份可用性
         （``_ensure_video_identity_resolvable``），悬空即报错。锁定形态不丢弃不可信供应商——
         供应商已下线时回退等于换供应商执行。各层语义见 ``resolve_video_backend`` docstring。
+
+        ``submitted_job`` 只作用于锁定身份：续跑的身份来自提交时冻结的检查点，没有锁定身份时说明调用方不是续跑，
+        直接报错，不让豁免落到按当前配置解析出的身份上。
         """
-        if payload:
-            pinned = _payload_video_pinned_pair(payload, generation_type)
-            if pinned is not None:
-                pinned_generation_type, pair = pinned
-                selected = ProviderModel(*pair)
-                await self._ensure_video_identity_resolvable(session, selected, pinned_generation_type)
-                return selected
+        pinned = _payload_video_pinned_pair(payload, generation_type) if payload else None
+        if pinned is not None:
+            pinned_generation_type, pair = pinned
+            selected = ProviderModel(*pair)
+            await self._ensure_video_identity_resolvable(
+                session, selected, pinned_generation_type, submitted_job=submitted_job
+            )
+            return selected
+        if submitted_job:
+            raise ValueError(
+                "续跑已提交的视频任务须在 payload 里锁定提交时的执行身份（video_provider_<generation_type>）"
+            )
         if generation_type is None:
             provider_id, model_id = await self._resolve_layered_backend(
                 svc, session, project, _VIDEO_DEFAULT_LAYERED_KEYS
@@ -1315,6 +1331,8 @@ class ConfigResolver:
         session: AsyncSession,
         selected: ProviderModel,
         generation_type: VideoGenerationType,
+        *,
+        submitted_job: bool = False,
     ) -> CustomProviderModel | None:
         """校验视频身份现在仍解析得到，悬空即报错。
 
@@ -1326,10 +1344,15 @@ class ConfigResolver:
 
         backend caps 函数不都校验 model 存在性、也不都校验 media_type（部分 provider 对任意 model id
         返回静态能力，同一 provider 的图片模型也会拿到 first_frame=True），故身份需单独判。
+
+        ``submitted_job`` 为真（续跑已提交给厂商的任务）时不拦已下线的模型，其余判定不变。
         """
         provider_id, model_id = selected.provider_id, selected.model_id
         if not is_custom_provider(provider_id):
-            catalog.require_callable(provider_id, model_id, "video")
+            if submitted_job:
+                catalog.require_listed(provider_id, model_id, "video")
+            else:
+                catalog.require_callable(provider_id, model_id, "video")
             return None
 
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
@@ -1341,7 +1364,12 @@ class ConfigResolver:
         except ValueError as exc:
             raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
         model = await requested_model(
-            session, provider_id=provider_id, db_id=db_pid, model_id=model_id, media_type="video"
+            session,
+            provider_id=provider_id,
+            db_id=db_pid,
+            model_id=model_id,
+            media_type="video",
+            submitted_job=submitted_job,
         )
         if model is None:
             raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id)

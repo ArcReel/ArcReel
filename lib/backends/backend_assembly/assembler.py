@@ -46,11 +46,15 @@ async def assemble_backend(
     resolver: ConfigResolver,
     rate_limiter: Any | None = None,
     generation_type: str | None = None,
+    submitted_job: bool = False,
 ) -> Any:
     """统一构造入口。按 provider_id 是否自定义分流；未登记的内置 provider × media fail-loud。
 
     ``generation_type`` 是调用点所属的任务类型桶，只在自定义侧消费（默认模型按桶分槽，见
     ``lib.custom_provider.loader.load_custom_backend``）；内置侧的 model 由 registry 定，不分桶。
+
+    ``submitted_job`` 为真表示构造出的 backend 只用于续跑已提交给厂商的任务（只轮询、不发起新的生成）：模型已下线
+    也照常构造，其余检查不变。新调用恒为假。
     """
     if is_custom_provider(provider_id):
         from lib.custom_provider.loader import load_custom_backend
@@ -64,9 +68,10 @@ async def assemble_backend(
                 model_id=model_id,
                 media_type=media_type,
                 generation_type=generation_type,
+                submitted_job=submitted_job,
             )
     spec = get_provider_spec(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
-    model_id = _callable_builtin_model(provider_id, media_type, model_id)
+    model_id = _callable_builtin_model(provider_id, media_type, model_id, submitted_job=submitted_job)
     config = await _load_builtin_config(resolver, provider_id, rate_limiter)
     # 构造闭包可能读凭证文件（Vertex 服务账号 JSON），放线程里跑，不阻塞事件循环。工作线程里没有事件循环，
     # backend 构造时不能创建要求事件循环的 SDK 客户端（xai_sdk.AsyncClient 的做法见 grok_shared.LazyGrokClient）。
@@ -83,6 +88,7 @@ async def callable_model_key(
     model_id: str | None,
     resolver: ConfigResolver,
     generation_type: str | None = None,
+    submitted_job: bool = False,
 ) -> str | None:
     """复用 backend 实例前的调用检查：按今天的生命周期确认这次调用的模型可以调用，返回实例缓存用的模型键。
 
@@ -93,6 +99,9 @@ async def callable_model_key(
     - 自定义供应商：按装载同一条规则（``lib.custom_provider.loader.select_custom_model``）定下模型行，显式引用的模型已下线、
       或回退后没有未下线的默认模型时同样报错；``model_id`` 原样返回（默认模型按任务类型桶分槽，键里另有桶）。
     - 未登记的供应商原样返回，由装配报错。
+
+    ``submitted_job`` 为真（续跑已提交给厂商的任务，见 :func:`assemble_backend`）时不拦已下线的模型，其余照旧。
+    续跑写入缓存的实例可能是已下线模型的实例，之后的新调用取缓存前不带这一声明，照常被拦下。
     """
     if is_custom_provider(provider_id):
         from lib.custom_provider.loader import select_custom_model
@@ -104,6 +113,7 @@ async def callable_model_key(
                 model_id=model_id,
                 media_type=media_type,
                 generation_type=generation_type,
+                submitted_job=submitted_job,
             )
         return model_id
     if provider_id not in PROVIDER_REGISTRY:
@@ -112,24 +122,31 @@ async def callable_model_key(
         model_id = catalog.default_model(provider_id, media_type)
         if model_id is None:
             raise ModelNotInCatalogError(provider_id=provider_id, model_id="", media_type=media_type)
-    catalog.reject_discontinued(provider_id, model_id, media_type)
+    if not submitted_job:
+        catalog.reject_discontinued(provider_id, model_id, media_type)
     return model_id
 
 
-def _callable_builtin_model(provider_id: str, media_type: str, model_id: str | None) -> str:
+def _callable_builtin_model(
+    provider_id: str, media_type: str, model_id: str | None, *, submitted_job: bool = False
+) -> str:
     """内置供应商这次调用实际使用的模型键，按今天的生命周期检查过可以调用。
 
     默认模型只来自模型目录：``model_id`` 为 ``None`` 时取该供应商在这个媒体类型下的默认模型；目录没有可用的默认模型
     （没有指定、已下线或低于最低应用版本）时抛 ``ModelNotInCatalogError``，不落到 backend 构造函数里写死的模型名。
     模型已下线抛 ``ModelDiscontinuedError``，不在清单里抛 ``ModelNotInCatalogError``（见
     :func:`lib.catalog.query.require_callable`）。生命周期按当天日期判定，复用 backend 实例的调用方取缓存前另行检查
-    （``server.services.tasks.generation_context``）。
+    （``server.services.tasks.generation_context``）。``submitted_job`` 为真（续跑已提交的任务）时只查是否在清单里
+    （:func:`lib.catalog.query.require_listed`）。
     """
     if model_id is None:
         model_id = catalog.default_model(provider_id, media_type)
         if model_id is None:
             raise ModelNotInCatalogError(provider_id=provider_id, model_id="", media_type=media_type)
-    catalog.require_callable(provider_id, model_id, media_type)
+    if submitted_job:
+        catalog.require_listed(provider_id, model_id, media_type)
+    else:
+        catalog.require_callable(provider_id, model_id, media_type)
     return model_id
 
 

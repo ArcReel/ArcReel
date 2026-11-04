@@ -482,6 +482,15 @@ def require_callable(provider_id: str, model_id: str, media_type: str) -> Catalo
     其余抛 :class:`ModelNotInCatalogError`，由用户重新选择，不回落到别的模型。
     """
     reject_discontinued(provider_id, model_id, media_type)
+    return require_listed(provider_id, model_id, media_type)
+
+
+def require_listed(provider_id: str, model_id: str, media_type: str) -> CatalogModel:
+    """内置供应商模型在该供应商这一媒体类型的清单里时返回它的目录信息，否则抛 :class:`ModelNotInCatalogError`；不看生命周期。
+
+    供续跑已提交给厂商的任务使用：只轮询厂商侧已存在的任务、不发起新调用，模型已下线也照常取回结果。新调用一律经
+    :func:`require_callable`。
+    """
     indexed = _indexed_model(provider_id, model_id, media_type)
     if indexed is None:
         raise ModelNotInCatalogError(provider_id=provider_id, model_id=model_id, media_type=media_type)

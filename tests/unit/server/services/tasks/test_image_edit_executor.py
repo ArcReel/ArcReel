@@ -988,7 +988,9 @@ class TestImageSizeResolutionEquivalence:
         (pm.projects_dir / "demo").mkdir(parents=True)
         use_project_manager(monkeypatch, pm)
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             return _EchoBackend(name=provider_id, model=model_id or "default-model")
 
         use_backend_assembler(monkeypatch, _assemble)

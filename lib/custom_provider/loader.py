@@ -48,6 +48,7 @@ async def select_custom_model(
     model_id: str | None,
     media_type: str,
     generation_type: str | None = None,
+    submitted_job: bool = False,
 ) -> tuple[CustomProvider, CustomProviderModel]:
     """这次调用实际使用的自定义供应商与模型行，不构造 backend。
 
@@ -59,8 +60,11 @@ async def select_custom_model(
     与 i2i 各有一个默认），带桶才挑得出唯一那一行，见 ``lib.custom_provider.default_models``。
     调用点不承诺桶时传 None、不过滤。
 
+    ``submitted_job`` 为真表示续跑已提交给厂商的任务（只轮询、不发起新的生成）：请求 model 已下线也照常使用
+    （``lib.custom_provider.default_models.requested_model``）。
+
     Raises:
-        ModelDiscontinuedError: 请求 model 所对应的条目已下线。
+        ModelDiscontinuedError: 请求 model 所对应的条目已下线（``submitted_job`` 为假时）。
         ValueError: provider 不存在，或该 media_type × 桶上未下线的默认启用 model 不唯一（零个或多个）。
     """
     db_id = parse_provider_id(provider_id)
@@ -70,7 +74,12 @@ async def select_custom_model(
 
     if model_id:
         model = await requested_model(
-            session, provider_id=provider_id, db_id=db_id, model_id=model_id, media_type=media_type
+            session,
+            provider_id=provider_id,
+            db_id=db_id,
+            model_id=model_id,
+            media_type=media_type,
+            submitted_job=submitted_job,
         )
         if model is not None:
             return provider, model
@@ -97,14 +106,15 @@ async def load_custom_backend(
     model_id: str | None,
     media_type: str,
     generation_type: str | None = None,
+    submitted_job: bool = False,
 ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend:
     """装载并构造自定义供应商 backend：按 :func:`select_custom_model` 定下供应商与模型行，再委托工厂构造。
 
     media_type 用于校验请求 model 的 endpoint 是否相符、以及回退默认时分组；实际派发以 model.endpoint
-    为准。
+    为准。``submitted_job`` 的含义同 :func:`select_custom_model`。
 
     Raises:
-        ModelDiscontinuedError: 请求 model 所对应的条目已下线。
+        ModelDiscontinuedError: 请求 model 所对应的条目已下线（``submitted_job`` 为假时）。
         ValueError: provider 不存在，或该 media_type × 桶上未下线的默认启用 model 不唯一（零个或多个）。
     """
     from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
@@ -115,6 +125,7 @@ async def load_custom_backend(
         model_id=model_id,
         media_type=media_type,
         generation_type=generation_type,
+        submitted_job=submitted_job,
     )
     spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
     return create_custom_backend(
