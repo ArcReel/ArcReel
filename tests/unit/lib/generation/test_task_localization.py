@@ -49,17 +49,17 @@ class TestWarningRendering:
         assert "sora" in en[0]
 
     def test_warning_without_params_renders(self):
-        task = _task(result={"warnings": [{"key": "ref_sora_single_ref", "params": {}}]})
+        task = _task(result={"warnings": [{"key": "ref_payload_too_large", "params": {}}]})
 
         rendered = _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]["warnings"]
 
-        assert rendered == ["Sora 参考生视频暂不支持多图，已降级为单图"]
+        assert rendered == ["参考图请求体超出供应商限制，已二次压缩重试"]
 
     def test_multiple_warnings_keep_order(self):
         task = _task(
             result={
                 "warnings": [
-                    {"key": "ref_sora_single_ref", "params": {}},
+                    {"key": "ref_payload_too_large", "params": {}},
                     {"key": "ref_too_many_images", "params": {"count": 8, "model": "viduq2", "max_count": 7}},
                 ]
             }
@@ -68,23 +68,23 @@ class TestWarningRendering:
         rendered = _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]["warnings"]
 
         assert len(rendered) == 2
-        assert rendered[0].startswith("Sora")
+        assert rendered[0].startswith("参考图请求体")
         assert rendered[1].startswith("参考图数量 8")
 
     def test_input_task_is_not_mutated(self):
-        warnings = [{"key": "ref_sora_single_ref", "params": {}}]
+        warnings = [{"key": "ref_payload_too_large", "params": {}}]
         task = _task(result={"warnings": warnings})
 
         _localize_task(task, _translator("en"), make_display_names("en"))
 
         assert task["result"]["warnings"] is warnings
-        assert warnings[0] == {"key": "ref_sora_single_ref", "params": {}}
+        assert warnings[0] == {"key": "ref_payload_too_large", "params": {}}
 
     def test_error_message_and_warnings_render_together(self):
         task = _task(
             status="failed",
             error_message=encode_failure("provider_unsupported_media", provider_id="grok", media_type="image"),
-            result={"warnings": [{"key": "ref_sora_single_ref", "params": {}}]},
+            result={"warnings": [{"key": "ref_payload_too_large", "params": {}}]},
         )
 
         localized = _localize_task(task, _translator("zh"), make_display_names("zh"))
@@ -92,7 +92,7 @@ class TestWarningRendering:
         assert not localized["error_message"].startswith("[")
         assert localized["error_code"] == "provider_unsupported_media"
         assert localized["error_params"] == {"provider_id": "grok", "media_type": "image"}
-        assert localized["result"]["warnings"] == ["Sora 参考生视频暂不支持多图，已降级为单图"]
+        assert localized["result"]["warnings"] == ["参考图请求体超出供应商限制，已二次压缩重试"]
 
     def test_projection_failure_keeps_machine_details_while_message_tracks_locale(self):
         task = _task(
@@ -220,15 +220,15 @@ class TestWarningPassthroughAndTolerance:
                     "already a string",
                     {"params": {"x": 1}},
                     {"key": 42},
-                    {"key": "ref_sora_single_ref", "params": "not a dict"},
-                    {"key": "ref_sora_single_ref", "params": {"locale": "en"}},
+                    {"key": "ref_payload_too_large", "params": "not a dict"},
+                    {"key": "ref_payload_too_large", "params": {"locale": "en"}},
                 ]
             }
         )
 
         rendered = _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]["warnings"]
 
-        assert rendered == ["Sora 参考生视频暂不支持多图，已降级为单图"]
+        assert rendered == ["参考图请求体超出供应商限制，已二次压缩重试"]
 
     def test_non_list_warnings_become_empty_list(self):
         task = _task(result={"warnings": "boom"})
@@ -255,7 +255,7 @@ class TestWarningPassthroughAndTolerance:
             result={
                 "version": 3,
                 "file_path": "reference_videos/E1U1.mp4",
-                "warnings": [{"key": "ref_sora_single_ref", "params": {}}],
+                "warnings": [{"key": "ref_payload_too_large", "params": {}}],
             }
         )
 
@@ -263,3 +263,11 @@ class TestWarningPassthroughAndTolerance:
 
         assert result["version"] == 3
         assert result["file_path"] == "reference_videos/E1U1.mp4"
+
+
+def test_legacy_single_ref_warning_key_still_localizes():
+    task = _task(result={"warnings": [{"key": "ref_sora_single_ref", "params": {}}]})
+
+    rendered = _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]["warnings"]
+
+    assert rendered == ["该模型只接受一张参考图，已取第一张"]

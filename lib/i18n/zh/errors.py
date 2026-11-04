@@ -487,7 +487,9 @@ MESSAGES = {
     "ref_too_many_images": "参考图数量 {count} 超出 {model} 上限 {max_count}，已取前 {max_count} 张",
     "ref_payload_too_large": "参考图请求体超出供应商限制，已二次压缩重试",
     "ref_payload_floor_exceeded": "参考图过大或过多，压缩到最低画质仍超出供应商请求体上限，请减少参考图数量或降低分辨率后重试",
-    "ref_sora_single_ref": "Sora 参考生视频暂不支持多图，已降级为单图",
+    # 兼容键：只用于读取历史任务结果，新代码不再产出（改用 ref_single_ref_only）。
+    "ref_sora_single_ref": "该模型只接受一张参考图，已取第一张",
+    "ref_single_ref_only": "{model} 只接受一张参考图，已取第一张",
     "ref_episode_not_found": "集（id={episode}）不存在",
     "ref_not_reference_video_mode": "该集脚本不是参考生视频",
     "ref_unit_not_found": "视频单元「{unit_id}」不存在",
