@@ -17,7 +17,7 @@ export default {
   "label.skeleton_scenes": 'Сцена «{{id}}»',
   "label.skeleton_shots": 'Кадр «{{id}}»',
   "label.skeleton_video_units": 'Видеофрагмент «{{id}}»',
-  "label.narration_audio": 'Закадровый текст «{{id}}»',
+  "label.narration_audio": 'Закадровая озвучка «{{id}}»',
   "label.named_entity_character": 'Персонаж «{{id}}»',
   "label.named_entity_scene": 'Сцена «{{id}}»',
   "label.named_entity_prop": 'Реквизит «{{id}}»',
@@ -53,7 +53,7 @@ export default {
   "noun.storyboard_image": 'изображения раскадровки',
   "noun.video": 'видео',
   "noun.grid": 'многопанельные раскадровки',
-  "noun.narration_audio": 'закадровый текст',
+  "noun.narration_audio": 'закадровые озвучки',
   "noun.voice_sample": 'образцы голоса',
 
   "single.storyboard_ready": 'Изображение раскадровки готово: {{label}}',
