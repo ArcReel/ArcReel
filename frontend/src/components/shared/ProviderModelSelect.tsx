@@ -58,14 +58,28 @@ interface ProviderModelSelectProps {
    * 不作视频/图像/文本假设，具体展示逻辑由调用方决定。
    */
   renderOptionMeta?: (fullValue: string) => React.ReactNode;
+  /**
+   * 不在 `options` 里、但用户可能来这里找的模型，连同不能选的原因（已 t()）。列在下拉末尾的一组，
+   * 不能选中，原因写在选项行下方；搜索同样作用于它们。为空或省略即不渲染这一组。
+   */
+  unavailable?: UnavailableOption[];
+  /** `unavailable` 那一组的组标题（已 t()）。 */
+  unavailableLabel?: string;
+}
+
+export interface UnavailableOption {
+  value: string; // "provider/model"
+  reason: string;
 }
 
 /** 下拉里的一组：默认项单独成组（没有组标题），其余按供应商分组。 */
 // 用 type 而非 interface：Combobox 的分组类型带索引签名，interface 不能赋给它。
 type OptionGroup = {
-  /** 供应商 id；默认项组为 null。 */
+  /** 供应商 id；默认项组与不能选的那一组为 null。 */
   provider: string | null;
   items: string[];
+  /** 不能选的那一组（`unavailable`）。 */
+  unavailable?: boolean;
 };
 
 function groupByProvider(options: string[]): OptionGroup[] {
@@ -81,6 +95,11 @@ function groupByProvider(options: string[]): OptionGroup[] {
 
 function modelIdOf(fullValue: string): string {
   return fullValue.slice(fullValue.indexOf("/") + 1);
+}
+
+function providerOf(fullValue: string): string {
+  const idx = fullValue.indexOf("/");
+  return idx === -1 ? fullValue : fullValue.slice(0, idx);
 }
 
 export function ProviderModelSelect({
@@ -101,6 +120,8 @@ export function ProviderModelSelect({
   searchable = true,
   searchThreshold = 6,
   renderOptionMeta,
+  unavailable,
+  unavailableLabel,
 }: ProviderModelSelectProps) {
   const { t } = useTranslation("dashboard");
   const [query, setQuery] = useState("");
@@ -110,33 +131,47 @@ export function ProviderModelSelect({
   const activeQuery = showSearch ? query.trim().toLowerCase() : "";
 
   const groups = useMemo(() => groupByProvider(options), [options]);
+  const unavailableReasons = useMemo(
+    () => new Map((unavailable ?? []).map((item) => [item.value, item.reason])),
+    [unavailable],
+  );
+  const unavailableGroup = useMemo<OptionGroup[]>(
+    () => (unavailableReasons.size > 0 ? [{ provider: null, items: [...unavailableReasons.keys()], unavailable: true }] : []),
+    [unavailableReasons],
+  );
 
   // 供应商名命中时保留该供应商的全部模型；否则按 model id 与译名逐项匹配——译名生效后按 id
   // 搜索仍要命中（id 是用户在文档 / 供应商控制台里见到的那一串），反之按中文名搜也要能找到。
   // 有查询时不显示默认项：它不是一个模型，混在结果里会被误当成匹配项。
+  // 不能选的那一组没有统一的供应商，逐项按供应商名、model id 与译名匹配。
   const filteredGroups = useMemo(() => {
     const defaultGroup: OptionGroup[] = allowDefault && !activeQuery ? [{ provider: null, items: [""] }] : [];
-    if (!activeQuery) return [...defaultGroup, ...groups];
+    if (!activeQuery) return [...defaultGroup, ...groups, ...unavailableGroup];
+    const providerMatches = (provider: string) => (providerNames[provider] || provider).toLowerCase().includes(activeQuery);
+    const modelMatches = (item: string) => {
+      if (modelIdOf(item).toLowerCase().includes(activeQuery)) return true;
+      const label = modelNames?.[item];
+      return !!label && label.toLowerCase().includes(activeQuery);
+    };
     const out: OptionGroup[] = [];
     for (const group of groups) {
-      const providerLabel = (providerNames[group.provider!] || group.provider!).toLowerCase();
-      if (providerLabel.includes(activeQuery)) {
+      if (providerMatches(group.provider!)) {
         out.push(group);
         continue;
       }
-      const items = group.items.filter((item) => {
-        if (modelIdOf(item).toLowerCase().includes(activeQuery)) return true;
-        const label = modelNames?.[item];
-        return !!label && label.toLowerCase().includes(activeQuery);
-      });
+      const items = group.items.filter(modelMatches);
+      if (items.length > 0) out.push({ ...group, items });
+    }
+    for (const group of unavailableGroup) {
+      const items = group.items.filter((item) => providerMatches(providerOf(item)) || modelMatches(item));
       if (items.length > 0) out.push({ ...group, items });
     }
     return out;
-  }, [allowDefault, activeQuery, groups, providerNames, modelNames]);
+  }, [allowDefault, activeQuery, groups, unavailableGroup, providerNames, modelNames]);
 
   const allGroups = useMemo<OptionGroup[]>(
-    () => (allowDefault ? [{ provider: null, items: [""] }, ...groups] : groups),
-    [allowDefault, groups],
+    () => [...(allowDefault ? [{ provider: null, items: [""] }] : []), ...groups, ...unavailableGroup],
+    [allowDefault, groups, unavailableGroup],
   );
 
   // 配置值也可以是不带 model 的裸 provider id（下游按该供应商默认模型执行）。按 "provider/model"
@@ -195,7 +230,8 @@ export function ProviderModelSelect({
         <ComboboxEmpty>{t("no_models_match")}</ComboboxEmpty>
         <ComboboxList>
           {(group: OptionGroup) => (
-            <ComboboxGroup key={group.provider ?? ""} items={group.items}>
+            <ComboboxGroup key={group.unavailable ? "\0unavailable" : (group.provider ?? "")} items={group.items}>
+              {group.unavailable && unavailableLabel && <ComboboxLabel>{unavailableLabel}</ComboboxLabel>}
               {group.provider !== null && (
                 <ComboboxLabel>
                   <span className="flex items-center gap-1.5">
@@ -206,7 +242,15 @@ export function ProviderModelSelect({
               )}
               <ComboboxCollection>
                 {(item: string) =>
-                  item === "" ? (
+                  group.unavailable ? (
+                    <ModelOption
+                      key={item}
+                      value={item}
+                      label={describe(item)}
+                      meta={unavailableReasons.get(item)}
+                      disabled
+                    />
+                  ) : item === "" ? (
                     <ComboboxItem key="" value="">
                       <span className="min-w-0 flex-1 truncate">{defaultLabel ?? t("follow_global_default")}</span>
                       {defaultHint && <span className="shrink-0 text-xs text-muted-foreground">{defaultHint}</span>}
@@ -229,10 +273,20 @@ export function ProviderModelSelect({
   );
 }
 
-function ModelOption({ value, label, meta }: { value: string; label: string; meta: React.ReactNode }) {
+function ModelOption({
+  value,
+  label,
+  meta,
+  disabled,
+}: {
+  value: string;
+  label: string;
+  meta: React.ReactNode;
+  disabled?: boolean;
+}) {
   const modelId = modelIdOf(value);
   return (
-    <ComboboxItem value={value} className="items-start">
+    <ComboboxItem value={value} disabled={disabled} className="items-start">
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate">{label}</span>
         {/* 译名与 id 不同才补 id 行：品牌名类模型（译名 = id）补一行等于重复。 */}

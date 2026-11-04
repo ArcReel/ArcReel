@@ -378,3 +378,25 @@ describe("ProviderModelSelect – model display names", () => {
     expect(screen.getAllByRole("option").map((el) => el.textContent)).toEqual(["即梦jimeng"]);
   });
 });
+
+describe("ProviderModelSelect – unavailable options", () => {
+  it("searches the unavailable group by provider and model like the selectable ones", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderModelSelect
+        value=""
+        options={["gemini-aistudio/veo-3.1-generate-001"]}
+        providerNames={PROVIDER_NAMES}
+        onChange={() => {}}
+        searchThreshold={1}
+        unavailable={[{ value: "ark/seedance", reason: "不接受首帧" }]}
+        unavailableLabel="不能用于图生视频"
+      />,
+    );
+    await open(user);
+    await user.type(screen.getByPlaceholderText(/搜索模型或供应商/), "ark");
+    const visible = screen.getAllByRole("option");
+    expect(visible).toHaveLength(1);
+    expect(visible[0]).toHaveTextContent(/Ark · seedance.*不接受首帧/);
+  });
+});
