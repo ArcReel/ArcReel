@@ -385,6 +385,7 @@ export default {
   'problem_video_capability_missing_t2v': 'Выбранная модель видео не поддерживает генерацию видео из текста; нужно изображение первого кадра.',
   'problem_video_capability_reference_unavailable': 'Модель видео, выбранная в настройках, больше недоступна.',
   'problem_model_not_in_provider_catalog': 'Модели, выбранной в настройках, больше нет в списке моделей провайдера.',
+  'problem_model_discontinued': 'Модель, выбранная в настройках, снята с поддержки.',
   'problem_generation_dependency_failed': 'Фрагмент, от которого зависит этот, в том же пакете не сгенерировался, поэтому этот фрагмент не отправлен.',
   'problem_fallback_retry': 'Последняя попытка не удалась.',
   'problem_fallback_fix_input': 'Содержимое этого фрагмента нужно изменить, прежде чем генерировать.',
