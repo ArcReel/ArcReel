@@ -355,7 +355,7 @@ function ModelSheetForm({
 
   const multiplier = parseMultiplier(draft.multiplierText);
   // 官方收录的模型也展示生效能力，只读；用户负责的模型可以修改 editable 里的维度
-  const showCapabilities = detail.capabilities.editable.length > 0 || Object.keys(detail.capabilities.base).length > 0;
+  const showCapabilities = detail.capabilities.displayed.length > 0;
   const capabilitiesHint = endpointChanged
     ? t("pm_sheet_capabilities_endpoint_changed")
     : official

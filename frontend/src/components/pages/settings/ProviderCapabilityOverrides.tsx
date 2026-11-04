@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { cn } from "cn";
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,7 +11,6 @@ import type { CapabilityKey, CapabilityOverrides, ProviderModelCapabilities } fr
 import { DurationParseError, compactRangeFormat, parseDurationInput } from "@/utils/duration_format";
 import {
   BOOL_KEYS,
-  CAPABILITY_KEY_ORDER,
   ENUM_OPTIONS,
   asConstraints,
   capabilityValueText,
@@ -76,14 +76,17 @@ export function ProviderCapabilityOverrides({ capabilities, value, onChange, onV
   const editable = new Set(capabilities.editable);
   return (
     <ul className="flex flex-col divide-y divide-border/60 rounded-lg border border-border">
-      {displayedKeys(capabilities).map((key) => {
+      {capabilities.displayed.map((key) => {
         const label = t(`pm_cap_${key}`);
         if (!editable.has(key)) {
           return (
             <li key={key} className={cn("flex items-center gap-2 px-3 py-2", key === "duration_constraints" && "pl-6")}>
               <span className="w-36 shrink-0 text-sm">{label}</span>
-              <span className="min-w-0 flex-1 truncate text-sm text-subtle-foreground">
-                {capabilityValueText(t, key, key in capabilities.effective ? capabilities.effective[key] : capabilities.base[key])}
+              <span className="min-w-0 flex-1">
+                <TruncatedText
+                  className="text-sm text-subtle-foreground"
+                  text={capabilityValueText(t, key, key in capabilities.effective ? capabilities.effective[key] : capabilities.base[key])}
+                />
               </span>
             </li>
           );
@@ -135,12 +138,6 @@ export function ProviderCapabilityOverrides({ capabilities, value, onChange, onV
       })}
     </ul>
   );
-}
-
-/** 要显示的维度：可以修改的与只读的，按界面顺序。 */
-function displayedKeys(capabilities: ProviderModelCapabilities): CapabilityKey[] {
-  const shown = new Set<string>([...capabilities.editable, ...Object.keys(capabilities.base)]);
-  return CAPABILITY_KEY_ORDER.filter((key) => shown.has(key));
 }
 
 /** 点「修改」时的起始值：原值；未收录的维度给一个可直接编辑的起点。 */

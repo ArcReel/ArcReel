@@ -102,6 +102,7 @@ class CapabilityView:
     - ``base``：每个维度的原值（没有能力覆盖时运行时采用的值），``None`` 表示未收录。
     - ``overrides``：生效的能力覆盖（稀疏）。
     - ``effective``：原值叠加覆盖后的生效值。
+    - ``displayed``：界面要显示的维度（``editable`` 与 ``base`` 的并集），按界面顺序。
     """
 
     media_type: str
@@ -112,6 +113,10 @@ class CapabilityView:
     @property
     def effective(self) -> dict[str, object]:
         return {**self.base, **self.overrides}
+
+    @property
+    def displayed(self) -> tuple[str, ...]:
+        return _ordered({*self.editable, *self.base})
 
 
 def overridable_keys(media_type: str) -> frozenset[str]:

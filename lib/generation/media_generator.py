@@ -712,8 +712,6 @@ class MediaGenerator:
         # 先归一化 reference_images，PIL 等不支持的类型在此被丢弃，
         # 因此 capability 判定要基于归一化后的结果，避免「传了无效引用图」被
         # 误判为 I2I 后又落到 T2I 调用，造成 image_capability_missing_i2i 误报。
-        from lib.backends.image_backends.base import ImageCapability, ImageCapabilityError
-
         ref_images: list[ReferenceImage] = []
         if reference_images:
             for ref in reference_images:
@@ -723,42 +721,15 @@ class MediaGenerator:
                     ref_images.append(ReferenceImage(path=str(ref)))
                 # PIL Image 等不支持的类型忽略
 
-        # Capability gating：调用通道实现了、且模型条目接受的才放行，与任务类型桶的候选同一个结果
-        # （lib.backends.image_capabilities）。上层 resolver 选桶时已按同一口径筛过，这里按实际请求形态把关。
-        from lib.backends.image_capabilities import backend_reference_image_limit, effective_image_capabilities
-        from lib.custom_provider import is_custom_provider
-        from lib.custom_provider.backends import CustomImageBackend
+        # Capability gating：调用通道实现了、且模型条目接受的才放行，与任务类型桶的候选同一个结果；参考图上限与
+        # 编排层裁剪读同一个生效值（lib.backends.image_capabilities）。上层 resolver 选桶时已按同一口径筛过，
+        # 这里按实际请求形态把关。
+        from lib.backends.image_capabilities import gate_image_request
 
         # 成对不变量保证 backend 非 None 时 provider_id 亦非 None。
-        provider_id = cast(str, self._image_provider_id)
-        if isinstance(self._image_backend, CustomImageBackend):
-            # 自定义供应商：工厂已按模型行注入模型事实一侧（条目 ⊕ 能力覆盖，ComfyUI 端点不加约束）。
-            available = self._image_backend.effective_capabilities
-        else:
-            available = effective_image_capabilities(
-                self._image_backend.capabilities,
-                model_id=self._image_backend.model,
-                builtin_provider=None if is_custom_provider(provider_id) else provider_id,
-            )
-        needed = ImageCapability.IMAGE_TO_IMAGE if ref_images else ImageCapability.TEXT_TO_IMAGE
-        # 参考图上限与编排层裁剪读同一个生效值：上限为 0 时同样不接受图生图；超出正数上限说明调用方没有按它裁剪，
-        # 不再交给后端静默截断。
-        reference_limit = (
-            await backend_reference_image_limit(self._image_backend, provider_id=provider_id) if ref_images else None
+        await gate_image_request(
+            self._image_backend, provider_id=cast(str, self._image_provider_id), reference_count=len(ref_images)
         )
-        if needed not in available or (reference_limit is not None and not reference_limit.accepts_input):
-            raise ImageCapabilityError(
-                "image_capability_missing_i2i"
-                if needed == ImageCapability.IMAGE_TO_IMAGE
-                else "image_capability_missing_t2i",
-                provider=self._image_backend.name,
-                model=self._image_backend.model,
-            )
-        bound = reference_limit.clamp_bound() if reference_limit is not None else None
-        if bound is not None and len(ref_images) > bound:
-            raise ImageCapabilityError(
-                "image_reference_images_exceeded", model=self._image_backend.model, limit=bound, count=len(ref_images)
-            )
 
         # 2. 记账括号：进入落 pending，成功以 call.success(result) 递交 backend 结果对象，
         #    Exception 自动翻 failed 后重抛，CancelledError 结算 cancelled 后重抛。

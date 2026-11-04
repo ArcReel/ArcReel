@@ -207,10 +207,12 @@ class AddProviderModelResponse(BaseModel):
 
 class CapabilityViewResponse(BaseModel):
     """「这个供应商支持的参数」：每个维度的原值（没有能力覆盖时运行时采用的值，``null`` 表示未收录）、生效的能力
-    覆盖与生效值。``editable`` 是可以修改的维度，按界面顺序；官方收录的模型为空。"""
+    覆盖与生效值。``editable`` 是可以修改的维度，按界面顺序；官方收录的模型为空。``displayed`` 是界面要显示的全部维度，
+    按界面顺序，不在 ``editable`` 里的只读。"""
 
     media_type: str
     editable: list[str]
+    displayed: list[str]
     base: dict[str, Any]
     overrides: dict[str, Any]
     effective: dict[str, Any]
@@ -689,10 +691,13 @@ async def remove_provider_model(
 
 def _capabilities_response(view: CapabilityView | None, media_type: str) -> CapabilityViewResponse:
     if view is None:
-        return CapabilityViewResponse(media_type=media_type, editable=[], base={}, overrides={}, effective={})
+        return CapabilityViewResponse(
+            media_type=media_type, editable=[], displayed=[], base={}, overrides={}, effective={}
+        )
     return CapabilityViewResponse(
         media_type=view.media_type,
         editable=list(view.editable),
+        displayed=list(view.displayed),
         base=view.base,
         overrides=view.overrides,
         effective=view.effective,
