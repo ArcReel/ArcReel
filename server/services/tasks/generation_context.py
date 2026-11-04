@@ -119,11 +119,16 @@ async def _get_or_create_backend(
     resolver: ConfigResolver,
     default_model: str | None,
     generation_type: str | None = None,
+    *,
+    submitted_job: bool = False,
 ) -> Any:
     """组 key + 提供 factory closure，缓存纪律统一委托 :class:`_BackendCache`。
 
     查缓存之前先定下这次调用的模型并按今天的生命周期检查（``callable_model_key``，内置与自定义供应商都查）：
     缓存的实例可能构造于关停日期之前，跨过关停日期后不能再经缓存调用已下线的模型，也不能沿用已下线的默认模型。
+
+    ``submitted_job`` 为真（续跑已提交给厂商的任务，见 :class:`VideoLaneRequest`）时查缓存前与构造时都不拦已下线的
+    模型。缓存键不含它：续跑写入的实例与新调用共用缓存，新调用取缓存前照样经 ``callable_model_key`` 检查。
     """
     effective_model = await callable_model_key(
         provider_id=provider_name,
@@ -131,6 +136,7 @@ async def _get_or_create_backend(
         model_id=provider_settings.get("model") or default_model or None,
         resolver=resolver,
         generation_type=generation_type,
+        submitted_job=submitted_job,
     )
 
     async def _factory() -> Any:
@@ -141,6 +147,7 @@ async def _get_or_create_backend(
             resolver=resolver,
             rate_limiter=rate_limiter,
             generation_type=generation_type,
+            submitted_job=submitted_job,
         )
 
     return await _backend_cache.get_or_create((media_type, provider_name, effective_model, generation_type), _factory)
@@ -152,14 +159,18 @@ async def _get_or_create_video_backend(
     resolver: ConfigResolver,
     *,
     default_video_model: str | None = None,
+    submitted_job: bool = False,
 ):
     """获取或创建 VideoBackend 实例（带缓存）。
 
     provider_name 可以是旧格式（gemini/seedance/grok）或新格式（gemini-aistudio/gemini-vertex）。
     通过 resolver 按需加载供应商配置。
     default_video_model: 全局默认视频模型，当 provider_settings 中无 model 时作为 fallback。
+    submitted_job: 续跑已提交给厂商的任务，见 :class:`VideoLaneRequest`。
     """
-    return await _get_or_create_backend("video", provider_name, provider_settings, resolver, default_video_model)
+    return await _get_or_create_backend(
+        "video", provider_name, provider_settings, resolver, default_video_model, submitted_job=submitted_job
+    )
 
 
 async def _get_or_create_image_backend(
@@ -228,10 +239,16 @@ class VideoLaneRequest:
 
     ``route`` 声明时 lane 附带该路线的执行侧视频请求事实（``docs/adr/0086``），能力只经它读取；
     未显式定桶时按项目生成模式定桶解析身份与求值。不声明路线的 lane（续跑按检查点排空）不求值能力。
+
+    ``submitted_job`` 声明这次解析只用于续跑已提交给厂商的任务：只向厂商轮询一个已经存在的任务、不发起新的生成，
+    所以身份解析与 backend 构造都不做下线检查，关停日期前提交的任务在关停后续跑仍能取回结果。payload 须锁定提交时
+    的执行身份。只由续跑入口（``server.services.tasks.resume_executor``）声明；新提交恒为假，入队后、提交给厂商之前
+    才跨过关停日期的任务照常报下线。
     """
 
     generation_type: VideoGenerationType | None = None
     route: VideoRoute | None = None
+    submitted_job: bool = False
 
 
 @dataclass(frozen=True)
@@ -414,12 +431,15 @@ async def resolve_generation_context(
             generation_type = video.generation_type
             if generation_type is None and video.route is not None:
                 generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
-            resolved = await r.resolve_video_backend(project, payload, generation_type=generation_type)
+            resolved = await r.resolve_video_backend(
+                project, payload, generation_type=generation_type, submitted_job=video.submitted_job
+            )
             video_backend = await _get_or_create_video_backend(
                 resolved.provider_id,
                 {},
                 r,
                 default_video_model=resolved.model_id or None,
+                submitted_job=video.submitted_job,
             )
             actual_model = video_backend.model
             request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None

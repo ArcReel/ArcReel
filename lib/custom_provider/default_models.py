@@ -46,16 +46,23 @@ def callable_models(models: list[CustomProviderModel], media_type: str) -> list[
 
 
 async def requested_model(
-    session: AsyncSession, *, provider_id: str, db_id: int, model_id: str, media_type: str
+    session: AsyncSession,
+    *,
+    provider_id: str,
+    db_id: int,
+    model_id: str,
+    media_type: str,
+    submitted_job: bool = False,
 ) -> CustomProviderModel | None:
     """请求的模型行可以直接用于 ``media_type`` 时返回该行；不存在、端点解析不出或媒体类型不符、已停用时返回 ``None``，
     由调用方回退该媒体类型（与桶）的默认模型。
 
     对应的条目已下线时抛 ``ModelDiscontinuedError``（带下线日期与后继），停用的也一样：显式引用了已下线的模型，
-    回退等于替用户换模型，报错让用户自己重新选择。
+    回退等于替用户换模型，报错让用户自己重新选择。``submitted_job`` 为真表示续跑已提交给厂商的任务（只轮询、
+    不发起新的生成），不做这项检查，其余判定不变。
 
     Raises:
-        ModelDiscontinuedError: 模型所对应的条目今天已下线。
+        ModelDiscontinuedError: 模型所对应的条目今天已下线（``submitted_job`` 为假时）。
     """
     model = await CustomProviderRepository(session).get_model_by_ids(db_id, model_id)
     if model is None:
@@ -66,9 +73,10 @@ async def requested_model(
         return None
     if endpoint_spec.media_type != media_type:
         return None
-    catalog.reject_discontinued_entry(
-        provider_id, model.model_id, media_type, model_entry(model.model_id, media_type, model.entry_binding)
-    )
+    if not submitted_job:
+        catalog.reject_discontinued_entry(
+            provider_id, model.model_id, media_type, model_entry(model.model_id, media_type, model.entry_binding)
+        )
     return model if model.is_enabled else None
 
 

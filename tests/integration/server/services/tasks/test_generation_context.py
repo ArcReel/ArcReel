@@ -105,7 +105,9 @@ def fake_assemble(monkeypatch):
     """替换 backend 构造缝：默认按请求原样回声身份，记录每次构造。"""
     calls: list[tuple[str, str, str | None]] = []
 
-    async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+    async def _assemble(
+        *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+    ):
         calls.append((provider_id, media_type, model_id))
         return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
@@ -283,7 +285,9 @@ class TestVideoLane:
     ):
         """续跑这类不声明路线的 lane 只交付身份：registry 之外的 model 也照常构造，不求值能力。"""
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
         use_backend_assembler(monkeypatch, _assemble)
@@ -312,7 +316,9 @@ class TestVideoLane:
     ):
         """声明路线的事实失败由执行器阻断，音频开关没有独立降级值。"""
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
         use_backend_assembler(monkeypatch, _assemble)
@@ -339,6 +345,18 @@ class TestVideoLane:
         )
         assert ctx.video.provider_model == ProviderModel("grok", grok_model)
 
+    async def test_submitted_job_requires_a_pinned_identity(self, patched_session_factory, project_env, fake_assemble):
+        """续跑的下线豁免只给提交时锁定的身份：没有锁定身份时不按当前配置解析，直接报错，也不构造 backend。"""
+        ark_model = _registry_video_model("ark")
+        with pytest.raises(ValueError, match="锁定提交时的执行身份"):
+            await resolve_generation_context(
+                "demo",
+                None,
+                project={"video_provider_i2v": f"ark/{ark_model}"},
+                video=VideoLaneRequest(generation_type="i2v", submitted_job=True),
+            )
+        assert fake_assemble == []
+
 
 class TestActualIdentityQueries:
     async def test_custom_model_fallback_queries_by_actual_model(
@@ -347,7 +365,9 @@ class TestActualIdentityQueries:
         """未声明路线的不定桶 lane 按默认启用模型解析分辨率。"""
         provider_id = await _seed_custom_video_provider(patched_session_factory)
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             # 模拟 load_custom_backend 的回退：请求 m-dead，实际构造出默认启用的 m-live
             return _FakeBackend(name=provider_id, model="m-live")
 
@@ -403,7 +423,9 @@ class TestVideoRequestFacts:
     async def test_unreadable_audio_settings_preserve_the_facts_failure(
         self, patched_session_factory, project_env, monkeypatch, db_engine, route
     ):
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             async with db_engine.begin() as connection:
                 await connection.run_sync(SystemSetting.__table__.drop)
             return _FakeBackend(name=provider_id, model=model_id)
@@ -492,7 +514,9 @@ class TestVideoRequestFacts:
             )
             await session.commit()
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             return _FakeBackend(name=provider_id, model="m-live")
 
         use_backend_assembler(monkeypatch, _assemble)
@@ -512,7 +536,9 @@ class TestVideoRequestFacts:
     async def test_unresolvable_facts_are_carried_as_a_failure_not_raised(
         self, patched_session_factory, project_env, monkeypatch
     ):
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
         use_backend_assembler(monkeypatch, _assemble)
@@ -545,7 +571,9 @@ class TestAudioLane:
         断言字段存在不够，须证明 resolve_generation_context 确实转发了 backend 的音色目录。
         """
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             return _FakeBackend(
                 name=provider_id, model=model_id or "default-model", voices=[VoiceOption(id="Cherry", label="Cherry")]
             )
@@ -562,7 +590,9 @@ class TestAtomicFailure:
     ):
         """image 成功后 video 构造失败：整次调用原样上抛，无部分结果。"""
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             if media_type == "video":
                 raise ValueError("video backend 构造失败")
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
@@ -606,7 +636,9 @@ class TestBackendCache:
         )
         built: list[str | None] = []
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             built.append(model_id)
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
@@ -650,7 +682,9 @@ class TestBackendCache:
         )
         built: list[str | None] = []
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             built.append(model_id)
             return _FakeBackend(name=provider_id, model=model_id or SEEDREAM_LITE)
 
@@ -696,7 +730,9 @@ class TestBackendCache:
         )
         seen: list[str | None] = []
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             seen.append(generation_type)
             return _FakeBackend(name=provider_id, model=f"{generation_type}-model")
 
@@ -719,7 +755,9 @@ class TestBackendCache:
         release = asyncio.Event()
         built: list[_FakeBackend] = []
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             backend = _FakeBackend(name=provider_id, model=model_id or "default-model")
             built.append(backend)
             if len(built) == 1:
@@ -748,7 +786,9 @@ class TestBackendCache:
         release = asyncio.Event()
         construct_count = 0
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             nonlocal construct_count
             construct_count += 1
             entered.set()
@@ -783,7 +823,9 @@ class TestBackendCache:
         release = asyncio.Event()
         built: list[_FakeBackend] = []
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+        async def _assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        ):
             backend = _FakeBackend(name=provider_id, model=model_id or "default-model")
             built.append(backend)
             if len(built) == 1:

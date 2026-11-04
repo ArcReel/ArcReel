@@ -842,7 +842,7 @@ class TestGetOrCreateAudioBackend:
         calls = []
 
         async def _fake_assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
         ):
             calls.append((provider_id, media_type, model_id))
             return sentinel
@@ -862,7 +862,7 @@ class TestGetOrCreateAudioBackend:
         sentinel = object()
 
         async def _fake_assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
         ):
             created.append((provider_id, media_type, model_id))
             return sentinel
@@ -882,7 +882,7 @@ class TestGetOrCreateAudioBackend:
 
     async def test_payload_model_overrides_default(self, monkeypatch):
         async def _fake_assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
         ):
             return SimpleNamespace(provider_id=provider_id, media_type=media_type, model_id=model_id)
 

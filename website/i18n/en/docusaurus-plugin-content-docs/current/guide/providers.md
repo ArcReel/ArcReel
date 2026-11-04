@@ -94,6 +94,7 @@ model ID, and a price summary; models that are retiring, discontinued, or whose 
 and the retiring flag shows the shutdown date. From its shutdown date (a UTC date) on, a model counts as discontinued: it stays in the list,
 but it no longer appears among any model candidates, even if you enabled it by hand, and it no longer serves as the provider's default model;
 calls from places that still select it fail with an error that gives the shutdown date and the officially recommended successor.
+Video tasks already submitted to the vendor before the shutdown date are not affected: when the service restarts and resumes them, their results are retrieved as usual. Tasks submitted after the shutdown date still fail, including tasks queued before it that only reach submission afterwards.
 Use "All / Enabled" to switch what is shown.
 
 In global and project settings, when a default model, a per-purpose model, or the narration model is set to a retiring or discontinued model,
