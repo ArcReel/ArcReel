@@ -67,7 +67,7 @@ _Avoid_: 自动更新、在线目录、把它当作官方服务的功能。
 _Avoid_: 把它当作市场源、同步服务器。
 
 **最低应用版本（minimum app version）**：
-官方收录的供应商模型上标注的、能调用这个模型的最低 ArcReel 版本。
+官方收录的供应商模型上标注的、能调用这个模型的最低 ArcReel 版本。目录构建按所挂调用端点推导，也可以手写（见 `docs/adr/0103`）。
 _Avoid_: schema 版本、兼容版本。
 
 **第三方数据源（third-party metadata source）**：

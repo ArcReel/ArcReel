@@ -143,6 +143,10 @@ def test_entries_without_lifecycle_fields_have_none():
         pytest.param(lambda data: data["entries"][0].update(shutdown_date="2026-02-30"), id="关停日期不存在"),
         pytest.param(lambda data: data["entries"][0].update(release_date="2026-12-11T00:00:00Z"), id="上线日期带时刻"),
         pytest.param(lambda data: data["entries"][0].update(successor=""), id="后继模型为空"),
+        pytest.param(
+            lambda data: data["builtin_providers"]["kling"]["models"][0].update(endpoint=["kling-video-audio"]),
+            id="调用端点不是字符串",
+        ),
     ],
 )
 def test_unparseable_catalog_is_rejected(corrupt):
@@ -172,3 +176,14 @@ def test_single_entry_is_read_like_a_catalog_entry():
 
     assert entry.price is not None
     assert (entry.price.meters[0].meter, entry.price.meters[0].cjk_double) == ("characters", True)
+
+
+def test_endpoint_declaration_is_optional_and_unknown_names_are_kept():
+    """实例侧不按端点清单拒收：较新的数据可能挂接这个版本还不认识的端点。"""
+    data = catalog()
+    data["builtin_providers"]["kling"]["models"][0]["endpoint"] = "kling-video-v9"
+
+    providers = parse_catalog(data).builtin_providers
+
+    assert [model.endpoint for model in providers["kling"].models] == ["kling-video-v9", "kling-image"]
+    assert providers["gemini-aistudio"].models[0].endpoint is None

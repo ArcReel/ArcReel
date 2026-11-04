@@ -199,6 +199,21 @@ def _mutate(path: str, value: Any) -> Callable[[dict[str, Any]], None]:
             id="最低应用版本格式不对",
         ),
         pytest.param(
+            _mutate("builtin_providers.kling.models[0].endpoint", "kling-video-v9"),
+            ("builtin_providers.kling.models[0].endpoint", "unknown_endpoint"),
+            id="调用端点不在端点清单里",
+        ),
+        pytest.param(
+            _mutate("builtin_providers.kling.models[0].endpoint", "kling-image"),
+            ("builtin_providers.kling.models[0].endpoint", "endpoint_media_type_mismatch"),
+            id="调用端点的媒体类型与条目不同",
+        ),
+        pytest.param(
+            _mutate("builtin_providers.kling.models[0].endpoint", "ark-seedance-2"),
+            ("builtin_providers.kling.models[0].endpoint", "endpoint_not_selectable"),
+            id="调用端点不是该供应商的可选端点",
+        ),
+        pytest.param(
             lambda data: data["entries"][1]["facts"].update(reference_audio=True, max_reference_audio_count=0),
             ("entries[1].facts.max_reference_audio_count", "reference_audio_without_count"),
             id="接受参考音频但数量上限为 0",

@@ -98,9 +98,10 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 {
   "kling": {
     "models": [
-      {"api_model_name": "kling-v3-omni", "entry": "kuaishou/kling-v3-omni", "media_type": "video"},
+      {"api_model_name": "kling-v3-omni", "entry": "kuaishou/kling-v3-omni", "media_type": "video",
+       "endpoint": "kling-video-audio"},
       {"api_model_name": "kling-v3-omni", "entry": "kuaishou/kling-v3-omni", "media_type": "image",
-       "multiplier": 1.0, "min_app_version": "0.34.0"}
+       "multiplier": 1.0, "min_app_version": "0.34.0", "endpoint": "kling-image"}
     ],
     "defaults": {"video": "kling-v3-omni", "image": "kling-v3-omni"}
   }
@@ -109,8 +110,23 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 
 - 每个供应商模型给出 API 模型名、引用的条目（「模型厂商/官方模型名」）、供应商模型倍率（默认 1）与
   可选的最低应用版本。只有引用两栖模型时才需要 `media_type` 指明条目。
+- `endpoint` 是供应商模型挂接的内置调用端点，可选。它必须在端点清单里，媒体类型与所引用的条目相同，且是该供应商
+  在这一媒体类型下的可选端点。缺失表示没有声明；实例读取端点声明之前，按 API 模型名选端点。
 - 同一供应商下，供应商模型以 API 模型名与所引用条目的媒体类型区分。
 - `defaults` 按媒体类型给出默认模型的 API 模型名，必须在该供应商这一媒体类型的清单中，且条目既未下线，也没有关停日期。
+
+### 端点清单
+
+端点清单定义在 `arcreel_catalog_core.endpoints`，是代码里调用端点的一份副本，主仓用测试保证二者一致：
+
+- `BUILTIN_ENDPOINTS`：内置供应商可挂接的每个内置调用端点的媒体类型与可选的起始版本 `since`。清单首次发布时已有的
+  端点都是基线端点，不带起始版本。
+- `BUILTIN_PROVIDER_ENDPOINTS`：每个内置供应商按媒体类型列出的可选端点与默认端点。
+- `ENDPOINT_DECLARATIONS_SINCE`：实例开始读取端点声明的应用版本；为 `None` 表示还没有发布这样的版本。
+
+`endpoint_version_floor(供应商, 媒体类型, 端点)` 给出端点决定的最低应用版本下限：取端点的起始版本，以及该供应商在这一
+媒体类型下有多个可选端点时实例开始读取端点声明的版本，两者中较高的那个。目录构建再与手写的最低应用版本取较高者。
+推导规则与起始版本的填写方式见主仓 `docs/adr/0103`。
 
 ## 两侧的判定
 
@@ -121,6 +137,7 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 | 不认识的媒体类型 | 跳过该条目 | 报告 |
 | 结构无法解析、哈希或数据集版本对不上 | 抛 `CatalogFormatError`，整份拒收 | 报告 |
 | 条目身份重复、名字冲突、清单引用不存在的条目、后继模型不存在或媒体类型不同、默认模型带关停日期、价目表行重叠等 | 不检查 | 报告 |
+| 端点不在端点清单里、端点媒体类型与条目不同、端点不是该供应商的可选端点 | 照常读入 | 报告 |
 
 问题以 `CatalogIssue(path, code, detail)` 给出，`code` 是稳定的比较依据。
 

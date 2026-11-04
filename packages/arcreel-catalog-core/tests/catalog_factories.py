@@ -1,4 +1,4 @@
-"""构造一份合法的目录数据，覆盖四种媒体类型、两栖模型与价目表的各种形状。
+"""构造一份合法的目录数据，覆盖四种媒体类型、两栖模型、价目表的各种形状，以及带与不带端点声明的供应商模型。
 
 每次调用返回新的副本，用例在副本上改出要验证的情形。
 """
@@ -126,6 +126,7 @@ def catalog() -> dict[str, Any]:
                         "media_type": "image",
                         "multiplier": 1.0,
                         "min_app_version": "0.34.0",
+                        "endpoint": "kling-image",
                     },
                 ],
                 "defaults": {"video": "kling-v3-omni", "image": "kling-v3-omni"},
