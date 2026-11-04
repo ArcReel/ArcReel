@@ -99,6 +99,7 @@ export default {
   model_lifecycle_discontinued_no_successor: "Discontinued {{date}} and can no longer generate. Choose another model",
   model_lifecycle_discontinued_undated: "Discontinued and can no longer generate. The vendor recommends {{successor}}",
   model_lifecycle_discontinued_undated_no_successor: "Discontinued and can no longer generate. Choose another model",
+  model_lifecycle_unavailable: "No longer available. Choose another model",
   model_lifecycle_switch: "Switch to {{model}}",
   bucket_t2i_label: "Text to image",
   bucket_i2i_label: "Image to image",

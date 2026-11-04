@@ -23,8 +23,8 @@ from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
 from lib.catalog.model_id import has_dot_segment
 from lib.catalog.query import binding_key, find_bound_entry
+from lib.config.model_setting_keys import PROJECT_MODEL_SETTING_KEYS
 from lib.config.repository import mask_secret
-from lib.config.retired_model_ids import PROJECT_MODEL_SETTING_KEYS
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,

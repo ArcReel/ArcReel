@@ -10,9 +10,9 @@ v18 起生成缺口只拦生成、依据照常投影（``docs/adr/0098``）。�
 之后给已登记的视频与配音补录内容指纹，正式文件与选中版本快照一致的才写，见
 :mod:`lib.project.project_migrations.content_digest_backfill`。
 
-同一步把 ``project.json`` 各模型字段里已改名的模型改写为后继模型（映射见
-``lib.config.retired_model_ids``）；已下架而没有后继的引用原样保留，运行时报错由用户重选。产物依据
-不含模型字段，改写不改变任何已登记产物的时效。
+同一步把 ``project.json`` 各模型字段里已改名的模型改写为后继模型（映射是本模块内冻结的副本）；
+已下线而没有后继的引用原样保留，运行时报错由用户重选。产物依据不含模型字段，改写不改变任何已登记
+产物的时效。
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from typing import Any
 
 from lib.artifacts.artifact_manifest import MANIFEST_FILENAME
 from lib.artifacts.formal_write import project_metadata_lock
-from lib.config.retired_model_ids import PROJECT_MODEL_SETTING_KEYS, migrate_retired_model_reference
+from lib.config.model_setting_keys import PROJECT_MODEL_SETTING_KEYS
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_migration_report import ArtifactBackfillOutcome
 from lib.project.project_migrations.backups import ensure_versioned_backup
@@ -35,6 +35,24 @@ from lib.project.project_schema import parse_project_schema_version
 TARGET_SCHEMA_VERSION = 18
 _FROM_VERSION = TARGET_SCHEMA_VERSION - 1
 _REMOVED_FIELD = "agent_turn"
+
+#: 冻结的退役模型映射：移除设置启动改写时从共享映射逐字复制，此后不再增删，历史项目的升级结果因此可以复现。
+#: 运行期不再按写死的映射改写引用，之后的退役只通过模型目录条目的生命周期表达（docs/adr/0106）。
+_RETIRED_MODEL_REFERENCES: dict[str, str] = {
+    # 文本
+    "gemini-aistudio/gemini-3.1-flash-lite-preview": "gemini-aistudio/gemini-3.1-flash-lite",
+    "gemini-vertex/gemini-3.1-flash-lite-preview": "gemini-vertex/gemini-3.1-flash-lite",
+    # 方舟 Seed 2.0 Lite/Mini 的 260215 版本与 xAI Grok 4.1 Fast 停服，改用同档在役型号
+    "ark/doubao-seed-2-0-lite-260215": "ark/doubao-seed-2-1-lite-260915",
+    "ark/doubao-seed-2-0-mini-260215": "ark/doubao-seed-2-0-mini-260428",
+    "grok/grok-4-1-fast-reasoning": "grok/grok-4.3",
+    "grok/grok-4-1-fast-non-reasoning": "grok/grok-4.3",
+    # 图片：Gemini 图片模型正式发布，AI Studio 与 Vertex 都改用不带 -preview 的名字
+    "gemini-aistudio/gemini-3-pro-image-preview": "gemini-aistudio/gemini-3-pro-image",
+    "gemini-aistudio/gemini-3.1-flash-image-preview": "gemini-aistudio/gemini-3.1-flash-image",
+    "gemini-vertex/gemini-3-pro-image-preview": "gemini-vertex/gemini-3-pro-image",
+    "gemini-vertex/gemini-3.1-flash-image-preview": "gemini-vertex/gemini-3.1-flash-image",
+}
 
 
 def _is_real_dir(path: Path) -> bool:
@@ -98,12 +116,12 @@ def migrate_project_model_references(project: Mapping[str, Any]) -> dict[str, An
     for key in PROJECT_MODEL_SETTING_KEYS:
         value = migrated.get(key)
         if isinstance(value, str):
-            migrated[key] = migrate_retired_model_reference(value)
+            migrated[key] = _RETIRED_MODEL_REFERENCES.get(value, value)
     model_settings = migrated.get("model_settings")
     if isinstance(model_settings, dict):
         renamed: dict[str, Any] = {}
         for key, entry in model_settings.items():
-            successor = migrate_retired_model_reference(key) if isinstance(key, str) else key
+            successor = _RETIRED_MODEL_REFERENCES.get(key, key) if isinstance(key, str) else key
             if successor != key and successor not in model_settings:
                 renamed[successor] = entry
             else:

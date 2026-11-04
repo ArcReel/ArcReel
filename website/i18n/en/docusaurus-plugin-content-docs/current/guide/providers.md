@@ -101,6 +101,7 @@ a notice below the dropdown gives the shutdown date and the officially recommend
 When the successor is on the same provider and can be used in that place, the notice has a "Switch to …" button: it changes only that one selection,
 which takes effect once you save. When the successor is on another provider, disabled, or not usable in that place, only its name is shown.
 ArcReel never switches models for you.
+A notice also appears when the selected model is no longer in the provider's model list: if ArcReel has received its discontinuation details, the notice says it is discontinued and names the officially recommended successor (if any); otherwise it says the model is no longer available and needs to be reselected.
 
 - Turning off a model's switch disables it immediately: disabled models no longer appear among the global and project default model
   candidates, and when a provider's default model is disabled, automatic selection skips it;

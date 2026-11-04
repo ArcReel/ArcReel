@@ -494,9 +494,17 @@ def reject_discontinued(provider_id: str, model_id: str, media_type: str) -> Non
     清单里的模型看它所引的条目（用户添加的看条目绑定或名字对应），不在清单里的按名字对应本地保留的条目。
     供复用 backend 实例的调用方在取缓存前使用；完整的调用检查见 :func:`require_callable`。
     """
+    reject_discontinued_entry(provider_id, model_id, media_type, referenced_entry(provider_id, model_id, media_type))
+
+
+def referenced_entry(provider_id: str, model_id: str, media_type: str) -> CatalogEntry | None:
+    """设置里引用的内置供应商模型所对应的条目，供生命周期判定使用。
+
+    清单里的模型取它所引的条目；不在清单里的按名字对应本地保留的条目（官方数据删除条目后本地仍保留最后一个版本）。
+    对应不上时为 ``None``。
+    """
     indexed = _indexed_model(provider_id, model_id, media_type)
-    entry = indexed.entry if indexed is not None else find_entry(model_id, media_type=media_type)
-    reject_discontinued_entry(provider_id, model_id, media_type, entry)
+    return indexed.entry if indexed is not None else find_entry(model_id, media_type=media_type)
 
 
 def reject_discontinued_entry(provider_id: str, model_id: str, media_type: str, entry: CatalogEntry | None) -> None:

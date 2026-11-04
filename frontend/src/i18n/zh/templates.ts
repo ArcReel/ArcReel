@@ -102,6 +102,7 @@ export default {
   model_lifecycle_discontinued_no_successor: "已下线（{{date}}），无法继续生成，请重新选择模型",
   model_lifecycle_discontinued_undated: "已下线，无法继续生成，官方建议改用 {{successor}}",
   model_lifecycle_discontinued_undated_no_successor: "已下线，无法继续生成，请重新选择模型",
+  model_lifecycle_unavailable: "已不可用，请重新选择模型",
   model_lifecycle_switch: "切换到 {{model}}",
   bucket_t2i_label: "文生图",
   bucket_i2i_label: "图生图",

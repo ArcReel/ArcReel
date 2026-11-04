@@ -46,8 +46,8 @@ from lib.catalog.user_entries import (
     reload_user_entries,
     save_user_entry,
 )
+from lib.config.model_setting_keys import GLOBAL_MODEL_SETTING_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.retired_model_ids import GLOBAL_MODEL_SETTING_KEYS, PROJECT_MODEL_SETTING_KEYS
 from lib.config.service import ConfigService
 from lib.custom_provider import is_custom_provider, make_provider_id, parse_provider_id
 from lib.custom_provider.capability_view import (
@@ -81,6 +81,7 @@ from server.routers.custom_providers import (
     rename_project_model_refs,
     update_custom_model,
 )
+from server.services.project.model_references import project_model_references
 
 logger = logging.getLogger(__name__)
 
@@ -1037,20 +1038,12 @@ async def update_provider_model(
 
 
 def _project_references(reference: str) -> list[ProjectReference]:
-    """读每个项目的 project.json，挑出模型设置项引用了 ``reference`` 的项目；读不了的项目跳过。"""
-    from lib.config.resolver import get_project_manager
-
-    pm = get_project_manager()
-    found: list[ProjectReference] = []
-    for name in pm.list_projects():
-        try:
-            project = pm.load_project(name)
-        except (OSError, ValueError):
-            continue
-        if any(project.get(key) == reference for key in PROJECT_MODEL_SETTING_KEYS):
-            title = project.get("title")
-            found.append(ProjectReference(name=name, title=title if isinstance(title, str) and title else None))
-    return found
+    """模型设置字段引用了 ``reference`` 的项目；读不了的项目跳过。"""
+    return [
+        ProjectReference(name=project.name, title=project.title)
+        for project in project_model_references()
+        if reference in project.references.values()
+    ]
 
 
 @router.get("/{provider_id}/model-references", response_model=ProviderModelReferences)
