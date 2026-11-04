@@ -121,19 +121,16 @@ def _build_simple(
     return _media_create_backend(media_type)(registry_backend, **kwargs)
 
 
-def _build_ark_video(config: LoadedConfig, model_id: str | None, *, provider_id: str) -> Any:
-    """方舟视频：简单族构造之外报出实际使用的推理凭证与模型对应的条目，供素材库按绑定选用供应商素材。
+def _build_ark_video(config: LoadedConfig, model_id: str | None, *, endpoint: str) -> Any:
+    """方舟视频：简单族构造之外报出实际使用的推理凭证，供素材库按绑定选用供应商素材。
 
     凭证引用只在 api_key 来自一条凭证记录时给出：素材库只能绑定凭证记录，按供应商配置直填的密钥没有可绑定的对象。
-    模型条目决定参考图槽位是否接受素材引用（``ArkVideoBackend.provider_asset_roles_for_entry``），与自定义供应商
-    共用同一判定。
+    参考图槽位是否接受素材引用由端点声明（``SeedanceEndpoint.reference_image_asset``），与自定义供应商同一份。
     """
     from lib.backends.provider_assets import InferenceCredentialRef
 
     api_key = config.credentials.get("api_key")
     extra: dict[str, Any] = {}
-    if model_id:
-        extra["catalog_entry"] = catalog.provider_model_entry(provider_id, model_id, "video")
     if config.credential_id is not None and api_key:
         extra["inference_credential"] = InferenceCredentialRef(
             credential_type="builtin",
@@ -142,7 +139,7 @@ def _build_ark_video(config: LoadedConfig, model_id: str | None, *, provider_id:
             base_url=config.credentials.get("base_url"),
             default_base_url=config.provider_meta.default_base_url if config.provider_meta else None,
         )
-    return _build_simple(config, model_id, media_type="video", registry_backend=provider_id, extra_kwargs=extra)
+    return _build_simple(config, model_id, media_type="video", registry_backend=endpoint, extra_kwargs=extra)
 
 
 def _simple_spec(provider_id: str, media_type: str, endpoint: str, *, extra_keys: tuple[str, ...] = ()) -> ProviderSpec:
@@ -174,6 +171,43 @@ def _minimax_video_endpoint(model_id: str | None) -> str:
     if "hailuo" in model and "fast" in model:
         return "minimax-hailuo-v1-fast"
     return "minimax-hailuo-v1"
+
+
+#: Seedance 各代的内置调用端点，按声明顺序；registry 名就是端点名（``lib.backends.video_backends.ark.SEEDANCE_BACKENDS``）。
+_SEEDANCE_ENDPOINTS = ("ark-seedance-1", "ark-seedance-2", "ark-seedance-2-5")
+
+
+def seedance_endpoint_for_name(name: str) -> str | None:
+    """名字里写明的 Seedance 代际对应的端点；名字不带 2.0 / 2.5 时为 ``None``。
+
+    用 ``in`` 子串兼容多套前缀命名（doubao- 火山国内站 / dreamina- BytePlus 国际站），版本号收窄到已登记的代际：同代的
+    未知后缀（fast、mini、日期快照）落同一端点。只给按名字选端点的两处用：官方收录模型的选择
+    （:func:`_seedance_video_endpoint`）与添加模型时的预填（``lib.custom_provider.endpoints.infer_endpoint``）。
+    alembic ``e5b1c9a3d7f2`` 冻结了一份同样的规则回填已有模型。
+    """
+    lowered = name.lower()
+    if "seedance-2-5" in lowered or "seedance-2.5" in lowered:
+        return "ark-seedance-2-5"
+    if "seedance-2-0" in lowered or "seedance-2.0" in lowered:
+        return "ark-seedance-2"
+    return None
+
+
+def _seedance_video_endpoint(provider_id: str, model_id: str | None) -> str:
+    """官方收录的方舟视频模型按名字选 Seedance 端点（#3647 改读官方数据后删除）。
+
+    名字先取模型对应条目的官方模型名与模型别名，再取 API 模型名，第一个写明代际的名字决定端点；都没写明时取 1.x 端点。
+    这与端点拆分前通道按名字认定代际的结果一致：服务档只要任一名字属于 2.x 就不带，像素表按条目的名字认定。
+    """
+    if not model_id:
+        return get_provider_endpoints(provider_id, "video").default
+    entry = catalog.provider_model_entry(provider_id, model_id, "video")
+    names = (entry.name, *entry.aliases) if entry is not None else ()
+    for name in (*names, model_id):
+        endpoint = seedance_endpoint_for_name(name)
+        if endpoint is not None:
+            return endpoint
+    return "ark-seedance-1"
 
 
 def builtin_declarative_video_diagnostics(
@@ -535,16 +569,17 @@ _specs += [
     for media_type in ("image", "video", "audio")
 ]
 _specs += [_kling_spec(media_type) for media_type in ("image", "video")]
-# 方舟两个 provider_id 的视频 lane 多报一项实际使用的推理凭证，见 _build_ark_video。
+# 方舟两个 provider_id 都可以挂 Seedance 三个端点；视频 lane 多报一项实际使用的推理凭证，见 _build_ark_video。
 _specs += [
     ProviderSpec(
         provider_id=ark_provider,
         media_type="video",
-        registry_backend=ark_provider,
-        build_backend=partial(_build_ark_video, provider_id=ark_provider),
-        endpoint="ark-seedance",
+        registry_backend=endpoint,
+        build_backend=partial(_build_ark_video, endpoint=endpoint),
+        endpoint=endpoint,
     )
     for ark_provider in ("ark", "ark-agent-plan")
+    for endpoint in _SEEDANCE_ENDPOINTS
 ]
 # dashscope video 比简单族多一个 wan3_base_url：万相 3.0 走独立 maas 域名（含地域与 workspace，推不出），未配置时
 # backend 自行回落通用 base_url。image/audio 两条 lane 不消费它，仍走简单族。
@@ -592,13 +627,23 @@ def _declare_endpoints(provider_id: str, media_type: str, default: str) -> Provi
     return ProviderEndpoints(provider_id=provider_id, media_type=media_type, endpoints=endpoints, default=default)
 
 
+#: 有多个可选端点的「供应商 + 媒体类型」→ 默认端点；其余只有一个端点，它就是默认端点。
+_MULTI_ENDPOINT_DEFAULTS: Mapping[tuple[str, str], str] = {
+    ("minimax", "video"): "minimax-hailuo-v1",
+    # 方舟的默认视频模型是 Seedance 2.0 系列
+    ("ark", "video"): "ark-seedance-2",
+    ("ark-agent-plan", "video"): "ark-seedance-2",
+}
+
 #: (provider_id, media_type) → 可选的内置调用端点与默认端点。默认端点就是官方收录的模型没有另行指定时实际使用的通道。
 PROVIDER_ENDPOINTS: dict[tuple[str, str], ProviderEndpoints] = {
-    (spec.provider_id, spec.media_type): _declare_endpoints(spec.provider_id, spec.media_type, spec.endpoint)
+    (spec.provider_id, spec.media_type): _declare_endpoints(
+        spec.provider_id,
+        spec.media_type,
+        _MULTI_ENDPOINT_DEFAULTS.get((spec.provider_id, spec.media_type), spec.endpoint),
+    )
     for spec in PROVIDER_ENDPOINT_SPECS.values()
-    if (spec.provider_id, spec.media_type) != ("minimax", "video")
 }
-PROVIDER_ENDPOINTS[("minimax", "video")] = _declare_endpoints("minimax", "video", "minimax-hailuo-v1")
 
 #: (provider_id, media_type) → 默认端点的构造规格，即该媒体类型下没有另行指定端点时的装配。
 PROVIDER_SPEC_REGISTRY: dict[tuple[str, str], ProviderSpec] = {
@@ -680,13 +725,16 @@ def get_provider_spec(provider_id: str, media_type: str, endpoint: str | None = 
 
 
 def official_model_endpoint(provider_id: str, media_type: str, model_id: str | None) -> str:
-    """官方收录的模型挂接的端点，暂时在代码里决定：MiniMax 视频按 API 模型名选，其余取默认端点。
+    """官方收录的模型挂接的端点，暂时在代码里决定：MiniMax 视频按 API 模型名选，方舟视频按名字选 Seedance 代际，
+    其余取默认端点（#3647 改读官方数据后删除这两条名字规则）。
 
     没有记下端点的用户添加模型同样落到这里，与它们记下端点之前的通道一致。
     """
     declared = get_provider_endpoints(provider_id, media_type)
     if (provider_id, media_type) == ("minimax", "video"):
         return _minimax_video_endpoint(model_id)
+    if media_type == "video" and provider_id in ("ark", "ark-agent-plan"):
+        return _seedance_video_endpoint(provider_id, model_id)
     return declared.default
 
 

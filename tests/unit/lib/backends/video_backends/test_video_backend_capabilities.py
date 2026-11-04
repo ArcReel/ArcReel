@@ -106,10 +106,13 @@ class TestVideoCapabilitiesForModel:
 
     def test_ark_seedance_2_returns_nine(self):
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-        from lib.backends.video_backends.ark import ArkVideoBackend
+        from lib.backends.video_backends.ark import Seedance2VideoBackend
 
         # 不构造实例（即不构造 Ark SDK client、不需 api_key）即可取得通道声明：不设参考图上限
-        assert ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-260128").max_reference_images is None
+        assert (
+            Seedance2VideoBackend.video_capabilities_for_model("doubao-seedance-2-0-260128").max_reference_images
+            is None
+        )
         # 生效上限来自条目
         assert builtin_video_capabilities_for_model("ark", "doubao-seedance-2-0-260128").max_reference_images == 9
 
@@ -177,11 +180,11 @@ class TestVideoCapabilitiesForModel:
         构造 Ark SDK client（caps 路径不依赖 client）。"""
         from unittest.mock import patch
 
-        from lib.backends.video_backends.ark import ArkVideoBackend
+        from lib.backends.video_backends.ark import Seedance25VideoBackend
 
         with patch("lib.backends.video_backends.ark.create_ark_client"):
-            backend = ArkVideoBackend(api_key="k", model="doubao-seedance-2-0")
-        assert backend.video_capabilities == ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0")
+            backend = Seedance25VideoBackend(api_key="k", model="doubao-seedance-2-0")
+        assert backend.video_capabilities == Seedance25VideoBackend.video_capabilities_for_model("doubao-seedance-2-0")
 
 
 #: 全部内置视频 model 的音轨立场逐条钉死，按执行路径各给一份：``controllable`` = 请求带音轨开关；

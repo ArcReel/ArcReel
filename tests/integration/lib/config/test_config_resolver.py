@@ -812,9 +812,9 @@ class TestVoiceConsistency:
                 provider_id=provider.id,
                 model_id="seedance-like",
                 display_name="Seedance-like",
-                endpoint="ark-seedance",
+                endpoint="ark-seedance-2",
                 # max_reference_images 覆盖是让该 model 落进 r2v 桶的前提：参考生视频项目按
-                # r2v 定桶解析，ark-seedance 对未上表型号保守判 0，不覆盖会被解析闸挡在能力查询前
+                # r2v 定桶解析，ark-seedance-2 对未上表型号保守判 0，不覆盖会被解析闸挡在能力查询前
                 capability_overrides={
                     "reference_audio_mode": "direct",
                     "max_reference_audio_count": 2,
@@ -839,7 +839,7 @@ class TestVoiceConsistency:
 class TestUnmatchedCustomVideoModelOverrides:
     """对应不上条目的视频供应商模型带一维能力覆盖：覆盖的维度整体替换，未覆盖的维度按回落值（docs/adr/0104、0105）。
 
-    对应不上条目时，输入能力只按 ark-seedance 端点的声明：文生视频 + 首帧、无尾帧，方舟通道不设参考图上限，
+    对应不上条目时，输入能力只按 ark-seedance-2 端点的声明：文生视频 + 首帧、无尾帧，方舟通道不设参考图上限，
     为未收录。可选时长取按名字推断的预设，一个族都匹配不上时为 [4, 8]。回落结果不写回模型行。
     """
 
@@ -858,7 +858,7 @@ class TestUnmatchedCustomVideoModelOverrides:
                     provider_id=provider.id,
                     model_id=model_id,
                     display_name=model_id,
-                    endpoint="ark-seedance",
+                    endpoint="ark-seedance-2",
                     capability_overrides=overrides,
                 )
             )

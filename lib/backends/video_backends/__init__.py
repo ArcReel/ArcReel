@@ -8,7 +8,6 @@ from arcreel_market_core.video_backend_contract import (
 )
 from lib.backends.providers import (
     PROVIDER_ARK,
-    PROVIDER_ARK_AGENT_PLAN,
     PROVIDER_GEMINI,
     PROVIDER_GROK,
     PROVIDER_NEWAPI,
@@ -37,11 +36,12 @@ from lib.backends.video_backends.gemini import GeminiVideoBackend
 
 register_backend(PROVIDER_GEMINI, GeminiVideoBackend)
 
-# Ark: volcengine-python-sdk[ark] is a project dependency
-from lib.backends.video_backends.ark import ArkVideoBackend
+# Ark: volcengine-python-sdk[ark] is a project dependency。Seedance 各代是各自的内置调用端点，按端点名注册，
+# 方舟与方舟 Agent Plan 两个内置供应商共用（凭证差异在 backend_assembly 的构造闭包里）。
+from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 
-register_backend(PROVIDER_ARK, ArkVideoBackend)
-register_backend(PROVIDER_ARK_AGENT_PLAN, ArkVideoBackend)
+for _endpoint, _backend in SEEDANCE_BACKENDS.items():
+    register_backend(_endpoint, _backend)
 
 # Grok: xai-sdk
 from lib.backends.video_backends.grok import GrokVideoBackend

@@ -378,12 +378,90 @@
         ]
       },
       {
-        "key": "ark-seedance",
+        "key": "ark-seedance-1",
         "media_type": "video",
         "family": "ark",
         "kind": "python",
         "source": "builtin",
-        "display_name_key": "endpoint_ark_seedance_display",
+        "display_name_key": "endpoint_ark_seedance_1_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/api/v3/contents/generations/tasks",
+        "image_capabilities": null,
+        "end_image_capable": true,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "submit",
+            "display_name_key": "cp_request_submit",
+            "default_path": "/contents/generations/tasks",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "ensure_api_v3"
+          },
+          {
+            "name": "poll",
+            "display_name_key": "cp_request_poll",
+            "default_path": "/contents/generations/tasks/{{ task_id }}",
+            "placeholders": [
+              "model",
+              "task_id"
+            ],
+            "base_url_rule": "ensure_api_v3"
+          }
+        ]
+      },
+      {
+        "key": "ark-seedance-2",
+        "media_type": "video",
+        "family": "ark",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_ark_seedance_2_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/api/v3/contents/generations/tasks",
+        "image_capabilities": null,
+        "end_image_capable": true,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "submit",
+            "display_name_key": "cp_request_submit",
+            "default_path": "/contents/generations/tasks",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "ensure_api_v3"
+          },
+          {
+            "name": "poll",
+            "display_name_key": "cp_request_poll",
+            "default_path": "/contents/generations/tasks/{{ task_id }}",
+            "placeholders": [
+              "model",
+              "task_id"
+            ],
+            "base_url_rule": "ensure_api_v3"
+          }
+        ]
+      },
+      {
+        "key": "ark-seedance-2-5",
+        "media_type": "video",
+        "family": "ark",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_ark_seedance_2_5_display",
         "display_name": null,
         "request_method": "POST",
         "request_path_template": "/api/v3/contents/generations/tasks",

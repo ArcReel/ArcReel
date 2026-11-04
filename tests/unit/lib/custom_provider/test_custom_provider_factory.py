@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from lib.backends.provider_assets import InferenceCredentialRef
+from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 from lib.custom_provider.backends import (
     CustomAudioBackend,
     CustomImageBackend,
@@ -26,7 +27,6 @@ from lib.custom_provider.factory import create_custom_backend
 _ENDPOINT_BACKEND_CLASSES = (
     "AnthropicTextBackend",
     "ArkImageBackend",
-    "ArkVideoBackend",
     "DashScopeImageBackend",
     "DashScopeVideoBackend",
     "DeclarativeVideoBackend",
@@ -60,6 +60,9 @@ def _endpoint_backends() -> Generator[list[dict[str, Any]]]:
     with ExitStack() as stack:
         for cls_name in _ENDPOINT_BACKEND_CLASSES:
             stack.enter_context(patch(f"lib.custom_provider.endpoints.{cls_name}", _recorder(cls_name)))
+        # Seedance 各代端点按端点名取调用通道类
+        seedance = {key: _recorder(backend.__name__) for key, backend in SEEDANCE_BACKENDS.items()}
+        stack.enter_context(patch("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", seedance))
         yield records
 
 
@@ -180,11 +183,11 @@ class TestEndpointDispatch:
 
     def test_ark_seedance(self):
         provider = _make_provider(base_url="https://relay.example.com")
-        result, built = _built(provider, "doubao-seedance-2-0", "ark-seedance")
+        result, built = _built(provider, "doubao-seedance-2-0", "ark-seedance-2")
         assert isinstance(result, CustomVideoBackend)
         # 仅 host → 补全 ark 协议挂载路径 /api/v3；素材库绑定按供应商记录与配置里的原始 Base URL 核对
         assert built == {
-            "backend": "ArkVideoBackend",
+            "backend": "Seedance2VideoBackend",
             "kwargs": {
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/api/v3",
@@ -195,6 +198,19 @@ class TestEndpointDispatch:
                 ),
             },
         }
+
+    @pytest.mark.parametrize(
+        ("endpoint", "backend"),
+        [
+            ("ark-seedance-1", "Seedance1VideoBackend"),
+            ("ark-seedance-2", "Seedance2VideoBackend"),
+            ("ark-seedance-2-5", "Seedance25VideoBackend"),
+        ],
+    )
+    def test_each_seedance_endpoint_builds_its_own_generation(self, endpoint: str, backend: str):
+        """同一个型号名挂不同 Seedance 端点，构造的调用通道随端点。"""
+        _result, built = _built(_make_provider(base_url="https://relay.example.com"), "relay-video", endpoint)
+        assert built["backend"] == backend
 
     def test_vidu_video(self):
         provider = _make_provider(base_url="https://relay.example.com")
@@ -329,12 +345,12 @@ class TestUrlNormalization:
     def test_ark_explicit_path_passthrough(self):
         """已带显式路径（/api/v3）→ 原样信任，不重复叠加。"""
         provider = _make_provider(base_url="https://relay.example.com/api/v3")
-        _result, built = _built(provider, "doubao-seedance-2-0", "ark-seedance")
+        _result, built = _built(provider, "doubao-seedance-2-0", "ark-seedance-2")
         assert built["kwargs"]["base_url"] == "https://relay.example.com/api/v3"
 
     def test_ark_mounted_base_url_appends_api_v3(self):
         provider = _make_provider(base_url="https://relay.example.com/seedance")
-        _result, built = _built(provider, "doubao-seedance-2-0", "ark-seedance")
+        _result, built = _built(provider, "doubao-seedance-2-0", "ark-seedance-2")
         assert built["kwargs"]["base_url"] == "https://relay.example.com/seedance/api/v3"
 
     def test_vidu_explicit_path_passthrough(self):
@@ -345,7 +361,7 @@ class TestUrlNormalization:
     def test_ark_host_only_no_scheme(self):
         """纯域名（无 scheme）→ 补 https:// 再挂载 /api/v3。"""
         provider = _make_provider(base_url="relay.example.com")
-        _result, built = _built(provider, "doubao-seedance-2-0", "ark-seedance")
+        _result, built = _built(provider, "doubao-seedance-2-0", "ark-seedance-2")
         assert built["kwargs"]["base_url"] == "https://relay.example.com/api/v3"
 
     def test_vidu_host_only_no_scheme(self):
@@ -371,7 +387,7 @@ class TestUrlNormalization:
     def test_ark_empty_base_url_normalizes_to_none(self):
         """空 base_url → _ensure_url_path_suffix 归一化为 None 下传（不强行补挂载路径）。"""
         provider = _make_provider(base_url="")
-        _result, built = _built(provider, "doubao-seedance-2-0", "ark-seedance")
+        _result, built = _built(provider, "doubao-seedance-2-0", "ark-seedance-2")
         assert built["kwargs"]["base_url"] is None
 
     def test_vidu_empty_base_url_normalizes_to_none(self):

@@ -52,7 +52,7 @@ class TestDeclarations:
 
     def test_a_default_outside_the_options_is_rejected(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setitem(
-            PROVIDER_ENDPOINTS, ("ark", "video"), ProviderEndpoints("ark", "video", ("ark-seedance",), "kling-video")
+            PROVIDER_ENDPOINTS, ("ark", "video"), ProviderEndpoints("ark", "video", ("ark-seedance-2",), "kling-video")
         )
         with pytest.raises(ValueError, match="default endpoint 'kling-video'"):
             specs._validate_provider_specs()
@@ -61,7 +61,7 @@ class TestDeclarations:
         monkeypatch.setitem(
             PROVIDER_ENDPOINTS,
             ("ark", "video"),
-            ProviderEndpoints("ark", "video", ("ark-seedance", "ark-seedream"), "ark-seedance"),
+            ProviderEndpoints("ark", "video", ("ark-seedance-2", "ark-seedream"), "ark-seedance-2"),
         )
         with pytest.raises(ValueError, match="'ark-seedream'"):
             validate_endpoint_declarations()
@@ -106,6 +106,34 @@ class TestAssemblyFollowsTheEndpoint:
 
         assert _built_definition("minimax", "proxy/minimax-h3") is ENDPOINT_REGISTRY["minimax-h3"].definition
 
+    @pytest.mark.parametrize("provider_id", ["ark", "ark-agent-plan"])
+    def test_both_ark_providers_offer_the_three_seedance_endpoints(self, provider_id: str):
+        declared = PROVIDER_ENDPOINTS[(provider_id, "video")]
+        assert declared.endpoints == ("ark-seedance-1", "ark-seedance-2", "ark-seedance-2-5")
+        assert declared.default == "ark-seedance-2"
+
+    def test_a_user_added_ark_model_is_built_through_the_seedance_endpoint_it_chose(self, user_added: None):
+        """不透明 ID 挂哪一代端点，就按哪一代的请求结构与计量；通道声明随端点变，与模型名无关。"""
+        from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
+
+        for endpoint, backend in SEEDANCE_BACKENDS.items():
+            _install(catalog.UserAddedModel("ark", "ep-20261104-opaque", "video", endpoint=endpoint))
+            spec = builtin_model_spec("ark", "video", "ep-20261104-opaque")
+            assert (spec.endpoint, spec.registry_backend) == (endpoint, endpoint)
+            assert declared_builtin_video_capabilities(
+                "ark", "ep-20261104-opaque"
+            ) == backend.video_capabilities_for_model("ep-20261104-opaque")
+
+    def test_a_user_added_ark_model_without_a_recorded_endpoint_follows_its_bound_entry(self, user_added: None):
+        """没有记下端点时与官方收录的模型同一规则：先看所对应条目的名字（含条目绑定），再看 API 模型名。"""
+        _install(
+            catalog.UserAddedModel("ark", "ep-bound", "video", entry_binding="bytedance/doubao-seedance-2.5"),
+            catalog.UserAddedModel("ark", "ep-unbound", "video"),
+        )
+
+        assert builtin_model_spec("ark", "video", "ep-bound").endpoint == "ark-seedance-2-5"
+        assert builtin_model_spec("ark", "video", "ep-unbound").endpoint == "ark-seedance-1"
+
 
 class TestPrefill:
     @pytest.mark.parametrize(
@@ -117,6 +145,10 @@ class TestPrefill:
             # 名字推出的是别的供应商的端点：落回这个供应商的默认端点
             ("grok", "video", "grok-imagine-video-2", "grok-video"),
             ("ark", "image", "kling-image-o2", "ark-seedream"),
+            ("ark", "video", "doubao-seedance-2-5-260628", "ark-seedance-2-5"),
+            ("ark-agent-plan", "video", "doubao-seedance-2.0-mini", "ark-seedance-2"),
+            ("ark", "video", "doubao-seedance-1-5-pro-251215", "ark-seedance-1"),
+            ("ark", "video", "ep-20261104-opaque", "ark-seedance-2"),
         ],
     )
     def test_the_prefilled_endpoint_is_inferred_by_name_within_the_provider(

@@ -94,10 +94,9 @@ class TestBuildSimpleBaseUrlPriority:
         # （非 ark 的 /api/v3）。
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="ark-agent-plan")
         built = _built(get_provider_spec("ark-agent-plan", "video"), config, "doubao-seedance-2.0")
-        built["kwargs"].pop("catalog_entry")
         assert built == {
             "media": "video",
-            "backend": "ark-agent-plan",
+            "backend": "ark-seedance-2",
             "kwargs": {
                 "api_key": "sk-test",
                 "model": "doubao-seedance-2.0",
@@ -125,16 +124,24 @@ class TestBuildSimpleBaseUrlPriority:
         assert "inference_credential" not in _built(get_provider_spec(provider_id, "video"), plain, "m")["kwargs"]
 
     @pytest.mark.parametrize(
-        ("provider_id", "model_id"), [("ark", "doubao-seedance-2-0-260128"), ("ark-agent-plan", "doubao-seedance-2.0")]
+        ("provider_id", "model_id", "endpoint"),
+        [
+            ("ark", "doubao-seedance-2-0-260128", "ark-seedance-2"),
+            ("ark", "doubao-seedance-2-0-mini-260615", "ark-seedance-2"),
+            ("ark", "doubao-seedance-2-5-260628", "ark-seedance-2-5"),
+            ("ark-agent-plan", "doubao-seedance-2.0-fast", "ark-seedance-2"),
+            # 不在清单里、名字也没写明代际：与拆分前通道对它的认定一致，按 1.x
+            ("ark", "doubao-seedance-1-0-pro-250528", "ark-seedance-1"),
+        ],
     )
-    def test_ark_video_carries_the_listed_model_entry(self, provider_id: str, model_id: str):
-        """方舟视频通道带上清单所引的条目，素材引用槽位按它认定；不在清单里的模型没有条目。"""
+    def test_ark_video_builds_through_the_seedance_endpoint_of_the_model(
+        self, provider_id: str, model_id: str, endpoint: str
+    ):
+        """官方收录的方舟视频模型按名字选 Seedance 端点（#3647 改读官方数据），装配经该端点的调用通道。"""
         config = _loaded(credentials={"api_key": "TEST-ark-key"}, provider_id=provider_id)
-        spec = get_provider_spec(provider_id, "video")
-        entry = _built(spec, config, model_id)["kwargs"]["catalog_entry"]
-        assert entry is not None
-        assert entry.key.ref == "bytedance/doubao-seedance-2.0"
-        assert _built(spec, config, "proxy-seedance-2-0-anything")["kwargs"]["catalog_entry"] is None
+        spec = builtin_model_spec(provider_id, "video", model_id)
+        assert spec.endpoint == endpoint
+        assert _built(spec, config, model_id)["backend"] == endpoint
 
     def test_grok_image_no_default_no_user_omits_base_url(self):
         # grok 无 registry default 且用户未配 → 不传 base_url（grok backend 不接受该参数）

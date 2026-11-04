@@ -1795,8 +1795,7 @@ class TestReferenceCompressionSeam:
         """以素材引用发出的参考图不读内容、不压缩，在请求、序位与记账输入里都与原图片位置一一对应。"""
         from unittest.mock import MagicMock
 
-        from lib.backends.video_backends.ark import ArkVideoBackend
-        from lib.catalog import query as catalog
+        from lib.backends.video_backends.ark import Seedance2VideoBackend
         from tests.fakes import captured_ark_clients
 
         gen = _build_generator(tmp_path)
@@ -1804,11 +1803,7 @@ class TestReferenceCompressionSeam:
         client.content_generation.tasks.create.return_value = MagicMock(id="cgt-asset")
         client.content_generation.tasks.get.side_effect = RuntimeError("stop after submit")
         with captured_ark_clients("lib.backends.video_backends.ark", client):
-            gen._video_backend = ArkVideoBackend(
-                api_key="TEST-ark-key",
-                model="doubao-seedance-2-0-260128",
-                catalog_entry=catalog.provider_model_entry("ark", "doubao-seedance-2-0-260128", "video"),
-            )
+            gen._video_backend = Seedance2VideoBackend(api_key="TEST-ark-key", model="doubao-seedance-2-0-260128")
         # 一张大到必须压缩的角色图以素材引用发出，场景图照常压缩后内嵌。
         character = _noise_png(gen.project_path, "character.png", 3000, 3000)
         scene = _noise_png(gen.project_path, "scene.png", 3000, 3000)

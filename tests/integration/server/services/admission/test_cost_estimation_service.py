@@ -9,7 +9,7 @@ from sqlalchemy import update
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest, VideoGenerationResult
 from lib.backends.backend_assembly.specs import builtin_video_metered_usage
 from lib.backends.providers import PROVIDER_GEMINI
-from lib.backends.video_backends.ark import ArkVideoBackend
+from lib.backends.video_backends.ark import Seedance2VideoBackend
 from lib.config.resolver import ConfigResolver
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
@@ -268,7 +268,7 @@ class TestCostEstimationService:
             generate_audio=executed.requested_generate_audio,
         )
         tokens = (
-            ArkVideoBackend.estimate_video_tokens(model, resolution=executed.resolution, ratio="9:16", seconds=duration)
+            Seedance2VideoBackend.estimate_video_tokens(resolution=executed.resolution, ratio="9:16", seconds=duration)
             if provider == "ark"
             else None
         )

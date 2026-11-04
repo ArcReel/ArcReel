@@ -183,7 +183,7 @@ const customProvider = {
       system_capabilities: VIDEO_CAPABILITIES,
       capability_overrides: { last_frame: false, durations: [5, 10] },
     }),
-    customModel(6, "doubao-seedance-1-0-pro-250528", "ark-seedance", {
+    customModel(6, "doubao-seedance-1-0-pro-250528", "ark-seedance-1", {
       matched_entry: entry("bytedance", "doubao-seedance-1-0-pro", "video", "Doubao Seedance 1.0 Pro"),
       system_capabilities: VIDEO_CAPABILITIES,
     }),
@@ -202,7 +202,7 @@ const ENDPOINT_MEDIA: Record<string, string> = {
   "gemini-image": "image",
   "openai-images": "image",
   "kling-video": "video",
-  "ark-seedance": "video",
+  "ark-seedance-1": "video",
   "minimax-hailuo-v1": "video",
   "openai-tts": "audio",
   "dashscope-async-video": "video",

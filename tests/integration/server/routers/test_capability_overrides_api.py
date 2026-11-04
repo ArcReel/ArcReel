@@ -30,10 +30,10 @@ VIDEO_MODEL = "relay-sora"
 
 # openai-video 的 delegate 不序列化 end_image（见 _check_capability_overrides 的
 # end_image_capable 门槛），last_frame 覆盖为 True 的用例须换一个真正支持尾帧的 endpoint。
-# ark-seedance 的 1.0 pro fast 系统判定 last_frame=False（docs/api-docs/providers/ark.md
+# ark-seedance-2 端点下 1.0 pro fast 系统判定 last_frame=False（docs/api-docs/providers/ark.md
 # 能力表标 "-"），可类比断言覆盖前后差异；不用 seedance-2 系列是因为那两系模型系统判定
 # 本身就是 True，无法体现覆盖生效前后的差异。
-LAST_FRAME_ENDPOINT = "ark-seedance"
+LAST_FRAME_ENDPOINT = "ark-seedance-2"
 LAST_FRAME_MODEL = "doubao-seedance-1-0-pro-fast-251015"
 
 
@@ -784,7 +784,7 @@ class TestResolverReturnsEffectiveCapabilities:
         caps = await self._resolve(db_session, pid)
         assert caps["last_frame"] is False
 
-    @patch("lib.custom_provider.endpoints.ArkVideoBackend", new=MagicMock())
+    @patch.dict("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", {"ark-seedance-2": MagicMock()})
     async def test_resolver_matches_execution_layer(self, db_session: AsyncSession):
         """展示层与执行层出自同一合成函数：逐字段比对 resolver 与装载出的 backend。"""
         pid = await self._seed(

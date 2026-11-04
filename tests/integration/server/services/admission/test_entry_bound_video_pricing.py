@@ -97,7 +97,7 @@ async def test_custom_opaque_seedance_id_is_quoted_and_metered_like_the_official
     """自定义供应商的不透明 ID 绑定 Seedance 2.0：按 2.0 像素表估算视频 token，不上报服务档，报价与官方 ID 相同。"""
     provider_id = await _custom_provider(
         db_factory,
-        "ark-seedance",
+        "ark-seedance-2",
         [
             {"model_id": OPAQUE, "is_default": True, "entry_binding": SEEDANCE_2_ENTRY},
             {"model_id": SEEDANCE_2},
@@ -117,9 +117,9 @@ async def test_custom_opaque_seedance_id_is_quoted_and_metered_like_the_official
     assert (opaque_quote.amount, opaque_quote.currency) == (official_quote.amount, official_quote.currency)
 
 
-async def test_custom_opaque_id_without_binding_keeps_the_conservative_metering(db_factory):
-    """未绑定条目的不透明 ID 不认定世代：没有视频 token 估算，按请求带的服务档上报，报价记为未定价。"""
-    provider_id = await _custom_provider(db_factory, "ark-seedance", [{"model_id": OPAQUE, "is_default": True}])
+async def test_custom_opaque_id_on_the_seedance_1_endpoint_keeps_the_conservative_metering(db_factory):
+    """未绑定条目的不透明 ID 挂 1.x 端点（迁移按拆分前的认定回填）：没有视频 token 估算，按请求带的服务档上报，报价记为未定价。"""
+    provider_id = await _custom_provider(db_factory, "ark-seedance-1", [{"model_id": OPAQUE, "is_default": True}])
 
     quote, _, estimate, _ = await _quote_and_usage(db_factory, provider_id, OPAQUE)
 
