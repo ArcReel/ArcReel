@@ -19,7 +19,7 @@ _PROVIDER = SimpleNamespace(provider_id="custom-7", api_key="sk", base_url="http
 
 
 async def test_async_video_overriding_only_poll_keeps_submit_on_the_default_path(tmp_path: Path):
-    backend = ENDPOINT_REGISTRY["dashscope-async-video"].build_backend(
+    backend = ENDPOINT_REGISTRY["dashscope-video"].build_backend(
         _PROVIDER, "happyhorse-1.0-t2v", {"poll": "/relay/tasks/{{ task_id }}"}
     )
     with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():

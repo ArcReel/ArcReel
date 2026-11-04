@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -109,22 +109,16 @@ class TestCustomEndpointDispatch:
         p.provider_id = "custom-9"
         return p
 
-    @patch("lib.custom_provider.endpoints.DashScopeVideoBackend")
-    def test_dashscope_async_video(self, mock_cls):
+    def test_dashscope_async_video(self):
         from lib.custom_provider.backends import CustomVideoBackend
         from lib.custom_provider.factory import create_custom_backend
 
         result = create_custom_backend(
-            provider=self._provider(), model_id="happyhorse-1.0-r2v", endpoint="dashscope-async-video"
+            provider=self._provider(), model_id="happyhorse-1.0-r2v", endpoint="dashscope-reference-video"
         )
         assert isinstance(result, CustomVideoBackend)
-        # builder 透传原始 base_url，由 backend 内部派生 /api/v1（不重复归一化）
-        mock_cls.assert_called_once_with(
-            api_key="sk-test",
-            base_url="https://dashscope.aliyuncs.com",
-            model="happyhorse-1.0-r2v",
-            transport_layer=None,
-        )
+        assert result.model == "happyhorse-1.0-r2v"
+        assert result._delegate.video_capabilities.max_reference_images is None
 
 
 class TestEndpointFallthrough:
@@ -133,14 +127,14 @@ class TestEndpointFallthrough:
     def test_async_video_endpoint_declares_none(self):
         from lib.custom_provider.endpoints import get_endpoint_spec
 
-        assert get_endpoint_spec("dashscope-async-video").video_max_reference_images is None
+        assert get_endpoint_spec("dashscope-video").video_max_reference_images is None
 
     def test_entry_supplies_real_limit(self):
         """通道不设参考图上限，自定义供应商下按名字对应的条目给出真实上限（两侧求值，docs/adr/0104）。"""
         from lib.custom_provider.capabilities import two_sided_video_capabilities
 
         def limit(model: str) -> int | None:
-            return two_sided_video_capabilities(endpoint="dashscope-async-video", model_id=model).max_reference_images
+            return two_sided_video_capabilities(endpoint="dashscope-video", model_id=model).max_reference_images
 
         assert limit("happyhorse-1.0-r2v") == 9
         assert limit("wan2.7-r2v") == 5
@@ -150,8 +144,8 @@ class TestInferEndpoint:
     @pytest.mark.parametrize(
         ("model", "expected"),
         [
-            ("happyhorse-1.0-r2v", "dashscope-async-video"),
-            ("wan2.7-i2v", "dashscope-async-video"),
+            ("happyhorse-1.0-r2v", "dashscope-reference-video"),
+            ("wan2.7-i2v", "dashscope-always-on-video"),
             ("wan2.7-image", "openai-images"),
             ("qwen-image-2.0", "openai-images"),
             ("doubao-seedance-1.5-pro", "ark-seedance-1"),

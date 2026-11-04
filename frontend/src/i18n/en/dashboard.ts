@@ -1788,6 +1788,16 @@ export default {
   'endpoint_grok_video_display': 'xAI Grok (Video)',
   'endpoint_grok_video_classic_display': 'Grok Video (Classic)',
   'endpoint_grok_video_mixed_display': 'Grok Video (Mixed inputs)',
+
+
+  'endpoint_dashscope_always_on_video_display': 'Alibaba Model Studio (Always-on Audio Video)',
+  'endpoint_dashscope_video_display': 'Alibaba Model Studio (Video)',
+  'endpoint_dashscope_reference_video_display': 'Alibaba Model Studio (Reference Video)',
+  'endpoint_dashscope_reference_voice_video_display': 'Alibaba Model Studio (Reference Voice Video)',
+  'endpoint_dashscope_wan3_video_display': 'Alibaba Model Studio (Wan3 Video)',
+  'endpoint_agnes_video_2_display': 'Agnes (Video 2.0)',
+  'endpoint_agnes_video_2_5_display': 'Agnes (Video 2.5)',
+  'endpoint_gemini_vertex_video_display': 'Vertex AI Video (Veo)',
   'endpoint_agnes_video_display': 'Agnes (Video)',
   'endpoint_catalog_loading': 'Loading endpoint catalog…',
   // Image Capability

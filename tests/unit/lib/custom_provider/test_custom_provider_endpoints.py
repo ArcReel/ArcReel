@@ -87,7 +87,11 @@ class TestRegistry:
             "dashscope-qwen-image",
             "dashscope-wan-image",
             "dashscope-qwen-image-edit",
-            "dashscope-async-video",
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
             "minimax-image",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
@@ -181,7 +185,11 @@ class TestRegistry:
             "ark-seedance-2",
             "ark-seedance-2-5",
             "vidu-video-q3-turbo",
-            "dashscope-async-video",
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
@@ -207,7 +215,11 @@ class TestRegistry:
             "ark-seedance-2",
             "ark-seedance-2-5",
             "vidu-video-q3-turbo",
-            "dashscope-async-video",
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
@@ -221,9 +233,9 @@ class TestRegistry:
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is None
 
     def test_dashscope_caps_fn_reads_channel_declaration_without_client(self):
-        """dashscope-async-video 的 caps_fn 是纯函数：给出通道声明（不设参考图上限、按名字认的请求形态），
+        """百炼异步视频端点 的 caps_fn 是纯函数：给出通道声明（不设参考图上限、按名字认的请求形态），
         resolver 据此与条目两侧求值而无需构造 backend / api_key。"""
-        caps_fn = ENDPOINT_REGISTRY["dashscope-async-video"].video_caps_for_model
+        caps_fn = ENDPOINT_REGISTRY["dashscope-reference-voice-video"].video_caps_for_model
         assert caps_fn is not None
         assert caps_fn("happyhorse-1.0-r2v", None).max_reference_images is None
         assert caps_fn("wan2.7-r2v", None).reference_audio_per_image is True
@@ -305,7 +317,11 @@ class TestRegistry:
             "ark-seedance-1",
             "ark-seedance-2",
             "ark-seedance-2-5",
-            "dashscope-async-video",
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
             "minimax-h3",
         }
 
@@ -361,7 +377,11 @@ class TestRegistry:
             "vidu-video-2",
             "openrouter-video",
             "xai-video",
-            "dashscope-async-video",
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
@@ -484,25 +504,25 @@ class TestInferEndpoint:
             ("viduq3-turbo", "openai", "vidu-video-q3-turbo"),
             ("viduq3-i2v", "openai", "vidu-video-generic"),
             ("proxy/viduq3-turbo", "openai", "vidu-video-q3-turbo"),
-            # ── 阿里百炼 wan2.x / wan3.0 → dashscope-async-video（image 变体不受影响）──
-            ("wan2.7-i2v", "openai", "dashscope-async-video"),
-            ("wan2.7-t2v", "openai", "dashscope-async-video"),
-            ("wan-2.7-i2v", "openai", "dashscope-async-video"),  # 连字符形态与点号形态匹配宽度一致
-            ("wan_2.7-t2v", "openai", "dashscope-async-video"),
-            ("wan3.0-video", "openai", "dashscope-async-video"),
-            ("Wan3.0-Video", "openai", "dashscope-async-video"),  # 大小写不敏感
-            ("proxy/wan3.0-video", "openai", "dashscope-async-video"),
-            ("wan-3-turbo", "openai", "dashscope-async-video"),  # 连字符形态与点号形态匹配宽度一致
-            ("wan3-turbo", "openai", "dashscope-async-video"),
+            # ── 阿里百炼 wan2.x / wan3.0 → 百炼异步视频端点（image 变体不受影响）──
+            ("wan2.7-i2v", "openai", "dashscope-always-on-video"),
+            ("wan2.7-t2v", "openai", "dashscope-always-on-video"),
+            ("wan-2.7-i2v", "openai", "dashscope-always-on-video"),  # 连字符形态与点号形态匹配宽度一致
+            ("wan_2.7-t2v", "openai", "dashscope-always-on-video"),
+            ("wan3.0-video", "openai", "dashscope-wan3-video"),
+            ("Wan3.0-Video", "openai", "dashscope-wan3-video"),  # 大小写不敏感
+            ("proxy/wan3.0-video", "openai", "dashscope-wan3-video"),
+            ("wan-3-turbo", "openai", "dashscope-wan3-video"),  # 连字符形态与点号形态匹配宽度一致
+            ("wan3-turbo", "openai", "dashscope-wan3-video"),
             ("wan2.7-image", "openai", "openai-images"),  # image 变体不受影响
             ("wan-2.7-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样落图像端点
             ("wan3.0-video-image", "openai", "openai-images"),  # 含 image 语义不受影响
             ("wan-3-turbo-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样不受影响
-            # image-to-video 别名含 "image" 子串但本质是视频，须留在 dashscope-async-video（同
+            # image-to-video 别名含 "image" 子串但本质是视频，须留在 百炼异步视频端点（同
             # kling-image2video 的"video 语义优先"原则），不能被笼统 is_image 误判成图像变体。
-            ("wan-3-turbo-image-to-video", "openai", "dashscope-async-video"),
-            ("wan3-image2video", "openai", "dashscope-async-video"),
-            ("wan-2.7-image-to-video", "openai", "dashscope-async-video"),
+            ("wan-3-turbo-image-to-video", "openai", "dashscope-wan3-video"),
+            ("wan3-image2video", "openai", "dashscope-wan3-video"),
+            ("wan-2.7-image-to-video", "openai", "dashscope-always-on-video"),
             # 反向陷阱：真图像别名不保证以 "image" 结尾（版本/日期/变体后缀），不能靠"结尾是不是
             # image"反推是不是图像——只有显式 image-to-video 续接语法才算视频例外，其余含 image
             # 语义一律仍是图像。
@@ -510,9 +530,9 @@ class TestInferEndpoint:
             ("wan-3-turbo-image-preview", "openai", "openai-images"),
             ("wan3.0-video-image-20260801", "openai", "openai-images"),
             # 分隔符混用：下划线与连字符匹配宽度一致（WAN3_PATTERN 同时容忍二者）。
-            ("wan_3_turbo", "openai", "dashscope-async-video"),
+            ("wan_3_turbo", "openai", "dashscope-wan3-video"),
             ("wan_3.0-image", "openai", "openai-images"),
-            ("WAN_3_TURBO_IMAGE_TO_VIDEO", "openai", "dashscope-async-video"),
+            ("WAN_3_TURBO_IMAGE_TO_VIDEO", "openai", "dashscope-wan3-video"),
             # 标识符边界：含 "wan3"/"wan2" 子串但并非该家族的型号名不得被误判——WAN2_PATTERN /
             # WAN3_PATTERN 两侧要求非字母数字边界，裸 "wan" 仍命中 _VIDEO_PATTERN 落回通用视频分支。
             ("swan3", "openai", "openai-video"),
@@ -531,7 +551,7 @@ class TestInferEndpoint:
             # 字面量判定约束，不受 WAN2_PATTERN 的版本锚定限制。
             ("wan-2.1-kf2v", "openai", "openai-video"),  # 连字符 + 非 2.7 → 通用端点
             ("wan_2.2-t2v", "openai", "openai-video"),  # 下划线 + 非 2.7 → 通用端点
-            ("wan2.1-kf2v", "openai", "dashscope-async-video"),  # 点号形态走字面量判定，非本正则
+            ("wan2.1-kf2v", "openai", "dashscope-video"),  # 点号形态走字面量判定，非本正则
             # 2.7 家族内 videoedit 模态：命中家族正则但 DashScopeVideoBackend 未实现其请求构造，
             # 排除出原生路由（见 _WAN_VIDEOEDIT_PATTERN 处的说明）。
             ("wan-2.7-videoedit", "openai", "openai-video"),
@@ -540,7 +560,7 @@ class TestInferEndpoint:
             # happyhorse 同一边界要求：与 DashScopeVideoBackend._profile_for_model 的兜底子串匹配
             # 对同一 key 保持同等边界，否则会出现"路由到本后端却拿不到对应能力档"的矛盾。
             ("myhappyhorse-1.0-r2v", "openai", "openai-chat"),
-            ("happyhorse-1.0-r2v", "openai", "dashscope-async-video"),
+            ("happyhorse-1.0-r2v", "openai", "dashscope-reference-video"),
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),

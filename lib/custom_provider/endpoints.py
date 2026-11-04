@@ -46,7 +46,7 @@ from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
 from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBackend
 from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
-from lib.backends.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
+from lib.backends.video_backends.dashscope import DASHSCOPE_VIDEO_BACKENDS, classify_wan_model
 from lib.backends.video_backends.gemini import GeminiVideoBackend
 from lib.backends.video_backends.kling import KLING_BACKENDS
 from lib.backends.video_backends.openai import OpenAIVideoBackend
@@ -724,7 +724,7 @@ def _build_dashscope_image(
 
 
 def _build_dashscope_async_video(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES, *, endpoint: str
 ) -> CustomVideoBackend:
     layer = path_override_layer(
         _DASHSCOPE_ASYNC_VIDEO_REQUESTS,
@@ -733,7 +733,7 @@ def _build_dashscope_async_video(
         dashscope_native_base_url(provider.base_url),
         model_id,
     )
-    delegate = DashScopeVideoBackend(
+    delegate = DASHSCOPE_VIDEO_BACKENDS[endpoint](
         api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
     )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
@@ -1044,22 +1044,23 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_gemini_tts,
         requests=_GEMINI_GENERATE_REQUESTS,
     ),
-    "dashscope-async-video": EndpointSpec(
-        key="dashscope-async-video",
-        media_type="video",
-        family="dashscope",
-        display_name_key="endpoint_dashscope_async_video_display",
-        request_method="POST",
-        request_path_template="/api/v1/services/aigc/video-generation/video-synthesis",
-        build_backend=_build_dashscope_async_video,
-        requests=_DASHSCOPE_ASYNC_VIDEO_REQUESTS,
-        metering_backend=DashScopeVideoBackend,
-        # 多 model（happyhorse-r2v=9 / wan2.7-r2v=5）容量不同 → endpoint 维度不声明 int cap，
-        # 按 model 读 backend caps（不构造 client）。
-        video_caps_for_model=DashScopeVideoBackend.video_capabilities_for_model,
-        # _build_media 把 reference_audio_files 逐段挂到参考素材项的 reference_voice 上
-        reference_audio_capable=True,
-    ),
+    **{
+        endpoint: EndpointSpec(
+            key=endpoint,
+            media_type="video",
+            family="dashscope",
+            display_name_key="endpoint_" + endpoint.replace("-", "_") + "_display",
+            request_method="POST",
+            request_path_template="/api/v1/services/aigc/video-generation/video-synthesis",
+            build_backend=partial(_build_dashscope_async_video, endpoint=endpoint),
+            requests=_DASHSCOPE_ASYNC_VIDEO_REQUESTS,
+            metering_backend=backend,
+            video_caps_for_model=backend.video_capabilities_for_model,
+            end_image_capable=True,
+            reference_audio_capable=True,
+        )
+        for endpoint, backend in DASHSCOPE_VIDEO_BACKENDS.items()
+    },
     "minimax-image": EndpointSpec(
         key="minimax-image",
         media_type="image",
@@ -1633,7 +1634,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     openai-chat/openai-images，每次都要手动改回。
 
     1) 阿里百炼视频 → happyhorse / wan2.7 / wan3 家族（含 wan-2.7-xxx / wan-3-xxx 连字符形态、
-       image-to-video 续接别名）走 "dashscope-async-video"（原生异步端点）。happyhorse 不在
+       image-to-video 续接别名）走 "百炼异步视频端点"（原生异步端点）。happyhorse 不在
        _VIDEO_PATTERN 须显式；万相视频抢在通用 is_video 前拦截。真正的图像变体不自动推 dashscope
        （中转可能是 OpenAI 兼容）：qwen-image / wan2.7-image / wan-2.7-image / wan3.0-video-image
        及带版本/日期后缀的同类 id 落到图像家族推断；wan-3-turbo-image-to-video /
@@ -1684,7 +1685,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     # "swan2.7-image" / "vendorwan2.7-image" 这类不满足家族边界的 id 依然会命中 _VIDEO_PATTERN，
     # 若排除逻辑要求先通过严格家族判定，这类 id 就会被 is_video 误判为视频而不是落到图像家族推断。
     # 因此排除只看"是否含 wan 子串"（与 _VIDEO_PATTERN 的宽度一致），不要求满足家族标识符边界；
-    # 家族边界只用于下面原生路由（dashscope-async-video）的资格判定。
+    # 家族边界只用于下面原生路由（百炼异步视频端点）的资格判定。
     contains_wan_token = "wan" in lowered
     # wan2.7 家族已确认属于视频模态（t2v/i2v/r2v/s2v/v2v/videoedit 任一，即便部分未实现请求构造，
     # 见 classify_wan_model 的 is_known_video_modality 处的说明）时，该 profile 本身已确立视频
@@ -1710,9 +1711,13 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
 
     # 阿里百炼视频先于通用 is_video 拦截到原生异步端点
     if classification.family == "happyhorse":
-        return "dashscope-async-video"
+        from lib.backends.backend_assembly.specs import dashscope_video_endpoint_for_name
+
+        return dashscope_video_endpoint_for_name(model_id)
     if is_wan_family and not wan_image_variant and not wan_unsupported_modality:
-        return "dashscope-async-video"
+        from lib.backends.backend_assembly.specs import dashscope_video_endpoint_for_name
+
+        return dashscope_video_endpoint_for_name(model_id)
 
     # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V / H3 → 两步或单步取回的视频端点；
     # image-01 → 单步图像端点。先于通用 is_video/is_image：s2v 与 h3 均不被 _VIDEO_PATTERN 覆盖，

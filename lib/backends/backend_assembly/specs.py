@@ -332,7 +332,7 @@ def _build_gemini_image(config: LoadedConfig, model_id: str | None, *, backend_t
 
 def _build_gemini_video(config: LoadedConfig, model_id: str | None, *, backend_type: str) -> Any:
     return _media_create_backend("video")(
-        _GEMINI_REGISTRY_BACKEND,
+        "gemini-vertex-video" if backend_type == "vertex" else _GEMINI_REGISTRY_BACKEND,
         backend_type=backend_type,
         api_key=config.credentials.get("api_key"),
         base_url=config.credentials.get("base_url"),
@@ -364,9 +364,13 @@ def _gemini_spec(provider_id: str, media_type: str, *, backend_type: str) -> Pro
     return ProviderSpec(
         provider_id=provider_id,
         media_type=media_type,
-        registry_backend=_GEMINI_REGISTRY_BACKEND,
+        registry_backend="gemini-vertex-video"
+        if media_type == "video" and backend_type == "vertex"
+        else _GEMINI_REGISTRY_BACKEND,
         build_backend=partial(build, backend_type=backend_type),
-        endpoint=_GEMINI_ENDPOINTS[media_type],
+        endpoint="gemini-vertex-video"
+        if media_type == "video" and backend_type == "vertex"
+        else _GEMINI_ENDPOINTS[media_type],
     )
 
 
@@ -585,7 +589,9 @@ PROVIDER_ONLY_ENDPOINTS: Mapping[str, str] = {
     "agnes-image-pixels": "image",
     "agnes-image-tier": "image",
     **dict.fromkeys(_GROK_ENDPOINTS, "video"),
-    "agnes-video": "video",
+    "agnes-video-2": "video",
+    "agnes-video-2-5": "video",
+    "gemini-vertex-video": "video",
 }
 
 #: 简单族的 image/video/audio：(provider_id, media_type) → 端点名。
@@ -595,7 +601,6 @@ _SIMPLE_MEDIA_ENDPOINTS: Mapping[tuple[str, str], str] = {
     ("vidu", "image"): "vidu-image",
     ("minimax", "image"): "minimax-image",
     ("openai", "video"): "openai-video",
-    ("agnes", "video"): "agnes-video",
     ("dashscope", "audio"): "dashscope-tts",
     ("minimax", "audio"): "minimax-tts",
 }
@@ -662,7 +667,34 @@ _specs += [
 ]
 # dashscope video 比简单族多一个 wan3_base_url：万相 3.0 走独立 maas 域名（含地域与 workspace，推不出），未配置时
 # backend 自行回落通用 base_url。image/audio 两条 lane 不消费它，仍走简单族。
-_specs.append(_simple_spec("dashscope", "video", "dashscope-async-video", extra_keys=("wan3_base_url",)))
+for _provider, _endpoints in (
+    (
+        "dashscope",
+        (
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
+        ),
+    ),
+    ("agnes", ("agnes-video-2", "agnes-video-2-5")),
+):
+    for _endpoint in _endpoints:
+        _specs.append(
+            ProviderSpec(
+                provider_id=_provider,
+                media_type="video",
+                registry_backend=_endpoint,
+                endpoint=_endpoint,
+                build_backend=partial(
+                    _build_simple,
+                    media_type="video",
+                    registry_backend=_endpoint,
+                    extra_keys=("wan3_base_url",) if _provider == "dashscope" else (),
+                ),
+            )
+        )
 _specs += [
     ProviderSpec(
         provider_id="minimax",
@@ -716,6 +748,8 @@ _MULTI_ENDPOINT_DEFAULTS: Mapping[tuple[str, str], str] = {
     ("grok", "video"): "grok-video-classic",
     ("vidu", "video"): "vidu-video-q3-turbo",
     ("kling", "video"): "kling-video-pro-silent",
+    ("dashscope", "video"): "dashscope-always-on-video",
+    ("agnes", "video"): "agnes-video-2-5",
     # 方舟的默认视频模型是 Seedance 2.0 系列
     ("ark", "video"): "ark-seedance-2",
     ("ark-agent-plan", "video"): "ark-seedance-2",
@@ -822,8 +856,41 @@ def image_endpoint_for_name(provider_id: str, model_id: str) -> str:
     return "agnes-image-tier" if model_id.startswith("agnes-image-2.5") else "agnes-image-pixels"
 
 
+def dashscope_video_endpoint_for_name(name: str) -> str:
+    """按名字预填百炼请求契约；执行时只读取已经选定的端点。"""
+    import re
+
+    normalized = name.strip().lower()
+    if re.search(r"(?<![a-z0-9])wan[-_]?3(?![a-z0-9])", normalized):
+        return "dashscope-wan3-video"
+    wan27 = re.search(r"(?<![a-z0-9])wan[-_]?2\.7(?![a-z0-9])", normalized)
+    if wan27:
+        suffix = normalized[wan27.start() :]
+        if re.search(r"(?<![a-z0-9])(?:video[-_]?edit|[sv]2v)(?![a-z0-9])", suffix):
+            return "dashscope-video"
+        suffix = re.sub(r"wan[-_]?2\.7[_-]", "wan2.7-", suffix)
+        suffix = re.sub(r"(?<![a-z0-9])image[-_]?(?:to|2)[-_]?video(?![a-z0-9])", "i2v", suffix)
+        normalized = normalized[: wan27.start()] + suffix
+    if re.search(r"(?<![a-z0-9])wan2\.7-r2v(?![a-z0-9])", normalized):
+        return "dashscope-reference-voice-video"
+    if re.search(r"(?<![a-z0-9])happyhorse-1\.[01]-r2v(?![a-z0-9])", normalized):
+        return "dashscope-reference-video"
+    if re.search(r"(?<![a-z0-9])(?:wan2\.7|happyhorse-1\.[01])-(?:t2v|i2v)(?![a-z0-9])", normalized):
+        return "dashscope-always-on-video"
+    return "dashscope-video"
+
+
+def agnes_video_endpoint_for_name(name: str) -> str | None:
+    """按已知代际预填 Agnes 契约；未识别时由供应商默认端点决定。"""
+    if name in {"agnes-video-2.5", "agnes-video-2.5-flash"}:
+        return "agnes-video-2-5"
+    if name == "agnes-video-v2.0":
+        return "agnes-video-2"
+    return None
+
+
 def official_model_endpoint(provider_id: str, media_type: str, model_id: str | None) -> str:
-    """官方收录的模型挂接的端点，暂时按升级前的名字规则决定。
+    """官方收录模型按名字选择请求端点的过渡入口；没有多种请求契约的供应商取默认端点。
 
     没有记下端点的用户添加模型同样落到这里，与它们记下端点之前的通道一致。
     """
@@ -842,6 +909,19 @@ def official_model_endpoint(provider_id: str, media_type: str, model_id: str | N
             if endpoint is not None:
                 return endpoint
         return {"grok": "grok-video-mixed", "vidu": "vidu-video-generic", "kling": "kling-video-silent"}[provider_id]
+
+    if media_type == "video" and provider_id in ("agnes", "dashscope"):
+        entry = catalog.provider_model_entry(provider_id, model_id, "video") if model_id else None
+        names = (entry.name, *entry.aliases) if entry is not None else (model_id or "",)
+        if provider_id == "agnes":
+            return next(
+                (endpoint for name in names if (endpoint := agnes_video_endpoint_for_name(name))), "agnes-video-2"
+            )
+        for name in names:
+            endpoint = dashscope_video_endpoint_for_name(name)
+            if endpoint != "dashscope-video":
+                return endpoint
+        return "dashscope-video"
     return declared.default
 
 
@@ -879,7 +959,9 @@ def infer_builtin_endpoint(provider_id: str, media_type: str, model_id: str) -> 
                 return endpoint
         return declared.default
     discovery_format = "google" if provider_id in _GEMINI_BACKEND_TYPES else "openai"
-    inferred = infer_endpoint(model_id, discovery_format, media_type)
+    inferred = (
+        agnes_video_endpoint_for_name(model_id) if provider_id == "agnes" and media_type == "video" else None
+    ) or infer_endpoint(model_id, discovery_format, media_type)
     return inferred if inferred in declared.endpoints else declared.default
 
 

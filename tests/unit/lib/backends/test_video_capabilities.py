@@ -128,8 +128,8 @@ class TestCandidatesAndExecutionReadTheSameResult:
         assert exc.value.code == "video_last_frame_unsupported"
 
     def test_entry_rejects_last_frame_on_a_custom_endpoint(self, tmp_path: Path):
-        caps = two_sided_video_capabilities(endpoint="dashscope-async-video", model_id="happyhorse-1.0-i2v")
-        assert system_video_capabilities(endpoint="dashscope-async-video", model_id="happyhorse-1.0-i2v").last_frame
+        caps = two_sided_video_capabilities(endpoint="dashscope-always-on-video", model_id="happyhorse-1.0-i2v")
+        assert system_video_capabilities(endpoint="dashscope-always-on-video", model_id="happyhorse-1.0-i2v").last_frame
         assert caps.last_frame is False
         with pytest.raises(VideoCapabilityError) as exc:
             _gate(caps, tmp_path, has_first_frame=True, end_image=_images(tmp_path, 1, "e")[0])

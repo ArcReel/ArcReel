@@ -20,6 +20,14 @@ from arcreel_market_core.video_backend_contract import (
 )
 from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import PROVIDER_DASHSCOPE
+from lib.backends.video_backends.dashscope import (
+    DASHSCOPE_VIDEO_BACKENDS,
+    DashScopeAlwaysOnVideoBackend,
+    DashScopeReferenceVideoBackend,
+    DashScopeReferenceVoiceVideoBackend,
+    DashScopeWan3VideoBackend,
+)
+from lib.custom_provider.endpoints import infer_endpoint
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http
 
@@ -128,18 +136,16 @@ def _profile_key(model: str) -> str | None:
 
 class TestCapabilities:
     def test_name_and_model(self):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")
+        b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")
         assert b.name == PROVIDER_DASHSCOPE
         assert b.model == "happyhorse-1.0-i2v"
 
     def test_channel_declares_every_input_path_without_a_reference_cap(self):
         """通道声明与型号名无关：首尾帧、文生、参考图、参考音频都实现了，参考图与参考音频段数不设上限。"""
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
         for model in ("happyhorse-1.0-r2v", "wan2.7-i2v", "proxy-custom-video"):
-            caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+            caps = DashScopeReferenceVoiceVideoBackend.video_capabilities_for_model(model)
             assert caps.text_to_video is True
             assert caps.first_frame is True
             assert caps.last_frame is True
@@ -186,18 +192,20 @@ class TestCapabilities:
         assert _effective("wan2.7-i2v").first_frame is True
 
     def test_decorated_model_name_resolves_r2v_request_shape(self):
-        """代理中转的前缀/后缀装饰名（infer_endpoint 会按子串路由到 dashscope-async-video）
+        """代理中转的前缀/后缀装饰名（infer_endpoint 会按子串路由到 百炼异步视频端点）
         必须解析出 r2v 的请求形态（必须带参考图），而非退回通道声明。"""
-        from lib.backends.video_backends.dashscope import _requires_reference_images
+        from lib.backends.backend_assembly.specs import dashscope_video_endpoint_for_name
 
-        for model, expected_key in (
+        for model, _expected_key in (
             ("proxy/happyhorse-1.0-r2v", "happyhorse-1.0-r2v"),
             ("provider:wan2.7-r2v", "wan2.7-r2v"),
             ("wan2.7-r2v-0715", "wan2.7-r2v"),  # 后缀版本号
             ("Pro/HappyHorse-1.0-R2V", "happyhorse-1.0-r2v"),  # 大小写不敏感
         ):
-            assert _profile_key(model) == expected_key
-            assert _requires_reference_images(model) is True
+            assert dashscope_video_endpoint_for_name(model) in {
+                "dashscope-reference-video",
+                "dashscope-reference-voice-video",
+            }
 
     def test_alnum_glued_prefix_does_not_resolve_r2v_caps(self):
         """字母数字直接粘连的前缀（无分隔符）不算装饰名，认不得请求形态档。
@@ -227,7 +235,7 @@ class TestCapabilities:
         from lib.backends.video_backends.dashscope import _CHANNEL_CAPABILITIES, DashScopeVideoBackend
 
         assert _profile_key("happyhorse") is None
-        assert DashScopeVideoBackend(api_key="sk", model="happyhorse").video_capabilities is _CHANNEL_CAPABILITIES
+        assert DashScopeVideoBackend(api_key="sk", model="happyhorse").video_capabilities == _CHANNEL_CAPABILITIES
 
     def test_wan27_declares_prompt_char_limit(self):
         """wan2.7 全家族 prompt ≤ 5000 字符；超限官方静默截断并照常计费，故须付费前拦。"""
@@ -253,9 +261,7 @@ class TestReferenceToVideo:
         ref1, ref2 = _ref(tmp_path, "a.png"), _ref(tmp_path, "b.png")
         p1, p2, p3 = _patches(client, download)
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
+            b = DashScopeReferenceVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
             result = await b.generate(
                 VideoGenerationRequest(
                     prompt="[Image 1] dances",
@@ -293,9 +299,7 @@ class TestReferenceToVideo:
         refs = [_ref(tmp_path, f"r{i}.png") for i in range(9)]
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
+            b = DashScopeReferenceVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
             await b.generate(
                 VideoGenerationRequest(
                     prompt="p", output_path=tmp_path / "o.mp4", reference_images=refs, resolution="720p"
@@ -310,9 +314,7 @@ class TestReferenceToVideo:
         refs = [_ref(tmp_path, f"r{i}.png") for i in range(6)]
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
+            b = DashScopeReferenceVoiceVideoBackend(api_key="sk", model="wan2.7-r2v")
             with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(
                     VideoGenerationRequest(
@@ -328,10 +330,9 @@ class TestReferenceToVideo:
         post.assert_not_awaited()
 
     def test_refs_on_model_without_reference_capability_rejected(self, tmp_path: Path):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
         with pytest.raises(VideoCapabilityError) as ei:
-            DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v")._build_payload(
+            DashScopeAlwaysOnVideoBackend(api_key="sk", model="wan2.7-i2v")._build_payload(
                 VideoGenerationRequest(
                     prompt="p",
                     output_path=tmp_path / "o.mp4",
@@ -349,9 +350,7 @@ class TestReferenceToVideo:
         start = tmp_path / "start.png"
         start.write_bytes(b"\x89PNG")
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-t2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="wan2.7-t2v")
             with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(
                     VideoGenerationRequest(
@@ -370,9 +369,7 @@ class TestReferenceToVideo:
         client = _client(post=post, get=AsyncMock())
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
+            b = DashScopeReferenceVoiceVideoBackend(api_key="sk", model="wan2.7-r2v")
             with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(
                     VideoGenerationRequest(
@@ -393,9 +390,7 @@ class TestReferenceToVideo:
         client = _client(post=post, get=AsyncMock())
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
+            b = DashScopeReferenceVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
             with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p"))
         assert ei.value.code == "video_reference_images_required"
@@ -416,9 +411,7 @@ class TestReferenceToVideo:
 
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3, patch("lib.backends.video_backends.dashscope.image_to_data_uri", side_effect=fake_uri):
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
+            b = DashScopeReferenceVoiceVideoBackend(api_key="sk", model="wan2.7-r2v")
             with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(
                     VideoGenerationRequest(
@@ -444,9 +437,7 @@ class TestReferenceToVideo:
             p3,
             patch("lib.backends.video_backends.dashscope.image_to_data_uri", side_effect=OSError("denied")),
         ):
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
+            b = DashScopeReferenceVoiceVideoBackend(api_key="sk", model="wan2.7-r2v")
             with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(
                     VideoGenerationRequest(
@@ -466,9 +457,7 @@ class TestFirstFrameAndTextOnly:
         start = _ref(tmp_path, "start.png")
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3, patch("lib.backends.video_backends.dashscope.image_to_data_uri", side_effect=OSError("io")):
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="wan2.7-i2v")
             with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(
                     VideoGenerationRequest(
@@ -486,9 +475,7 @@ class TestFirstFrameAndTextOnly:
         start = _ref(tmp_path, "start.png")
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="wan2.7-i2v")
             await b.generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", start_image=start, resolution="720p")
             )
@@ -504,9 +491,7 @@ class TestFirstFrameAndTextOnly:
         client = _client(post=post, get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
             await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="1080p"))
         assert "media" not in client.posts[-1]["json"]["input"]
         assert client.posts[-1]["json"]["parameters"]["resolution"] == "1080P"
@@ -519,9 +504,7 @@ class TestFirstFrameAndTextOnly:
         start = _ref(tmp_path, "start.png")
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.1-i2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="happyhorse-1.1-i2v")
             await b.generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", start_image=start, resolution="480p")
             )
@@ -537,9 +520,8 @@ class TestUserRelaxedCapabilities:
 
     @staticmethod
     def _build(tmp_path: Path, model: str, **request_fields) -> dict:
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        return DashScopeVideoBackend(api_key="sk", model=model)._build_payload(
+        return DASHSCOPE_VIDEO_BACKENDS[infer_endpoint(model, "openai")](api_key="sk", model=model)._build_payload(
             VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", **request_fields)
         )
 
@@ -623,9 +605,7 @@ class TestPollingAndFailures:
         client = _client(post=post, get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")
             result = await b.generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p")
             )
@@ -639,9 +619,7 @@ class TestPollingAndFailures:
         download = AsyncMock()
         p1, p2, p3 = _patches(client, download)
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-t2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="wan2.7-t2v")
             with pytest.raises(RuntimeError, match="boom"):
                 await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p"))
         download.assert_not_called()
@@ -652,9 +630,7 @@ class TestPollingAndFailures:
         client = _client(post=post, get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-t2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="wan2.7-t2v")
             with pytest.raises(RuntimeError) as ei:
                 await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p"))
             assert "expired" in str(ei.value).lower()
@@ -685,9 +661,8 @@ class TestResume:
                 task_id="worker-task",
                 poll_timeout_seconds=1800,
             )
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-            backend = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
+            backend = DashScopeAlwaysOnVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
             with pytest.raises(ArtifactDownloadError) as caught:
                 await backend.generate(request)
 
@@ -706,9 +681,7 @@ class TestResume:
         download = AsyncMock()
         p1, p2, p3 = _patches(client, download)
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")
             result = await b.resume_video(
                 "t-resume",
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p"),
@@ -722,9 +695,7 @@ class TestResume:
         client = _client(get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
+            b = DashScopeReferenceVoiceVideoBackend(api_key="sk", model="wan2.7-r2v")
             with pytest.raises(ResumeExpiredError) as ei:
                 await b.resume_video(
                     "t-exp",
@@ -740,9 +711,7 @@ class TestResume:
         client = _client(get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
+            b = DashScopeReferenceVoiceVideoBackend(api_key="sk", model="wan2.7-r2v")
             with pytest.raises(ResumeExpiredError):
                 await b.resume_video(
                     "t-404",
@@ -758,9 +727,7 @@ class TestPersist:
         client = _client(post=post, get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3, captured_provider_job_ids() as persisted:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")
             await b.generate(
                 VideoGenerationRequest(
                     prompt="p", output_path=tmp_path / "o.mp4", resolution="720p", task_id="db-task-1"
@@ -781,9 +748,7 @@ class TestSubmit413:
         ref1 = _ref(tmp_path, "a.png")
         p1, p2, p3 = _patches(client, download)
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
+            b = DashScopeReferenceVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(
                     VideoGenerationRequest(
@@ -814,9 +779,7 @@ class TestRetryStatusGating:
         client = _client(post=post)
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3, bounded_poll_clock():
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-t2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="wan2.7-t2v")
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p"))
         assert ei.value.response.status_code == 400
@@ -831,9 +794,7 @@ class TestRetryStatusGating:
         client = _client(post=post, get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3, bounded_poll_clock():
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
             result = await b.generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p")
             )
@@ -847,9 +808,7 @@ class TestRetryStatusGating:
         client = _client(post=post, get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3, bounded_poll_clock():
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
             result = await b.generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p")
             )
@@ -863,9 +822,7 @@ class TestRetryStatusGating:
         client = _client(post=post, get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")
+            b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")
             result = await b.generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p")
             )
@@ -878,9 +835,8 @@ class TestWan27ReferenceVoice:
 
     @staticmethod
     def _backend():
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        return DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
+        return DashScopeReferenceVoiceVideoBackend(api_key="sk", model="wan2.7-r2v")
 
     @staticmethod
     def _refs(tmp_path, count: int) -> list:
@@ -1025,10 +981,9 @@ class TestWan27ReferenceVoice:
         的 delegate 确实会下传音频），但具体 model 走 wan2.7-i2v 这类无参考素材的档位——
         音频无处挂载。丢弃会生成一段音色随机的视频并照常扣费。
         """
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
         with pytest.raises(VideoCapabilityError) as exc:
-            DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v")._build_payload(
+            DashScopeAlwaysOnVideoBackend(api_key="sk", model="wan2.7-i2v")._build_payload(
                 VideoGenerationRequest(
                     prompt="独白",
                     output_path=tmp_path / "o.mp4",
@@ -1081,10 +1036,9 @@ class TestWan2Aliases:
         通用型号丢失参考图/首帧参数"的矛盾。"wan_2.7_r2v" 这类版本号与模态后缀之间也用下划线
         分隔的别名，须额外把该分隔符归一化成连字符才能匹配 _MODEL_PROFILES 的 key。
         """
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
         assert _profile_key(model) == "wan2.7-r2v"
-        assert DashScopeVideoBackend.video_capabilities_for_model(model).reference_audio_per_image is True
+        assert DashScopeReferenceVoiceVideoBackend.video_capabilities_for_model(model).reference_audio_per_image is True
 
     @pytest.mark.parametrize("model", ["wan-2.7-image-to-video", "wan_2.7-image2video", "wan_2.7_image_to_video"])
     def test_image_to_video_alias_gets_wan27_i2v_capabilities(self, model):
@@ -1136,12 +1090,11 @@ class TestWan3:
 
     @pytest.mark.parametrize("model", ["ep-opaque", "wan2.7-r2v"])
     def test_bound_model_uses_wan3_request_shape_and_endpoint(self, tmp_path, model):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
         from lib.catalog import query as catalog
 
         entry = catalog.find_entry("wan3.0-video", media_type="video")
         assert entry is not None
-        backend = DashScopeVideoBackend(
+        backend = DashScopeWan3VideoBackend(
             api_key="TEST-INFERENCE-KEY",
             model=model,
             wan3_base_url="https://maas.example.invalid/api/v1",
@@ -1159,9 +1112,8 @@ class TestWan3:
 
     @staticmethod
     def _backend(**kwargs):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        return DashScopeVideoBackend(api_key="sk", model="wan3.0-video", **kwargs)
+        return DashScopeWan3VideoBackend(api_key="sk", model="wan3.0-video", **kwargs)
 
     @staticmethod
     def _file(tmp_path, name: str, data: bytes = b"\x89PNG\r\n") -> Path:
@@ -1254,9 +1206,8 @@ class TestWan3:
     @pytest.mark.parametrize("model", ["wan2.7-i2v", "happyhorse-1.1-i2v"])
     def test_audio_switch_not_sent_for_always_on_models(self, tmp_path, model):
         """恒有声型号收到该参数会被上游当非法参数拒。"""
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        payload = DashScopeVideoBackend(api_key="sk", model=model)._build_payload(
+        payload = DashScopeAlwaysOnVideoBackend(api_key="sk", model=model)._build_payload(
             VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=True)
         )
         assert "audio" not in payload["parameters"]
@@ -1264,10 +1215,9 @@ class TestWan3:
     @pytest.mark.parametrize("model", ["wan2.7-i2v", "happyhorse-1.1-i2v"])
     def test_silent_request_on_always_on_model_rejected(self, tmp_path, model):
         """恒有声型号发不出静音请求，拒绝而不是照常出有声成片。"""
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
         with pytest.raises(VideoCapabilityError) as ei:
-            DashScopeVideoBackend(api_key="sk", model=model)._build_payload(
+            DashScopeAlwaysOnVideoBackend(api_key="sk", model=model)._build_payload(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=False)
             )
         assert ei.value.code == "video_audio_switch_not_supported"
@@ -1282,10 +1232,9 @@ class TestWan3:
         assert "audio" not in payload["parameters"]
 
     def test_end_frame_on_model_without_last_frame_rejected(self, tmp_path):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
         with pytest.raises(VideoCapabilityError) as ei:
-            DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")._build_payload(
+            DashScopeAlwaysOnVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")._build_payload(
                 VideoGenerationRequest(
                     prompt="p",
                     output_path=tmp_path / "o.mp4",
@@ -1299,9 +1248,8 @@ class TestWan3:
     @pytest.mark.parametrize("model", ["wan-3-turbo", "wan3-turbo", "wan_3-turbo", "wan_3_turbo"])
     def test_audio_switch_is_sent_for_alias_forms(self, tmp_path, model):
         """别名同样按可控音轨型号分派，不落回恒有声默认档案。"""
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        payload = DashScopeVideoBackend(api_key="sk", model=model)._build_payload(
+        payload = DashScopeWan3VideoBackend(api_key="sk", model=model)._build_payload(
             VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=False)
         )
         assert payload["parameters"]["audio"] is False
@@ -1342,9 +1290,10 @@ class TestWan3:
         assert b._request_base_url.endswith("/api/v1")
 
     def test_dedicated_base_url_not_applied_to_other_models(self):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        b = DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v", wan3_base_url="https://maas.example.com/api/v1")
+        b = DashScopeAlwaysOnVideoBackend(
+            api_key="sk", model="wan2.7-i2v", wan3_base_url="https://maas.example.com/api/v1"
+        )
         assert b._request_base_url == b._base_url
 
     async def test_submit_persists_actual_base_url(self, tmp_path: Path):
@@ -1389,15 +1338,14 @@ class TestCustomProviderBaseUrlReplay:
 
     @staticmethod
     def _wrapped(base_url: str):
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
         from lib.custom_provider.backends import CustomVideoBackend
 
-        delegate = DashScopeVideoBackend(api_key="sk", base_url=base_url, model="wan3.0-video")
+        delegate = DashScopeWan3VideoBackend(api_key="sk", base_url=base_url, model="wan3.0-video")
         return CustomVideoBackend(
             provider_id="custom-7",
             delegate=delegate,
             model="wan3.0-video",
-            endpoint="dashscope-async-video",
+            endpoint="dashscope-video",
         )
 
     async def test_submit_persists_protocol_id_and_domain(self, tmp_path: Path):
@@ -1415,7 +1363,7 @@ class TestCustomProviderBaseUrlReplay:
             )
 
         assert [(r["endpoint"], r["base_url"]) for r in persisted] == [
-            ("dashscope-async-video", "https://custom-a.example.com/api/v1")
+            ("dashscope-video", "https://custom-a.example.com/api/v1")
         ]
 
     async def test_resume_polls_submitted_domain_after_base_url_change(self, tmp_path: Path):

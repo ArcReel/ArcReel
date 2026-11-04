@@ -165,7 +165,7 @@ class TestMediaRegistryRouting:
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="dashscope")
         assert _built(get_provider_spec("dashscope", "video"), config, "wan2.7-r2v") == {
             "media": "video",
-            "backend": "dashscope",
+            "backend": "dashscope-always-on-video",
             "kwargs": {
                 "api_key": "sk-test",
                 "model": "wan2.7-r2v",

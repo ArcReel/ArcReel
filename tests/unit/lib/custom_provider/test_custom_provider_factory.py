@@ -17,6 +17,7 @@ from lib.backends.image_backends.ark import SEEDREAM_BACKENDS
 from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS
 from lib.backends.provider_assets import InferenceCredentialRef
 from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
+from lib.backends.video_backends.dashscope import DASHSCOPE_VIDEO_BACKENDS
 from lib.custom_provider.backends import (
     CustomAudioBackend,
     CustomImageBackend,
@@ -28,7 +29,6 @@ from lib.custom_provider.factory import create_custom_backend
 # endpoints 模块里被 build_backend 闭包直接构造的全部后端类。
 _ENDPOINT_BACKEND_CLASSES = (
     "AnthropicTextBackend",
-    "DashScopeVideoBackend",
     "DeclarativeVideoBackend",
     "GeminiAudioBackend",
     "GeminiImageBackend",
@@ -81,6 +81,9 @@ def _endpoint_backends() -> Generator[list[dict[str, Any]]]:
             stack.enter_context(
                 patch(f"lib.custom_provider.endpoints.{name}", {key: _recorder(label) for key in backends})
             )
+
+        dashscope = {key: _recorder(backend.__name__) for key, backend in DASHSCOPE_VIDEO_BACKENDS.items()}
+        stack.enter_context(patch("lib.custom_provider.endpoints.DASHSCOPE_VIDEO_BACKENDS", dashscope))
         yield records
 
 

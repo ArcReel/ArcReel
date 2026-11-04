@@ -1778,6 +1778,16 @@ export default {
   'endpoint_grok_video_display': 'xAI Grok (Video)',
   'endpoint_grok_video_classic_display': 'Grok Video (Cổ điển)',
   'endpoint_grok_video_mixed_display': 'Grok Video (Đầu vào hỗn hợp)',
+
+
+  'endpoint_dashscope_always_on_video_display': 'Alibaba Model Studio (Video luôn có âm thanh)',
+  'endpoint_dashscope_video_display': 'Alibaba Model Studio (Video)',
+  'endpoint_dashscope_reference_video_display': 'Alibaba Model Studio (Video tham chiếu)',
+  'endpoint_dashscope_reference_voice_video_display': 'Alibaba Model Studio (Video giọng tham chiếu)',
+  'endpoint_dashscope_wan3_video_display': 'Alibaba Model Studio (Video Wan3)',
+  'endpoint_agnes_video_2_display': 'Agnes (Video 2.0)',
+  'endpoint_agnes_video_2_5_display': 'Agnes (Video 2.5)',
+  'endpoint_gemini_vertex_video_display': 'Vertex AI Video (Veo)',
   'endpoint_agnes_video_display': 'Agnes (Video)',
   'endpoint_catalog_loading': 'Đang tải danh mục endpoint…',
   // Image Capability

@@ -19,6 +19,10 @@ _PATHS = {"poll": "/v2/tasks/{{ task_id }}"}
         # 升级前经 ark-seedance 提交，模型现在挂它的任一后继
         ("ark-seedance", "ark-seedance-2"),
         ("ark-seedance", "ark-seedance-1"),
+        ("dashscope-async-video", "dashscope-always-on-video"),
+        (endpoint_guard("dashscope-async-video", _PATHS), endpoint_guard("dashscope-wan3-video", _PATHS)),
+        (builtin_endpoint_guard("agnes-video"), builtin_endpoint_guard("agnes-video-2-5")),
+        (builtin_endpoint_guard("gemini-video"), builtin_endpoint_guard("gemini-vertex-video")),
         (endpoint_guard("ark-seedance", _PATHS), endpoint_guard("ark-seedance-2-5", _PATHS)),
         # 升级前提交的内置任务没有守卫，当下仍是内置供应商
         (None, builtin_endpoint_guard("ark-seedance-2")),
@@ -40,6 +44,8 @@ def test_equivalent_protocols_resume(submitted: str | None, current: str) -> Non
         ("ark-seedance", "openai-video"),
         # 后继之间互换仍是换了端点
         ("ark-seedance-1", "ark-seedance-2"),
+        ("dashscope-wan3-video", "dashscope-always-on-video"),
+        (builtin_endpoint_guard("agnes-video-2"), builtin_endpoint_guard("agnes-video-2-5")),
         # 内置供应商下用户添加的模型提交后换了端点
         (builtin_endpoint_guard("ark-seedance-2"), builtin_endpoint_guard("ark-seedance-1")),
         # 路径覆盖变了
