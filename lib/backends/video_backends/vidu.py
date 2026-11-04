@@ -303,7 +303,7 @@ class ViduVideoBackend(EntryBoundCapabilities):
             raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
 
         # 1) 型号接不接受这条端点的输入由模型条目与通道两侧求值后在 gate_video_request 处判定（docs/adr/0104），
-        #    这里不再按型号白名单拒绝；条目未收录的输入由上游判定。
+        #    这里不按型号拒绝；条目未收录的输入由上游判定。
 
         # 2) duration 在合法集合内取最近值
         duration = _coerce_duration(self._known_model or self._model, endpoint, request.duration_seconds)

@@ -119,7 +119,7 @@ class KlingImageBackend(KlingBackendBase):
         return payload
 
     def _encode_references(self, reference_images: list[ReferenceImage]) -> list[str]:
-        """参考图 → 纯 base64 列表（无 data URI 前缀）；超上限截断，缺失/不可读 fail-loud。"""
+        """参考图 → 纯 base64 列表（无 data URI 前缀）；缺失/不可读 fail-loud。"""
         if not reference_images:
             return []
         encoded: list[str] = []

@@ -66,6 +66,7 @@ function unmatchedVideo(overrides: Partial<ProviderModelDetail> = {}): ProviderM
     capabilities: {
       media_type: "video",
       editable: ["durations", "duration_constraints", "resolutions", "first_frame", "last_frame", "audio_track"],
+      displayed: ["durations", "duration_constraints", "resolutions", "first_frame", "last_frame", "audio_track"],
       base: {
         durations: [4, 8],
         duration_constraints: null,
@@ -178,7 +179,7 @@ describe("ProviderModelSheet", () => {
       ...unmatchedVideo(),
       model: item({ model_id: "veo-3", official: true, endpoint: null, flags: [] }),
       multiplier: null,
-      capabilities: { media_type: "video", editable: [], base: {}, overrides: {}, effective: {} },
+      capabilities: { media_type: "video", editable: [], displayed: [], base: {}, overrides: {}, effective: {} },
       endpoint: null,
     });
     renderSheet({ providerId: "gemini-aistudio", providerName: "Gemini", custom: undefined, open: { modelId: "veo-3", key: 1 } });
@@ -198,7 +199,7 @@ describe("ProviderModelSheet", () => {
       ...unmatchedVideo(),
       model: item({ model_id: "veo-3", official: true, endpoint: null, flags: [] }),
       multiplier: null,
-      capabilities: { media_type: "video", editable: [], base: effective, overrides: {}, effective },
+      capabilities: { media_type: "video", editable: [], displayed: ["durations", "resolutions", "last_frame", "max_reference_images"], base: effective, overrides: {}, effective },
       endpoint: null,
     });
     renderSheet({ providerId: "gemini-aistudio", providerName: "Gemini", custom: undefined, open: { modelId: "veo-3", key: 1 } });

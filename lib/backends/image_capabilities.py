@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 from lib.backends.backend_assembly.specs import get_provider_spec
-from lib.backends.image_backends.base import ImageCapability
+from lib.backends.image_backends.base import ImageCapability, ImageCapabilityError
 from lib.backends.image_backends.registry import channel_capabilities, channel_reference_limit
 from lib.backends.input_limits import InputLimit, effective_input_limit
 from lib.catalog import query as catalog
@@ -42,7 +42,7 @@ def builtin_channel_capabilities(provider_id: str) -> frozenset[ImageCapability]
 
 
 def builtin_channel_reference_limit(provider_id: str) -> int | None:
-    """内置供应商图片调用通道静态声明的参考图上限（通道事实），``None`` 为通道不限或按模型运行时查询。
+    """内置供应商图片调用通道静态声明的参考图上限（通道事实），``None`` 为通道不限张数。
 
     供应商没有图片调用通道时抛 ``ValueError``。
     """
@@ -151,3 +151,36 @@ async def backend_reference_image_limit(backend: ImageBackend, *, provider_id: s
         entry_limit=entry_reference_limit(backend.model, builtin_provider=builtin_provider),
         channel_limit=channel_limit,
     )
+
+
+async def gate_image_request(backend: ImageBackend, *, provider_id: str, reference_count: int) -> None:
+    """提交前的图片能力校验，生产出图与测试连接共用；不满足时抛 :class:`ImageCapabilityError`。
+
+    ``reference_count`` 是本次请求实际带的参考图张数：为 0 时要求文生图，否则要求图生图，且参考图上限
+    （:func:`backend_reference_image_limit`）接受输入、张数不超出正数上限。超限说明调用方没有按编排层同一个
+    生效值裁剪，在提交前拒绝，后端不截断。
+    """
+    from lib.custom_provider.backends import CustomImageBackend
+
+    if isinstance(backend, CustomImageBackend):
+        # 自定义供应商：工厂已按模型行注入模型事实一侧（条目 ⊕ 能力覆盖，ComfyUI 端点不加约束）。
+        available = backend.effective_capabilities
+    else:
+        available = effective_image_capabilities(
+            backend.capabilities,
+            model_id=backend.model,
+            builtin_provider=None if is_custom_provider(provider_id) else provider_id,
+        )
+    needed = ImageCapability.IMAGE_TO_IMAGE if reference_count else ImageCapability.TEXT_TO_IMAGE
+    reference_limit = await backend_reference_image_limit(backend, provider_id=provider_id) if reference_count else None
+    if needed not in available or (reference_limit is not None and not reference_limit.accepts_input):
+        raise ImageCapabilityError(
+            "image_capability_missing_i2i" if reference_count else "image_capability_missing_t2i",
+            provider=backend.name,
+            model=backend.model,
+        )
+    bound = reference_limit.clamp_bound() if reference_limit is not None else None
+    if bound is not None and reference_count > bound:
+        raise ImageCapabilityError(
+            "image_reference_images_exceeded", model=backend.model, limit=bound, count=reference_count
+        )

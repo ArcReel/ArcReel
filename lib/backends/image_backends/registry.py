@@ -39,7 +39,8 @@ def channel_capabilities(name: str) -> frozenset[ImageCapability]:
 def channel_reference_limit(name: str) -> int | None:
     """读某个内置调用通道静态声明的参考图上限（类属性 ``CHANNEL_REFERENCE_LIMIT``），不构造实例。
 
-    ``None`` 表示通道本身不限张数，上限由条目给出；按模型运行时查询的通道（OpenRouter）静态声明同样为 ``None``。
+    ``None`` 表示通道本身不限张数，上限由条目给出。按模型运行时查询的通道（OpenRouter）在这里给出端点的静态上限，
+    运行时再按模型收窄。
     """
     factory = _BACKEND_FACTORIES.get(name)
     if factory is None:

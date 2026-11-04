@@ -252,6 +252,34 @@ class TestImageDefinitionTrialRun:
         assert not run.has_artifact
         assert reason in (run.error or "")
 
+    async def test_reference_images_beyond_the_effective_limit_are_rejected_before_billing(
+        self, trial_runs: TrialRunManager, db_factory: async_sessionmaker, tmp_path: Path
+    ):
+        """测试连接与生产出图读同一个参考图上限：qwen-image-2.0 的条目记 3 张，带 4 张在提交前拒绝、不记账。"""
+        from lib.backends.image_backends.dashscope import DashScopeImageBackend
+
+        parameters = EndpointTestParameters(model="qwen-image-2.0", prompt="黄昏的灯塔")
+
+        async def build() -> DashScopeImageBackend:
+            return DashScopeImageBackend(api_key="sk-test", model=parameters.model)
+
+        refs = []
+        for index in range(4):
+            ref = tmp_path / f"ref{index}.png"
+            ref.write_bytes(PNG_BYTES)
+            refs.append(ref)
+        target = TrialRunTarget(provider="dashscope", model=parameters.model, build_backend=build, media_type="image")
+        with capture_http() as router, bounded_poll_clock():
+            started = await trial_runs.start(target, parameters, assets={"reference_images": refs})
+            run = await _await_terminal(trial_runs, started.id)
+
+        assert run.status is TrialRunStatus.FAILED
+        assert "image_reference_images_exceeded" in (run.error or "")
+        assert router.calls.call_count == 0
+        async with db_factory() as session:
+            rows = (await session.execute(select(ApiCall))).scalars().all()
+        assert rows == []
+
 
 class TestTrialRun:
     async def test_runs_the_production_path_to_a_terminal_state(self, trial_runs: TrialRunManager):

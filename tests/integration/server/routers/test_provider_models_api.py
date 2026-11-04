@@ -265,6 +265,12 @@ def test_official_image_models_show_the_effective_reference_limit(
     assert caps["effective"]["max_reference_images"] == expected
 
 
+def test_capabilities_list_every_dimension_to_display_in_interface_order(models_client: TestClient) -> None:
+    caps = models_client.get("/api/v1/providers/ark/models/doubao-seedream-4-5-251128").json()["capabilities"]
+
+    assert caps["displayed"] == ["text_to_image", "image_to_image", "max_reference_images"]
+
+
 def test_user_added_video_model_overrides_take_effect_at_runtime(models_client: TestClient) -> None:
     from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 

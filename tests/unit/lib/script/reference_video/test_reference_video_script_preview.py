@@ -417,6 +417,18 @@ def test_warn_speaker_audio_needs_image_when_image_clipped_by_reference_limit():
     assert preview.warnings[0]["params"] == {"name": "张三"}
 
 
+def test_preview_does_not_clip_references_when_model_accepts_none():
+    """上限为 0 时执行层不裁参考图，原样交给执行时的校验拒绝；预览按同一条裁剪线，不把音频降级归咎于裁图。"""
+    text = "@[酒馆] 内景，@[张三] 推门。\n@[张三]：{我来了}"
+    preview = build_script_preview(
+        text,
+        PROJECT,
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, requires_reference_image=True),
+        max_reference_images=0,
+    )
+    assert keys(preview) == []
+
+
 def test_warn_reference_audio_overflow():
     text = "开场。\n@[张三]：{我来了}\n@[旁白者]：{我也在}"
     preview = build_script_preview(

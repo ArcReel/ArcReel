@@ -457,7 +457,7 @@ class TestArkModelCapabilities:
 
     @pytest.mark.parametrize("model", ["doubao-seedance-1-5-pro-251215", "doubao-seedance-1.5-pro"])
     def test_seedance_1_5_pro_entry_opens_last_frame_and_rejects_references(self, model: str):
-        """1.5 Pro 的条目记录首尾帧可用、参考图不接受（显式 0），参考生视频不再是候选，带参考图在执行时被拒。"""
+        """1.5 Pro 的条目记录首尾帧可用、参考图不接受（显式 0），不作为参考生视频的候选，带参考图在执行时被拒。"""
         caps = self._effective(model)
         assert caps.last_frame is True
         assert caps.max_reference_images == 0

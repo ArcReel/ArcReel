@@ -8,6 +8,7 @@ import { ProviderCapabilityOverrides } from "./ProviderCapabilityOverrides";
 const VIDEO: ProviderModelCapabilities = {
   media_type: "video",
   editable: ["durations", "duration_constraints", "resolutions", "last_frame", "audio_track"],
+  displayed: ["durations", "duration_constraints", "resolutions", "last_frame", "audio_track"],
   base: {
     durations: [4, 8],
     duration_constraints: null,
@@ -58,12 +59,13 @@ describe("ProviderCapabilityOverrides", () => {
     expect(within(rowOf("音轨形态")).getByText("可开关")).toBeInTheDocument();
   });
 
-  it("shows the effective capabilities of an official model read-only, in display order", () => {
+  it("shows the effective capabilities of an official model read-only, in the order the server lists them", () => {
     render(
       <Harness
         capabilities={{
           media_type: "image",
           editable: [],
+          displayed: ["text_to_image", "image_to_image", "max_reference_images"],
           base: { max_reference_images: null, image_to_image: true, text_to_image: true },
           overrides: {},
           effective: { max_reference_images: null, image_to_image: true, text_to_image: true },
@@ -82,6 +84,7 @@ describe("ProviderCapabilityOverrides", () => {
         capabilities={{
           media_type: "image",
           editable: ["image_to_image"],
+          displayed: ["text_to_image", "image_to_image", "max_reference_images"],
           base: { text_to_image: false, image_to_image: true, max_reference_images: 4 },
           overrides: {},
           effective: { text_to_image: false, image_to_image: true, max_reference_images: 4 },
