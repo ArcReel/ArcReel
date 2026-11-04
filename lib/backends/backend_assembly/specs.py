@@ -194,10 +194,9 @@ def seedance_endpoint_for_name(name: str) -> str | None:
 
 
 def _seedance_video_endpoint(provider_id: str, model_id: str | None) -> str:
-    """官方收录的方舟视频模型按名字选 Seedance 端点（#3647 改读官方数据后删除）。
+    """官方收录的方舟视频模型按名字选 Seedance 端点。
 
     名字先取模型对应条目的官方模型名与模型别名，再取 API 模型名，第一个写明代际的名字决定端点；都没写明时取 1.x 端点。
-    这与端点拆分前通道按名字认定代际的结果一致：服务档只要任一名字属于 2.x 就不带，像素表按条目的名字认定。
     """
     if not model_id:
         return get_provider_endpoints(provider_id, "video").default
@@ -250,7 +249,7 @@ _KLING_ENDPOINTS = ("kling-video-pro-silent", "kling-video-pro-audio", "kling-vi
 
 
 def request_profile_endpoint_for_name(provider_id: str, name: str) -> str | None:
-    """升级前请求形态的名字识别，仅用于端点选择；迁移冻结了同样的规则。"""
+    """按名字识别 Grok、Vidu、可灵视频的请求端点，只用于选定端点与添加时预填；迁移冻结了同一规则。"""
     if provider_id == "grok":
         return "grok-video-classic" if name == "grok-imagine-video" else None
     if provider_id == "vidu":
@@ -845,7 +844,7 @@ def get_provider_spec(provider_id: str, media_type: str, endpoint: str | None = 
 
 
 def image_endpoint_for_name(provider_id: str, model_id: str) -> str:
-    """拆分前图片后端的名字规则，仅用于官方收录选择与新增模型预填（#3647 删除官方选择）。"""
+    """图片端点的名字规则，仅用于官方收录选择与新增模型预填。"""
     lowered = model_id.lower()
     if provider_id in ("ark", "ark-agent-plan"):
         return "ark-seedream-3" if "seedream-3" in lowered else "ark-seedream-4"

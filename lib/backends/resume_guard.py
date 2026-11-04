@@ -4,7 +4,7 @@
 
 - 自定义供应商：调用端点键，有路径覆盖时连同覆盖（``lib.custom_provider.path_overrides.endpoint_guard``）；
 - 内置供应商：``builtin:`` 加模型挂接的内置调用端点名（:func:`builtin_endpoint_guard`）。升级前提交的内置任务没有
-  守卫（``None``），按提交时的内置通道续跑。
+  守卫（``None``），兼容放行当前内置端点；旧任务完成前更换端点可能导致续跑失败。
 
 续跑只轮询并取回结果，所以判据是「当下的端点能否按提交时的协议查到这个任务」：端点相同，或提交时的端点已经拆分
 退役、当下的端点是它协议等价的后继（:data:`RETIRED_ENDPOINT_SUCCESSORS`）。其余情况视为换了协议，拒绝续跑。

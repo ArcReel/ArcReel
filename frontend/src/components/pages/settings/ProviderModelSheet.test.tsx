@@ -255,7 +255,7 @@ describe("ProviderModelSheet", () => {
     renderSheet({ providerId: "minimax", providerName: "MiniMax", custom: undefined, open: { modelId: "acme-video", key: 1 } });
 
     await user.click(await screen.findByRole("combobox", { name: "调用端点" }));
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["MiniMax 海螺", "MiniMax H3"]);
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["MiniMax 海螺", "MiniMax H3"]);
     await user.click(screen.getByRole("option", { name: "MiniMax H3" }));
 
     // 参数随调用端点变化，换了端点先保存再改

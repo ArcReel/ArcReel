@@ -205,7 +205,7 @@ class ViduVideoBackend(EntryBoundCapabilities):
         参考图与首尾帧在 Vidu 上是互斥模式：_select_endpoint 见参考图即切 /reference2video，该端点不收首尾帧，
         _build_request 拒绝两者同带的请求。
 
-        音轨开关与子路径时长由所选端点决定；提示词上限按型号名的现有判定保留在本票范围外。
+        音轨开关与子路径时长由所选端点决定；提示词上限按型号名判定。
         """
         known = _known_model(model, entry)
         return VideoCapabilities(

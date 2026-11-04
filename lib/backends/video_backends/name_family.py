@@ -1,16 +1,8 @@
-"""视频调用通道按名字族认定模型的请求形态（docs/adr/0104、0105）。
+"""视频调用通道使用的条目绑定与名字匹配。
 
-视频的输入能力（文生视频、首帧、尾帧、参考图与参考音频及其数量）不按名字认定：调用通道只声明它实现了什么、
-一次能承载多少，模型接受什么记在模型条目上，两侧共同约束（:mod:`lib.backends.video_capabilities`）。
-
-仍按名字族认定的只剩请求形态，各自等待移进调用端点：按代际区分的请求结构与计量（Agnes 2.5
-与 v2.0 契约、Vidu 端点白名单与时长校正）、音轨形态、提示词长度上限，以及随请求档位或输入组合变化
-的限制（可灵旧型号只在 pro 档接受尾帧、Grok 经典版拒收首帧与参考图并存）。拿来比对的名字取模型所对应条目的官方
-模型名与模型别名，对应不上条目时取 API 模型名（docs/adr/0105）。条目由调用方给出时（自定义供应商与内置供应商下
-用户添加的模型可以绑定条目）直接用它，否则按 API 模型名现查。
-
-内置供应商清单里的 API 模型名就是所引条目的官方模型名或模型别名，按名字现查得到的正是清单所引的条目；
-自定义供应商的模型按同一规则现查。
+请求结构、计量和输入路径由所选端点决定；模型事实从装配时确定的条目读取。
+Vidu 与 DashScope 的提示词上限仍按条目官方名与别名识别；对应不上条目时取 API 模型名。
+条目由调用方给出时直接用它，否则按 API 模型名现查（docs/adr/0105）。
 """
 
 from __future__ import annotations
@@ -26,7 +18,7 @@ if TYPE_CHECKING:
 
 
 def capability_names(model: str, entry: CatalogEntry | None = None) -> tuple[str, ...]:
-    """按名字族认定请求形态时拿来比对的名字：对应条目的官方模型名与模型别名，对应不上条目时为 API 模型名。
+    """按名字匹配提示词上限时拿来比对的名字：对应条目的官方模型名与模型别名，对应不上条目时为 API 模型名。
 
     ``entry`` 是调用方已确定的对应条目（条目绑定优先，见 ``docs/adr/0105``）；不给时按 API 模型名现查。
     """
@@ -47,10 +39,10 @@ def match_by_names[T](model: str, match: Callable[[str], T | None], *, entry: Ca
 
 
 class EntryBoundCapabilities:
-    """调用通道实例按模型所对应的条目认定请求形态的公共部分（docs/adr/0104、0105）。
+    """调用通道实例持有模型所对应条目的公共部分（docs/adr/0104、0105）。
 
     装配方经 :meth:`with_catalog_entry` 交给实例这个模型对应的条目（条目绑定优先，否则按名字现查）；没有交时
-    ``_catalog_entry`` 为 ``None``，按 API 模型名现查。条目只决定按哪个模型认定请求形态，请求里仍发 API 模型名。
+    ``_catalog_entry`` 为 ``None``，按 API 模型名现查。条目用于读取模型事实与匹配提示词上限，请求里仍发 API 模型名。
     """
 
     _catalog_entry: CatalogEntry | None = None
@@ -74,7 +66,6 @@ class EntryBoundCapabilities:
 def catalog_entry_of(backend: object) -> CatalogEntry | None:
     """调用通道实例认定模型所按的条目：装配时交给它的条目；不按条目认定的通道（声明式、ComfyUI）为 ``None``。
 
-    结算计量按这个条目读名字族判定（如方舟的视频 token 与服务档、可灵的有声约束），与实例的能力和请求构造
-    同一个来源；提交前预估由调用方按同一规则取条目（内置取 ``provider_model_entry``，自定义取条目绑定）。
+    结算计量与请求构造读取同一个条目的模型事实；提交前预估由调用方按同一规则取条目（内置取 ``provider_model_entry``，自定义取条目绑定）。
     """
     return getattr(backend, "catalog_entry", None)

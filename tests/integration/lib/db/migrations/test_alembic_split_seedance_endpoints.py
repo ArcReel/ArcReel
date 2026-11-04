@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -16,6 +17,9 @@ _CUSTOM_MODELS = [
     # 靠条目绑定识别为 Seedance 2.0 的不透明 ID：升级前按条目的名字不带 service_tier、按 2.0 像素表估算
     ("ep-20261103-opaque", "ark-seedance", "bytedance/doubao-seedance-2.0"),
     ("ep-20261103-unbound", "ark-seedance", None),
+    ("opaque-alias", "ark-seedance", None),
+    ("bound-alias", "ark-seedance", "acme/opaque-entry"),
+    ("SYNC-ALIAS", "ark-seedance", "missing/entry"),
     ("dreamina-seedance-2-5-260628", "ark-seedance", None),
     ("doubao-seedance-2.0-fast", "ark-seedance", None),
     ("doubao-seedance-1-5-pro-251215", "ark-seedance", None),
@@ -27,6 +31,7 @@ _CUSTOM_MODELS = [
 _BUILTIN_MODELS = [
     ("ark", "ep-builtin-opaque", "ark-seedance", "bytedance/doubao-seedance-2.5"),
     ("ark-agent-plan", "doubao-seedance-1.5-pro", "ark-seedance", None),
+    ("ark", "opaque-alias", "ark-seedance", None),
     ("minimax", "acme-video-pro", "minimax-hailuo-v1", "minimax/MiniMax-H3"),
 ]
 
@@ -77,6 +82,39 @@ def test_existing_seedance_models_keep_the_generation_they_used_and_downgrade_re
     try:
         with engine.begin() as conn:
             _seed(conn)
+            for maker, name, aliases in (
+                ("bytedance", "doubao-seedance-2.0", ["opaque-alias"]),
+                ("acme", "opaque-entry", ["doubao-seedance-2.5"]),
+            ):
+                conn.execute(
+                    sa.text(
+                        "INSERT INTO catalog_user_entry "
+                        "(maker, name, media_type, entry, user_created, created_at, updated_at) "
+                        "VALUES (:maker, :name, 'video', :entry, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                    ),
+                    {"maker": maker, "name": name, "entry": json.dumps({"name": name, "aliases": aliases})},
+                )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO catalog_official_sync (id, dataset_version, catalog, created_at, updated_at) "
+                    "VALUES (1, '2026-11-04T00:00:00Z', :catalog, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                ),
+                {
+                    "catalog": json.dumps(
+                        {
+                            "dataset_version": "2026-11-04T00:00:00Z",
+                            "entries": [
+                                {
+                                    "maker": "bytedance",
+                                    "name": "doubao-seedance-2.5",
+                                    "media_type": "video",
+                                    "aliases": ["sync-alias"],
+                                }
+                            ],
+                        }
+                    ).encode()
+                },
+            )
             before = _endpoints(conn)
         command.upgrade(cfg, revision)
         with engine.connect() as conn:
@@ -90,6 +128,10 @@ def test_existing_seedance_models_keep_the_generation_they_used_and_downgrade_re
     assert upgraded == {
         ("custom", "ep-20261103-opaque"): "ark-seedance-2",
         ("custom", "ep-20261103-unbound"): "ark-seedance-1",
+        ("custom", "opaque-alias"): "ark-seedance-2",
+        ("custom", "bound-alias"): "ark-seedance-2-5",
+        ("custom", "SYNC-ALIAS"): "ark-seedance-2-5",
+        ("ark", "opaque-alias"): "ark-seedance-2",
         ("custom", "dreamina-seedance-2-5-260628"): "ark-seedance-2-5",
         ("custom", "doubao-seedance-2.0-fast"): "ark-seedance-2",
         ("custom", "doubao-seedance-1-5-pro-251215"): "ark-seedance-1",
@@ -102,6 +144,10 @@ def test_existing_seedance_models_keep_the_generation_they_used_and_downgrade_re
     sent_service_tier_before_upgrade = {
         ("custom", "ep-20261103-opaque"): False,
         ("custom", "ep-20261103-unbound"): True,
+        ("custom", "opaque-alias"): False,
+        ("custom", "bound-alias"): False,
+        ("custom", "SYNC-ALIAS"): False,
+        ("ark", "opaque-alias"): False,
         ("custom", "dreamina-seedance-2-5-260628"): False,
         ("custom", "doubao-seedance-2.0-fast"): False,
         ("custom", "doubao-seedance-1-5-pro-251215"): True,
@@ -112,4 +158,10 @@ def test_existing_seedance_models_keep_the_generation_they_used_and_downgrade_re
         key: SEEDANCE_BACKENDS[str(upgraded[key])].endpoint.sends_service_tier
         for key in sent_service_tier_before_upgrade
     } == sent_service_tier_before_upgrade
+    assert (
+        SEEDANCE_BACKENDS[upgraded[("custom", "opaque-alias")]].estimate_video_tokens(
+            resolution="720p", ratio="16:9", seconds=5
+        )
+        == 108000.0
+    )
     assert downgraded == before

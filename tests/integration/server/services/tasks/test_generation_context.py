@@ -108,7 +108,15 @@ def fake_assemble(monkeypatch):
     calls: list[tuple[str, str, str | None]] = []
 
     async def _assemble(
-        *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        *,
+        provider_id,
+        media_type,
+        model_id,
+        resolver,
+        rate_limiter=None,
+        generation_type=None,
+        submitted_job=False,
+        builtin_endpoint=None,
     ):
         calls.append((provider_id, media_type, model_id))
         return _FakeBackend(name=provider_id, model=model_id or "default-model")
@@ -288,7 +296,15 @@ class TestVideoLane:
         """续跑这类不声明路线的 lane 只交付身份：registry 之外的 model 也照常构造，不求值能力。"""
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
@@ -319,7 +335,15 @@ class TestVideoLane:
         """声明路线的事实失败由执行器阻断，音频开关没有独立降级值。"""
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
@@ -347,6 +371,45 @@ class TestVideoLane:
         )
         assert ctx.video.provider_model == ProviderModel("grok", grok_model)
 
+    async def test_resume_guard_follows_the_endpoint_the_backend_was_built_with(
+        self, patched_session_factory, project_env, monkeypatch
+    ):
+        """构造之后用户改了模型挂接的端点：冻结的守卫仍是实际提交任务的那个端点，续跑不会按新端点放行。"""
+        model_id = "ep-guard-race"
+        catalog.install_user_added_models(
+            (catalog.UserAddedModel("ark", model_id, "video", endpoint="ark-seedance-2"),)
+        )
+        built_with: list[str | None] = []
+
+        async def _assemble(
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
+        ):
+            built_with.append(builtin_endpoint)
+            # 构造完成到守卫写入之间，设置页把这个模型改挂 2.5 端点。
+            catalog.install_user_added_models(
+                (catalog.UserAddedModel("ark", model_id, "video", endpoint="ark-seedance-2-5"),)
+            )
+            return _FakeBackend(name=provider_id, model=model_id)
+
+        use_backend_assembler(monkeypatch, _assemble)
+        try:
+            ctx = await resolve_generation_context(
+                "demo", None, project={"video_backend": f"ark/{model_id}"}, video=VideoLaneRequest()
+            )
+        finally:
+            catalog.install_user_added_models(())
+
+        assert built_with == ["ark-seedance-2"]
+        assert ctx.video.endpoint == "builtin:ark-seedance-2"
+
     async def test_submitted_job_requires_a_pinned_identity(self, patched_session_factory, project_env, fake_assemble):
         """续跑的下线豁免只给提交时锁定的身份：没有锁定身份时不按当前配置解析，直接报错，也不构造 backend。"""
         ark_model = _registry_video_model("ark")
@@ -368,7 +431,15 @@ class TestActualIdentityQueries:
         provider_id = await _seed_custom_video_provider(patched_session_factory)
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             # 模拟 load_custom_backend 的回退：请求 m-dead，实际构造出默认启用的 m-live
             return _FakeBackend(name=provider_id, model="m-live")
@@ -426,7 +497,15 @@ class TestVideoRequestFacts:
         self, patched_session_factory, project_env, monkeypatch, db_engine, route
     ):
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             async with db_engine.begin() as connection:
                 await connection.run_sync(SystemSetting.__table__.drop)
@@ -517,7 +596,15 @@ class TestVideoRequestFacts:
             await session.commit()
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             return _FakeBackend(name=provider_id, model="m-live")
 
@@ -539,7 +626,15 @@ class TestVideoRequestFacts:
         self, patched_session_factory, project_env, monkeypatch
     ):
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
@@ -574,7 +669,15 @@ class TestAudioLane:
         """
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             return _FakeBackend(
                 name=provider_id, model=model_id or "default-model", voices=[VoiceOption(id="Cherry", label="Cherry")]
@@ -593,7 +696,15 @@ class TestAtomicFailure:
         """image 成功后 video 构造失败：整次调用原样上抛，无部分结果。"""
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             if media_type == "video":
                 raise ValueError("video backend 构造失败")
@@ -639,7 +750,15 @@ class TestBackendCache:
         built: list[str | None] = []
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             built.append(model_id)
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
@@ -685,7 +804,15 @@ class TestBackendCache:
         built: list[str | None] = []
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             built.append(model_id)
             return _FakeBackend(name=provider_id, model=model_id or SEEDREAM_LITE)
@@ -733,7 +860,15 @@ class TestBackendCache:
         seen: list[str | None] = []
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             seen.append(generation_type)
             return _FakeBackend(name=provider_id, model=f"{generation_type}-model")
@@ -751,6 +886,38 @@ class TestBackendCache:
         assert (t2i.model, i2i.model) == ("t2i-model", "i2i-model")
         assert t2i_again is t2i
 
+    async def test_a_changed_endpoint_is_not_served_from_the_cache(self, monkeypatch):
+        """模型挂接的端点变了（如官方目录同步不经缓存失效），下一次取到的是按新端点构造的实例。"""
+        built_with: list[str | None] = []
+
+        async def _assemble(
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
+        ):
+            built_with.append(builtin_endpoint)
+            return _FakeBackend(name=provider_id, model=model_id)
+
+        use_backend_assembler(monkeypatch, _assemble)
+        resolver = cast(ConfigResolver, None)
+        model_id = "ep-image-endpoint"
+        try:
+            for endpoint in ("ark-seedream-3", "ark-seedream-4"):
+                catalog.install_user_added_models(
+                    (catalog.UserAddedModel("ark", model_id, "image", endpoint=endpoint),)
+                )
+                await generation_context._get_or_create_image_backend("ark", {"model": model_id}, resolver)
+        finally:
+            catalog.install_user_added_models(())
+
+        assert built_with == ["ark-seedream-3", "ark-seedream-4"]
+
     async def test_invalidate_during_construction_discards_instance(self, monkeypatch):
         """构造中途（assemble_backend await 挂起期间）触发 invalidate：完成的实例不写回缓存。"""
         entered = asyncio.Event()
@@ -758,7 +925,15 @@ class TestBackendCache:
         built: list[_FakeBackend] = []
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             backend = _FakeBackend(name=provider_id, model=model_id or "default-model")
             built.append(backend)
@@ -774,9 +949,9 @@ class TestBackendCache:
         await entered.wait()
         generation_context.invalidate_backend_cache()
         release.set()
-        stale = await task
+        stale, _ = await task
 
-        fresh = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
+        fresh, _ = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
         assert len(built) == 2, "缓存中不得残留失效期间构造的实例，后续访问须重新构造"
         assert stale is built[0]
         assert fresh is built[1]
@@ -789,7 +964,15 @@ class TestBackendCache:
         construct_count = 0
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             nonlocal construct_count
             construct_count += 1
@@ -807,7 +990,7 @@ class TestBackendCache:
         for _ in range(3):
             await asyncio.sleep(0)
         release.set()
-        b1, b2 = await asyncio.gather(t1, t2)
+        (b1, _), (b2, _) = await asyncio.gather(t1, t2)
 
         assert construct_count == 1, "同 key 并发 miss 须 single-flight，只构造一次"
         assert b1 is b2
@@ -826,7 +1009,15 @@ class TestBackendCache:
         built: list[_FakeBackend] = []
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             backend = _FakeBackend(name=provider_id, model=model_id or "default-model")
             built.append(backend)
@@ -848,14 +1039,14 @@ class TestBackendCache:
 
         generation_context.invalidate_backend_cache()  # 失效边界：此时 follower 已排队，代数已翻篇
         release.set()  # 放行 leader，完成构造
-        stale = await leader
-        stale_from_follower = await follower
+        stale, _ = await leader
+        stale_from_follower, _ = await follower
 
         assert stale is built[0]
         assert stale_from_follower is built[1]
         assert stale is not stale_from_follower
 
-        fresh = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
+        fresh, _ = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
         assert len(built) == 3, "leader 与 follower 的旧代际实例均不得写回，后续访问须重新构造"
         assert fresh is built[2]
         assert fresh is not stale

@@ -1744,7 +1744,7 @@ export default {
   'endpoint_dashscope_wan_image_display': 'Wan Image',
   'endpoint_dashscope_qwen_image_edit_display': 'Qwen Image Edit',
   'endpoint_agnes_image_pixels_display': 'Agnes (WxH)',
-  'endpoint_agnes_image_tier_display': 'Agnes (size + ratio)',
+  'endpoint_agnes_image_tier_display': 'Agnes (mức kích thước + tỉ lệ)',
   'endpoint_vidu_video_display': 'Vidu Video',
   'endpoint_vidu_video_generic_display': 'Vidu Video (Chuyển tiếp)',
   'endpoint_vidu_video_q3_pro_display': 'Vidu Video (Q3-PRO)',

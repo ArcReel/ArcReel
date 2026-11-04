@@ -869,6 +869,27 @@ def test_builtin_user_added_model_prefills_and_switches_its_endpoint(models_clie
     assert declared_builtin_video_capabilities("minimax", "MiniMax-H3-Preview").text_to_video is False
 
 
+def test_switching_the_endpoint_alone_clears_overrides_checked_against_the_old_one(models_client: TestClient) -> None:
+    """能力覆盖按端点校验后保存；只换端点不一并提交覆盖时，旧端点下的覆盖不套到新端点上。"""
+    _add_user_model(models_client, "ark", "my-switch-ep", "video")
+    url = "/api/v1/providers/ark/models/my-switch-ep"
+    assert models_client.patch(url, json={"endpoint": "ark-seedance-1"}).status_code == 200
+    overridden = models_client.patch(url, json={"capability_overrides": {"durations": [5]}})
+    assert overridden.json()["capabilities"]["effective"]["durations"] == [5]
+
+    same = models_client.patch(url, json={"endpoint": "ark-seedance-1"})
+    assert same.json()["capabilities"]["effective"]["durations"] == [5]
+
+    switched = models_client.patch(url, json={"endpoint": "ark-seedance-2"}).json()
+    assert switched["endpoint"] == "ark-seedance-2"
+    assert switched["capabilities"]["effective"]["durations"] == switched["capabilities"]["base"]["durations"]
+
+    resubmitted = models_client.patch(
+        url, json={"endpoint": "ark-seedance-1", "capability_overrides": {"durations": [5]}}
+    ).json()
+    assert resubmitted["capabilities"]["effective"]["durations"] == [5]
+
+
 def test_builtin_add_rejects_an_endpoint_of_another_provider(models_client: TestClient) -> None:
     resp = models_client.post(
         "/api/v1/providers/grok/models",

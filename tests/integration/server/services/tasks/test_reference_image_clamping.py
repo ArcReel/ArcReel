@@ -214,7 +214,15 @@ class TestLimitComesFromTheResolvedBackend:
         generation_context.reset_backend_cache_for_tests()
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             assert (provider_id, media_type) == ("vidu", "image")
             return ViduImageBackend(api_key="k", model=model_id, base_url="https://api.vidu.com/ent/v2")
@@ -261,7 +269,15 @@ class TestGrokLaneClampsToFive:
         )
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             assert (provider_id, media_type) == ("grok", "image")
             with patch("lib.backends.image_backends.grok.create_grok_client", return_value=client):
@@ -305,7 +321,15 @@ class TestOpenRouterLaneClampsToTheCatalogLimit:
         generation_context.reset_backend_cache_for_tests()
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             assert media_type == "image"
             return OpenRouterImageBackend(api_key="k", model=self.MODEL, base_url=self.BASE_URL)

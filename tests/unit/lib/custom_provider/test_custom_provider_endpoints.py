@@ -605,9 +605,9 @@ class TestInferEndpoint:
             ("image-01", "openai", "minimax-image"),  # image-01 含 "image" 否则会被推到通用图像家族
             ("minimax/image-01", "openai", "minimax-image"),
             ("S2V-01", "google", "minimax-s2v-01"),  # minimax 路由不分 discovery_format
-            # ── Kling 原生中转二级路由（视频 family 含 kling，须收敛到 kling-video 而非 openai-video）──
+            # ── Kling 原生中转二级路由（视频 family 含 kling，须收敛到 kling-video-* 而非 openai-video）──
             ("kling-v2-5-turbo", "openai", "kling-video-pro-silent"),
-            ("kling-v2", "openai", "kling-video-silent"),  # 前 kling endpoint 时代默认 openai-video
+            ("kling-v2", "openai", "kling-video-silent"),  # 不在请求形态表里的可灵名字取无声端点
             ("kling-v3", "openai", "kling-video-audio"),
             ("kling-v2-6", "openai", "kling-video-pro-audio"),
             ("proxy/kling-v2-5-turbo", "openai", "kling-video-pro-silent"),

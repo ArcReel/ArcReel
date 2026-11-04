@@ -31,15 +31,16 @@ def _install(*models: catalog.UserAddedModel) -> None:
     catalog.install_user_added_models(models)
 
 
-def _built_definition(provider_id: str, model_id: str):
-    backend = builtin_model_spec(provider_id, "video", model_id).build_backend(
+def _built_endpoint_and_text_to_video(provider_id: str, model_id: str):
+    spec = builtin_model_spec(provider_id, "video", model_id)
+    backend = spec.build_backend(
         LoadedConfig(
             credentials={"api_key": "sk-test"}, provider_meta=PROVIDER_REGISTRY[provider_id], rate_limiter=None
         ),
         model_id,
     )
     assert backend.model == model_id
-    return backend._definition
+    return spec.endpoint, backend.video_capabilities.text_to_video
 
 
 class TestDeclarations:
@@ -77,36 +78,38 @@ class TestDeclarations:
 
 class TestAssemblyFollowsTheEndpoint:
     def test_official_minimax_models_keep_choosing_their_endpoint_by_name(self):
-        assert _built_definition("minimax", "MiniMax-H3") is ENDPOINT_REGISTRY["minimax-h3"].definition
-        assert (
-            _built_definition("minimax", "MiniMax-Hailuo-2.3-Fast")
-            is ENDPOINT_REGISTRY["minimax-hailuo-v1-fast"].definition
+        assert _built_endpoint_and_text_to_video("minimax", "MiniMax-H3") == ("minimax-h3", True)
+        assert _built_endpoint_and_text_to_video("minimax", "MiniMax-Hailuo-2.3-Fast") == (
+            "minimax-hailuo-v1-fast",
+            False,
         )
 
     def test_a_user_added_model_is_built_through_the_endpoint_it_chose(self, user_added: None):
         _install(catalog.UserAddedModel("minimax", "acme-video", "video", endpoint="minimax-h3"))
 
-        assert _built_definition("minimax", "acme-video") is ENDPOINT_REGISTRY["minimax-h3"].definition
+        assert _built_endpoint_and_text_to_video("minimax", "acme-video") == ("minimax-h3", True)
         assert declared_builtin_video_capabilities("minimax", "acme-video").text_to_video is True
 
         _install(catalog.UserAddedModel("minimax", "acme-video", "video", endpoint="minimax-hailuo-v1-fast"))
 
-        assert _built_definition("minimax", "acme-video") is ENDPOINT_REGISTRY["minimax-hailuo-v1-fast"].definition
+        assert _built_endpoint_and_text_to_video("minimax", "acme-video") == ("minimax-hailuo-v1-fast", False)
         # Fast 只接受图生视频：通道能力随端点变，与模型名无关
         assert declared_builtin_video_capabilities("minimax", "acme-video").text_to_video is False
 
-    def test_the_same_endpoint_sends_the_same_request_shape_whatever_the_model_name(self, user_added: None):
+    def test_the_same_endpoint_declares_the_same_capabilities_whatever_the_model_name(self, user_added: None):
         _install(
             catalog.UserAddedModel("minimax", "relay-a", "video", endpoint="minimax-h3"),
             catalog.UserAddedModel("minimax", "MiniMax-Hailuo-2.3-Fast-relay", "video", endpoint="minimax-h3"),
         )
 
-        assert _built_definition("minimax", "relay-a") is _built_definition("minimax", "MiniMax-Hailuo-2.3-Fast-relay")
+        assert _built_endpoint_and_text_to_video("minimax", "relay-a") == _built_endpoint_and_text_to_video(
+            "minimax", "MiniMax-Hailuo-2.3-Fast-relay"
+        )
 
     def test_a_user_added_model_without_a_recorded_endpoint_keeps_the_name_rule(self, user_added: None):
         _install(catalog.UserAddedModel("minimax", "proxy/minimax-h3", "video"))
 
-        assert _built_definition("minimax", "proxy/minimax-h3") is ENDPOINT_REGISTRY["minimax-h3"].definition
+        assert _built_endpoint_and_text_to_video("minimax", "proxy/minimax-h3") == ("minimax-h3", True)
 
     @pytest.mark.parametrize("provider_id", ["ark", "ark-agent-plan"])
     def test_both_ark_providers_offer_the_three_seedance_endpoints(self, provider_id: str):
