@@ -346,6 +346,7 @@ MESSAGES = {
     "builtin_model_media_type_required": 'Không xác định được loại của mô hình "{model}". Hãy chọn loại mô hình rồi thử lại',
     "builtin_model_media_type_unsupported": "Nhà cung cấp này không hỗ trợ loại mô hình này ({media_type})",
     "builtin_model_binding_invalid": 'Mô hình tương ứng "{binding}" sai định dạng, cần có dạng "nhà-sản-xuất/tên-mô-hình"',
+    "builtin_model_endpoint_unavailable": 'Mô hình {media_type} của nhà cung cấp này không thể dùng endpoint gọi "{endpoint}"',
     "comfyui_model_endpoint_missing": "Chưa có endpoint ComfyUI nào. Hãy nhập một endpoint ComfyUI rồi thêm mô hình",
     "discovery_not_applicable_builtin": "Nhà cung cấp này không có API danh sách mô hình. Hãy thêm mô hình theo ID mô hình",
     "builtin_model_official_settings": '"{model}" là mô hình được liệt kê chính thức, chỉ có thể bật hoặc tắt; các thiết lập khác do phía chính thức duy trì',

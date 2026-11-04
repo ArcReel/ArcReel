@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from lib.backends.backend_assembly.specs import get_provider_spec
+from lib.backends.backend_assembly.specs import builtin_model_spec
 from lib.backends.image_backends.base import ImageRequestFacts
 from lib.backends.image_backends.registry import channel_usage_estimator
 from lib.billing.metering import Usage
@@ -20,5 +20,5 @@ def estimate_builtin_image_usage(provider_id: str, facts: ImageRequestFacts) -> 
 
     调用通道按模型对应的条目估算（``facts.entry``）：官方收录的取清单所引的条目，用户添加的取条目绑定或按名字现查的结果。
     """
-    estimator = channel_usage_estimator(get_provider_spec(provider_id, "image").registry_backend)
+    estimator = channel_usage_estimator(builtin_model_spec(provider_id, "image", facts.model).registry_backend)
     return estimator(replace(facts, entry=catalog.provider_model_entry(provider_id, facts.model, "image")))

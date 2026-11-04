@@ -35,6 +35,7 @@ function detailOf(model: ProviderModelItem): ProviderModelDetail {
     resolution: null,
     path_overrides: null,
     requests: [],
+    endpoint_options: [],
   };
 }
 
@@ -323,6 +324,7 @@ describe("ProviderModelList", () => {
       resolution: null,
       path_overrides: null,
       requests: [],
+      endpoint_options: [],
     };
     vi.spyOn(API, "getProviderModel").mockResolvedValue(detail);
     const update = vi

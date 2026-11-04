@@ -1402,6 +1402,16 @@ def _validate_registry() -> None:
 _validate_registry()
 
 
+def _validate_builtin_provider_endpoints() -> None:
+    """import 期校验内置供应商声明的可选端点与本注册表一致：共用的端点名都是这里的内置端点，媒体类型相同。"""
+    from lib.backends.backend_assembly.specs import validate_endpoint_declarations
+
+    validate_endpoint_declarations()
+
+
+_validate_builtin_provider_endpoints()
+
+
 # ── 工具函数 ───────────────────────────────────────────────────────
 
 

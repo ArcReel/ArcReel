@@ -36,13 +36,29 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ProviderSpec:
-    """单条内置 (provider, media) 的 backend 构造规格。"""
+    """内置供应商经一个内置调用端点调用时的 backend 构造规格：供应商给凭证，端点决定请求。"""
 
     provider_id: str  # registry / config provider id，如 "ark"
     media_type: str  # "image" | "video" | "audio" | "text"
     registry_backend: str  # 映射到哪个 media backend registry 名（合并两份 PROVIDER_ID_TO_BACKEND）
     # model_id 为 None 只在模型目录没有给该供应商该媒体类型指定默认模型时出现，由 backend 自行处理
     build_backend: Callable[[LoadedConfig, str | None], Any]
+    # 这条构造对应的内置调用端点名：与自定义供应商共用的端点取端点注册表的键，只在内置供应商凭证下成立的端点
+    # 见 PROVIDER_ONLY_ENDPOINTS。
+    endpoint: str
+
+
+@dataclass(frozen=True)
+class ProviderEndpoints:
+    """内置供应商在一个媒体类型下可挂接的内置调用端点（按声明顺序）与默认端点。
+
+    默认端点是官方收录的模型没有另行指定时挂接的端点，也是用户添加模型的推断落空时的预填值。
+    """
+
+    provider_id: str
+    media_type: str
+    endpoints: tuple[str, ...]
+    default: str
 
 
 def _media_create_backend(media_type: str) -> Callable[..., Any]:
@@ -129,7 +145,7 @@ def _build_ark_video(config: LoadedConfig, model_id: str | None, *, provider_id:
     return _build_simple(config, model_id, media_type="video", registry_backend=provider_id, extra_kwargs=extra)
 
 
-def _simple_spec(provider_id: str, media_type: str, *, extra_keys: tuple[str, ...] = ()) -> ProviderSpec:
+def _simple_spec(provider_id: str, media_type: str, endpoint: str, *, extra_keys: tuple[str, ...] = ()) -> ProviderSpec:
     """登记一条简单族 spec：registry_backend 即 provider_id 自身（媒体侧无别名映射）。"""
     return ProviderSpec(
         provider_id=provider_id,
@@ -138,15 +154,17 @@ def _simple_spec(provider_id: str, media_type: str, *, extra_keys: tuple[str, ..
         build_backend=partial(
             _build_simple, media_type=media_type, registry_backend=provider_id, extra_keys=extra_keys
         ),
+        endpoint=endpoint,
     )
 
 
 def _minimax_video_endpoint(model_id: str | None) -> str:
-    """model → 声明式端点键。一份定义一种请求形状 + 一组能力，故 Fast 与 2.3 分居两键。
+    """官方收录的 MiniMax 视频模型按 API 模型名选声明式端点。一份定义一种请求形状 + 一组能力，故 Fast 与 2.3 分居两键。
 
-    与 :func:`lib.custom_provider.endpoints.infer_endpoint` 和 alembic ``8c2b1e7d4a90``
-    的模型名口径同源（三处各存一份字面量，改其一须同改另两处）：Fast 只接受图生视频，
-    定义把首帧声明为必需输入，``text_to_video`` 才据此推导为 False。
+    只给官方收录的模型和没有记下端点的模型用（见 :func:`official_model_endpoint`）；用户添加的模型添加时按
+    :func:`lib.custom_provider.endpoints.infer_endpoint` 预填，两边对 Fast 与 S2V 的名字宽度不同。alembic
+    ``8c2b1e7d4a90`` 与 ``c4e8a1f7b3d2`` 各冻结了一份本规则：Fast 只接受图生视频，定义把首帧声明为必需输入，
+    ``text_to_video`` 才据此推导为 False。
     """
     model = (model_id or "").lower()
     if model_id == "S2V-01":
@@ -163,28 +181,35 @@ def builtin_declarative_video_diagnostics(
 ) -> tuple[Mapping[str, Any], str, str] | None:
     """内置模型行走声明式装配时，测试连接诊断用的 ``(definition, base_url, api_key)``。
 
-    该 (provider, model) 由 Python backend 实现时返回 None。端点判定与凭证回落与
+    该 (provider, model) 由 Python backend 实现时返回 None。端点判定（:func:`builtin_model_spec`）与凭证回落与
     :func:`_build_minimax_declarative_video` 同一份——诊断里渲出的请求必须与真发的一致。
     调用方须先按各自的凭证闸确认 ``api_key`` 非空（空值在此处会 fail-loud）。
     """
     if provider_id != "minimax":
         return None
     from lib.backends.minimax_shared import MINIMAX_BASE_URL, resolve_minimax_api_key
-    from lib.custom_provider.endpoints import get_endpoint_spec
 
-    definition = get_endpoint_spec(_minimax_video_endpoint(model_id)).definition
+    definition = _declarative_definition(builtin_model_spec(provider_id, "video", model_id))
     if definition is None:
         return None
     return definition, config.get("base_url") or MINIMAX_BASE_URL, resolve_minimax_api_key(config.get("api_key"))
 
 
-def _build_minimax_declarative_video(config: LoadedConfig, model_id: str | None) -> Any:
+def _declarative_definition(spec: ProviderSpec) -> Mapping[str, Any] | None:
+    """经随版声明式定义调用的端点的定义；Python backend 实现的端点为 ``None``。"""
+    if spec.registry_backend != "declarative":
+        return None
+    from lib.custom_provider.endpoints import get_endpoint_spec
+
+    return get_endpoint_spec(spec.endpoint).definition
+
+
+def _build_minimax_declarative_video(config: LoadedConfig, model_id: str | None, *, endpoint: str) -> Any:
     from lib.backends.minimax_shared import MINIMAX_BASE_URL, resolve_minimax_api_key
     from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
     from lib.custom_provider.endpoints import get_endpoint_spec
 
     model = model_id or "MiniMax-H3"
-    endpoint = _minimax_video_endpoint(model)
     definition = get_endpoint_spec(endpoint).definition
     if definition is None:
         raise ValueError(f"builtin endpoint {endpoint!r} is not declarative")
@@ -245,6 +270,9 @@ def _build_gemini_audio(config: LoadedConfig, model_id: str | None, *, backend_t
 _GEMINI_BUILDS = {"image": _build_gemini_image, "video": _build_gemini_video, "audio": _build_gemini_audio}
 
 
+_GEMINI_ENDPOINTS = {"image": "gemini-image", "video": "gemini-video", "audio": "gemini-tts"}
+
+
 def _gemini_spec(provider_id: str, media_type: str, *, backend_type: str) -> ProviderSpec:
     build = _GEMINI_BUILDS[media_type]
     return ProviderSpec(
@@ -252,6 +280,7 @@ def _gemini_spec(provider_id: str, media_type: str, *, backend_type: str) -> Pro
         media_type=media_type,
         registry_backend=_GEMINI_REGISTRY_BACKEND,
         build_backend=partial(build, backend_type=backend_type),
+        endpoint=_GEMINI_ENDPOINTS[media_type],
     )
 
 
@@ -301,6 +330,7 @@ def _kling_spec(media_type: str) -> ProviderSpec:
         media_type=media_type,
         registry_backend=_KLING_REGISTRY_BACKEND,
         build_backend=partial(_build_kling, media_type=media_type),
+        endpoint=f"kling-{media_type}",
     )
 
 
@@ -332,13 +362,14 @@ def _build_text_simple(config: LoadedConfig, model_id: str | None, *, registry_b
     return _media_create_backend("text")(registry_backend, **kwargs)
 
 
-def _text_simple_spec(provider_id: str) -> ProviderSpec:
+def _text_simple_spec(provider_id: str, endpoint: str) -> ProviderSpec:
     """登记一条简单文本 spec：registry_backend 即 provider_id 自身（文本侧无别名映射）。"""
     return ProviderSpec(
         provider_id=provider_id,
         media_type="text",
         registry_backend=provider_id,
         build_backend=partial(_build_text_simple, registry_backend=provider_id),
+        endpoint=endpoint,
     )
 
 
@@ -373,6 +404,7 @@ def _text_gemini_spec(provider_id: str, *, build: Callable[[LoadedConfig, str | 
         media_type="text",
         registry_backend=_TEXT_GEMINI_REGISTRY_BACKEND,
         build_backend=build,
+        endpoint="gemini-generate",
     )
 
 
@@ -437,105 +469,164 @@ def _text_openai_compat_spec(
             provider_name=provider_name,
             registry_backend=registry_backend,
         ),
+        # Chat Completions 与 Responses 各是一套请求结构，与自定义供应商的同名端点一致
+        endpoint="openai-responses" if registry_backend == _TEXT_OPENAI_RESPONSES_REGISTRY_BACKEND else "openai-chat",
     )
 
 
-# ── PROVIDER_SPEC_REGISTRY 注册表 ──────────────────────────────────
-# 键 = (provider_id, media_type)。简单族 = 媒体侧只需 api_key + model + base_url 的内置 provider，
-# 共享 _build_simple 闭包。「简单族」按构造形态界定（不是 provider 名白名单），含 ark/ark-agent-plan/
-# grok/openai/vidu 与 dashscope/minimax（后两者媒体侧走原生简单构造；其文本侧 OpenAI-compat 形态见下方
-# 文本族）。ark-agent-plan 媒体侧复用 Ark image/video backend（registry 同名注册），与 ark 同为简单形态。
-# 特例族 = gemini（backend_type 双模式，image/video/audio 对等透传 base_url）与 kling（JWT 双 secret +
-# api_model_name 解耦），各挂专属 build 闭包；gemini 的两个 provider_id 各按 backend_type 登记一行（裸
-# "gemini" 是死路径——resolver 只产出带后缀 id，按 fail-loud 不登记兜底行）。文本族（media_type=text）按
-# 构造形态分三类登记（简单文本 / gemini 文本 / OpenAI-compat 文本，见各闭包），其中 dashscope/minimax 文本
-# 映射到 "openai" registry backend，别名映射并入 spec.registry_backend 字段。每对显式登记一行，fail-loud
-# （未登记的 provider × media 抛 ValueError，不「缺席即默认」造静默错误 backend）。只登记今天确有注册 backend
-# 的对：image/video 简单族七家齐全，audio 为 dashscope、minimax 与 gemini 两个 id，text 八家（六 provider，gemini 两 id）。
+# ── 内置调用端点注册表 ─────────────────────────────────────────────
+# 内置供应商的供应商模型先定下挂接的内置调用端点，再由端点构造 backend：供应商给凭证（Vertex 服务账号、可灵的双密钥、
+# 方舟推理凭证等鉴权差异都在各自的构造闭包里），端点决定请求。键 = (provider_id, 端点名)。
+#
+# 端点名与自定义供应商共用一个命名空间：请求结构与自定义供应商某个端点相同的，取端点注册表
+# （lib.custom_provider.endpoints.ENDPOINT_REGISTRY）里的同名键；只在内置供应商凭证下成立的请求结构（xAI SDK、
+# 方舟 SDK、Agnes 等），名字登记在 PROVIDER_ONLY_ENDPOINTS，自定义供应商挂不了。
+#
+# 简单族 = 媒体侧只需 api_key + model + base_url 的内置 provider，共享 _build_simple 闭包。「简单族」按构造形态界定
+# （不是 provider 名白名单），含 ark/ark-agent-plan/grok/openai/vidu 与 dashscope/minimax。ark-agent-plan 媒体侧复用
+# Ark image/video backend（registry 同名注册），与 ark 同为简单形态。特例族 = gemini（backend_type 双模式）与 kling
+# （JWT 双 secret + api_model_name 解耦），各挂专属 build 闭包；gemini 的两个 provider_id 各按 backend_type 登记（裸
+# "gemini" 是死路径——resolver 只产出带后缀 id，按 fail-loud 不登记兜底行）。文本族按构造形态分三类登记（简单文本 /
+# gemini 文本 / OpenAI-compat 文本，见各闭包）。未登记的 provider × media 抛 ValueError，不「缺席即默认」造静默错误 backend。
 
-_SIMPLE_IMAGE_VIDEO_PROVIDERS = ("ark", "ark-agent-plan", "grok", "openai", "vidu", "dashscope", "minimax")
-_SIMPLE_MEDIA_PAIRS: list[tuple[str, str]] = [
-    *((p, "image") for p in _SIMPLE_IMAGE_VIDEO_PROVIDERS),
-    *((p, "video") for p in _SIMPLE_IMAGE_VIDEO_PROVIDERS if p != "dashscope"),
-    ("dashscope", "audio"),
-    ("minimax", "audio"),
-]
+#: 只在内置供应商凭证下成立的内置调用端点 → 媒体类型。其余内置供应商的端点都是端点注册表里的键。
+PROVIDER_ONLY_ENDPOINTS: Mapping[str, str] = {
+    "ark-chat": "text",
+    "grok-chat": "text",
+    "agnes-chat": "text",
+    "grok-image": "image",
+    "vidu-image": "image",
+    "agnes-image": "image",
+    "grok-video": "video",
+    "agnes-video": "video",
+}
+
+#: 简单族的 image/video/audio：(provider_id, media_type) → 端点名。
+_SIMPLE_MEDIA_ENDPOINTS: Mapping[tuple[str, str], str] = {
+    ("ark", "image"): "ark-seedream",
+    ("ark-agent-plan", "image"): "ark-seedream",
+    ("grok", "image"): "grok-image",
+    ("openai", "image"): "openai-images",
+    ("vidu", "image"): "vidu-image",
+    ("dashscope", "image"): "dashscope-image",
+    ("minimax", "image"): "minimax-image",
+    ("agnes", "image"): "agnes-image",
+    ("grok", "video"): "grok-video",
+    ("openai", "video"): "openai-video",
+    ("vidu", "video"): "vidu-video",
+    ("agnes", "video"): "agnes-video",
+    ("dashscope", "audio"): "dashscope-tts",
+    ("minimax", "audio"): "minimax-tts",
+}
 
 # gemini 两个 provider_id → backend_type，每个 × image/video/audio 登记一行。
 _GEMINI_BACKEND_TYPES: dict[str, str] = {"gemini-aistudio": "aistudio", "gemini-vertex": "vertex"}
 
-PROVIDER_SPEC_REGISTRY: dict[tuple[str, str], ProviderSpec] = {
-    (provider_id, media_type): _simple_spec(provider_id, media_type) for provider_id, media_type in _SIMPLE_MEDIA_PAIRS
-}
-PROVIDER_SPEC_REGISTRY.update(
-    {
-        (provider_id, media_type): _gemini_spec(provider_id, media_type, backend_type=backend_type)
-        for provider_id, backend_type in _GEMINI_BACKEND_TYPES.items()
-        for media_type in ("image", "video", "audio")
-    }
-)
-PROVIDER_SPEC_REGISTRY.update(
-    {(_KLING_REGISTRY_BACKEND, media_type): _kling_spec(media_type) for media_type in ("image", "video")}
-)
-# dashscope video 比简单族多一个 wan3_base_url：万相 3.0 走独立 maas 域名（含地域与
-# workspace，推不出），未配置时 backend 自行回落通用 base_url。image/audio 两条 lane 不消费它，
-# 仍走简单族。
+#: MiniMax 视频的四个声明式端点，各是一份随版定义（一种请求形状 + 一组能力）；海螺 2.3 为默认端点。
+_MINIMAX_VIDEO_ENDPOINTS = ("minimax-hailuo-v1", "minimax-hailuo-v1-fast", "minimax-s2v-01", "minimax-h3")
+
+_specs: list[ProviderSpec] = [
+    _simple_spec(provider_id, media_type, endpoint)
+    for (provider_id, media_type), endpoint in _SIMPLE_MEDIA_ENDPOINTS.items()
+]
+_specs += [
+    _gemini_spec(provider_id, media_type, backend_type=backend_type)
+    for provider_id, backend_type in _GEMINI_BACKEND_TYPES.items()
+    for media_type in ("image", "video", "audio")
+]
+_specs += [_kling_spec(media_type) for media_type in ("image", "video")]
 # 方舟两个 provider_id 的视频 lane 多报一项实际使用的推理凭证，见 _build_ark_video。
-for _ark_provider in ("ark", "ark-agent-plan"):
-    PROVIDER_SPEC_REGISTRY[(_ark_provider, "video")] = ProviderSpec(
-        provider_id=_ark_provider,
+_specs += [
+    ProviderSpec(
+        provider_id=ark_provider,
         media_type="video",
-        registry_backend=_ark_provider,
-        build_backend=partial(_build_ark_video, provider_id=_ark_provider),
+        registry_backend=ark_provider,
+        build_backend=partial(_build_ark_video, provider_id=ark_provider),
+        endpoint="ark-seedance",
     )
-PROVIDER_SPEC_REGISTRY[("dashscope", "video")] = _simple_spec("dashscope", "video", extra_keys=("wan3_base_url",))
-PROVIDER_SPEC_REGISTRY[("minimax", "video")] = ProviderSpec(
-    provider_id="minimax",
-    media_type="video",
-    registry_backend="declarative",
-    build_backend=_build_minimax_declarative_video,
-)
+    for ark_provider in ("ark", "ark-agent-plan")
+]
+# dashscope video 比简单族多一个 wan3_base_url：万相 3.0 走独立 maas 域名（含地域与 workspace，推不出），未配置时
+# backend 自行回落通用 base_url。image/audio 两条 lane 不消费它，仍走简单族。
+_specs.append(_simple_spec("dashscope", "video", "dashscope-async-video", extra_keys=("wan3_base_url",)))
+_specs += [
+    ProviderSpec(
+        provider_id="minimax",
+        media_type="video",
+        registry_backend="declarative",
+        build_backend=partial(_build_minimax_declarative_video, endpoint=endpoint),
+        endpoint=endpoint,
+    )
+    for endpoint in _MINIMAX_VIDEO_ENDPOINTS
+]
+# 文本：简单文本四家（registry_backend = provider_id 自身；agnes 虽走 OpenAI 兼容 chat/completions，但鉴权 / base_url
+# 归一化收口在专属 AgnesTextBackend，故归简单文本族）；gemini 两个 provider_id 按 backend 分两行；OpenAI-compat 三家
+# 共用一个构造闭包：dashscope/minimax 映射到 "openai"（Chat Completions），经 helper 派生 base_url + 透传 provider_name
+# 计费归因；openai 映射到 "openai-responses"（Responses），直传用户 base_url。
+_specs += [
+    _text_simple_spec("ark", "ark-chat"),
+    _text_simple_spec("ark-agent-plan", "ark-chat"),
+    _text_simple_spec("grok", "grok-chat"),
+    _text_simple_spec("agnes", "agnes-chat"),
+    _text_gemini_spec("gemini-aistudio", build=_build_text_gemini_aistudio),
+    _text_gemini_spec("gemini-vertex", build=_build_text_gemini_vertex),
+    _text_openai_compat_spec(
+        "openai", derive_base_url=None, provider_name=None, registry_backend=_TEXT_OPENAI_RESPONSES_REGISTRY_BACKEND
+    ),
+    _text_openai_compat_spec("dashscope", derive_base_url=_dashscope_text_base_url, provider_name="dashscope"),
+    _text_openai_compat_spec("minimax", derive_base_url=_minimax_text_base_url, provider_name="minimax"),
+]
 
-# agnes 简单族 image + video 显式登记（文本族在下方文本区随 _TEXT_SIMPLE_PROVIDERS 登记）；
-# 与 kling 同走独立显式登记，不并入 _SIMPLE_IMAGE_VIDEO_PROVIDERS 元组。
-PROVIDER_SPEC_REGISTRY[("agnes", "image")] = _simple_spec("agnes", "image")
-PROVIDER_SPEC_REGISTRY[("agnes", "video")] = _simple_spec("agnes", "video")
+#: (provider_id, 端点名) → 该供应商经这个端点调用时的构造规格。
+PROVIDER_ENDPOINT_SPECS: dict[tuple[str, str], ProviderSpec] = {
+    (spec.provider_id, spec.endpoint): spec for spec in _specs
+}
 
-# ── 文本族注册 ────────────────────────────────────────────────────
-# 简单文本四家（registry_backend = provider_id 自身）；gemini 两个 provider_id 按 backend 分两行
-# （aistudio/vertex 各自闭包，registry_backend 同为 "gemini"）；OpenAI-compat 三家共用一个构造闭包：
-# dashscope/minimax 映射到 "openai"（Chat Completions），经 helper 派生 base_url + 透传 provider_name 计费归因；
-# openai 映射到 "openai-responses"（Responses），直传用户 base_url。
-# agnes 虽走 OpenAI 兼容 chat/completions，但鉴权 / base_url 归一化收口在专属 AgnesTextBackend（复用
-# agnes_shared），故归简单文本族（registry_backend = "agnes"），不并入 OpenAI-compat 别名映射。
-_TEXT_SIMPLE_PROVIDERS = ("ark", "ark-agent-plan", "grok", "agnes")
-PROVIDER_SPEC_REGISTRY.update({(p, "text"): _text_simple_spec(p) for p in _TEXT_SIMPLE_PROVIDERS})
-PROVIDER_SPEC_REGISTRY.update(
-    {
-        ("gemini-aistudio", "text"): _text_gemini_spec("gemini-aistudio", build=_build_text_gemini_aistudio),
-        ("gemini-vertex", "text"): _text_gemini_spec("gemini-vertex", build=_build_text_gemini_vertex),
-        ("openai", "text"): _text_openai_compat_spec(
-            "openai", derive_base_url=None, provider_name=None, registry_backend=_TEXT_OPENAI_RESPONSES_REGISTRY_BACKEND
-        ),
-        ("dashscope", "text"): _text_openai_compat_spec(
-            "dashscope", derive_base_url=_dashscope_text_base_url, provider_name="dashscope"
-        ),
-        ("minimax", "text"): _text_openai_compat_spec(
-            "minimax", derive_base_url=_minimax_text_base_url, provider_name="minimax"
-        ),
-    }
-)
+
+def _declare_endpoints(provider_id: str, media_type: str, default: str) -> ProviderEndpoints:
+    endpoints = tuple(
+        spec.endpoint
+        for spec in PROVIDER_ENDPOINT_SPECS.values()
+        if spec.provider_id == provider_id and spec.media_type == media_type
+    )
+    return ProviderEndpoints(provider_id=provider_id, media_type=media_type, endpoints=endpoints, default=default)
+
+
+#: (provider_id, media_type) → 可选的内置调用端点与默认端点。默认端点就是官方收录的模型没有另行指定时实际使用的通道。
+PROVIDER_ENDPOINTS: dict[tuple[str, str], ProviderEndpoints] = {
+    (spec.provider_id, spec.media_type): _declare_endpoints(spec.provider_id, spec.media_type, spec.endpoint)
+    for spec in PROVIDER_ENDPOINT_SPECS.values()
+    if (spec.provider_id, spec.media_type) != ("minimax", "video")
+}
+PROVIDER_ENDPOINTS[("minimax", "video")] = _declare_endpoints("minimax", "video", "minimax-hailuo-v1")
+
+#: (provider_id, media_type) → 默认端点的构造规格，即该媒体类型下没有另行指定端点时的装配。
+PROVIDER_SPEC_REGISTRY: dict[tuple[str, str], ProviderSpec] = {
+    key: PROVIDER_ENDPOINT_SPECS[(declared.provider_id, declared.default)]
+    for key, declared in PROVIDER_ENDPOINTS.items()
+}
 
 
 _VALID_MEDIA_TYPES = frozenset({"image", "video", "audio", "text"})
 
 
+def endpoint_media_type(endpoint: str) -> str | None:
+    """内置调用端点的媒体类型；不是内置调用端点时为 ``None``。"""
+    if endpoint in PROVIDER_ONLY_ENDPOINTS:
+        return PROVIDER_ONLY_ENDPOINTS[endpoint]
+    from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+
+    spec = ENDPOINT_REGISTRY.get(endpoint)
+    return spec.media_type if spec is not None and spec.source == "builtin" else None
+
+
 def _validate_provider_specs() -> None:
     """import 期校验内置表自身不变式，misconfig fail-fast（镜像 endpoints._validate_video_caps_declarations）。
 
-    只做不需 import 后端的内表自洽检查：build 可调用、字典键与 spec 字段一致、media_type 合法。
-    「registry 名都在对应后端 registry 里」需 import 全部 lib.{image,video,audio,text}_backends 才能断言，
-    为免轻量场景（CLI / 迁移）因 import 本缝而被动拉起全部后端，归入单测，不进 import 期。
+    只做不需 import 后端的内表自洽检查：build 可调用、字典键与 spec 字段一致、media_type 合法，以及每个
+    「供应商 + 媒体类型」的默认端点在可选端点里、可选端点都登记了同媒体类型的构造。端点名与端点注册表的媒体类型
+    一致（:func:`validate_endpoint_declarations`）要 import 端点注册表，改在端点注册表 import 时校验；「registry 名
+    都在对应后端 registry 里」归入单测。两者都免得轻量场景（CLI / 迁移）因 import 本缝而被动拉起全部后端。
     """
     for key, spec in PROVIDER_SPEC_REGISTRY.items():
         if not callable(spec.build_backend):
@@ -547,16 +638,84 @@ def _validate_provider_specs() -> None:
             )
         if spec.media_type not in _VALID_MEDIA_TYPES:
             raise ValueError(f"ProviderSpec {key!r} declares unknown media_type: {spec.media_type!r}")
+    for key, declared in PROVIDER_ENDPOINTS.items():
+        if declared.default not in declared.endpoints:
+            raise ValueError(f"default endpoint {declared.default!r} of {key!r} is not among {declared.endpoints!r}")
+        for endpoint in declared.endpoints:
+            spec = PROVIDER_ENDPOINT_SPECS.get((declared.provider_id, endpoint))
+            if spec is None or spec.media_type != declared.media_type:
+                raise ValueError(f"endpoint {endpoint!r} of {key!r} has no {declared.media_type} build")
+
+
+def validate_endpoint_declarations() -> None:
+    """每个内置供应商声明的端点都是内置调用端点，且媒体类型与声明它的「供应商 + 媒体类型」一致。"""
+    for key, declared in PROVIDER_ENDPOINTS.items():
+        for endpoint in declared.endpoints:
+            media_type = endpoint_media_type(endpoint)
+            if media_type != declared.media_type:
+                raise ValueError(
+                    f"endpoint {endpoint!r} of {key!r} is a {media_type or 'unknown'} endpoint, "
+                    f"expected {declared.media_type}"
+                )
 
 
 _validate_provider_specs()
 
 
-def get_provider_spec(provider_id: str, media_type: str) -> ProviderSpec:
-    spec = PROVIDER_SPEC_REGISTRY.get((provider_id, media_type))
-    if spec is None:
+def get_provider_endpoints(provider_id: str, media_type: str) -> ProviderEndpoints:
+    """内置供应商在这个媒体类型下可选的内置调用端点与默认端点；没有这个媒体类型的调用通道时抛 ``ValueError``。"""
+    declared = PROVIDER_ENDPOINTS.get((provider_id, media_type))
+    if declared is None:
         raise ValueError(f"no builtin ProviderSpec for provider={provider_id!r} media={media_type!r}")
-    return spec
+    return declared
+
+
+def get_provider_spec(provider_id: str, media_type: str, endpoint: str | None = None) -> ProviderSpec:
+    """内置供应商经 ``endpoint`` 调用时的构造规格；不给端点时取默认端点。端点不在可选端点里时抛 ``ValueError``。"""
+    declared = get_provider_endpoints(provider_id, media_type)
+    name = declared.default if endpoint is None else endpoint
+    if name not in declared.endpoints:
+        raise ValueError(f"endpoint {name!r} is not available for provider={provider_id!r} media={media_type!r}")
+    return PROVIDER_ENDPOINT_SPECS[(provider_id, name)]
+
+
+def official_model_endpoint(provider_id: str, media_type: str, model_id: str | None) -> str:
+    """官方收录的模型挂接的端点，暂时在代码里决定：MiniMax 视频按 API 模型名选，其余取默认端点。
+
+    没有记下端点的用户添加模型同样落到这里，与它们记下端点之前的通道一致。
+    """
+    declared = get_provider_endpoints(provider_id, media_type)
+    if (provider_id, media_type) == ("minimax", "video"):
+        return _minimax_video_endpoint(model_id)
+    return declared.default
+
+
+def builtin_model_endpoint(provider_id: str, media_type: str, model_id: str | None) -> str:
+    """内置供应商的供应商模型挂接的内置调用端点。
+
+    用户添加的模型取它记下的端点；记下的端点不在可选端点里（端点日后撤下）或没有记下时，与官方收录的模型同一规则
+    （:func:`official_model_endpoint`）。没有这个媒体类型的调用通道时抛 ``ValueError``。
+    """
+    declared = get_provider_endpoints(provider_id, media_type)
+    chosen = catalog.user_added_endpoint(provider_id, model_id, media_type) if model_id else None
+    if chosen is not None and chosen in declared.endpoints:
+        return chosen
+    return official_model_endpoint(provider_id, media_type, model_id)
+
+
+def builtin_model_spec(provider_id: str, media_type: str, model_id: str | None) -> ProviderSpec:
+    """内置供应商的供应商模型的构造规格：按 :func:`builtin_model_endpoint` 定下的端点。"""
+    return PROVIDER_ENDPOINT_SPECS[(provider_id, builtin_model_endpoint(provider_id, media_type, model_id))]
+
+
+def infer_builtin_endpoint(provider_id: str, media_type: str, model_id: str) -> str:
+    """内置供应商下添加模型时预填的端点：按名字推断（与自定义供应商同一套规则），不在可选端点里时取默认端点。"""
+    from lib.custom_provider.endpoints import infer_endpoint
+
+    declared = get_provider_endpoints(provider_id, media_type)
+    discovery_format = "google" if provider_id in _GEMINI_BACKEND_TYPES else "openai"
+    inferred = infer_endpoint(model_id, discovery_format, media_type)
+    return inferred if inferred in declared.endpoints else declared.default
 
 
 def builtin_video_capabilities_for_model(provider_id: str, model_id: str) -> VideoCapabilities:
@@ -609,14 +768,22 @@ def apply_user_added_video_overrides(caps: VideoCapabilities, provider_id: str, 
     return enforce_audio_capability_invariant(merge_overrides(caps, channel), endpoint=provider_id, model_id=model_id)
 
 
-def declared_builtin_video_capabilities(provider_id: str, model_id: str) -> VideoCapabilities:
-    """内置视频调用通道的声明（通道事实），不含模型条目与用户的能力覆盖；声明式供应商从随版定义读，其余沿用 backend registry。"""
-    spec = get_provider_spec(provider_id, "video")
+def declared_builtin_video_capabilities(
+    provider_id: str, model_id: str, *, endpoint: str | None = None
+) -> VideoCapabilities:
+    """内置视频调用通道的声明（通道事实），不含模型条目与用户的能力覆盖；声明式端点从随版定义读，其余沿用 backend registry。
+
+    通道取模型挂接的端点（:func:`builtin_model_endpoint`）；``endpoint`` 给出时按它求值，供保存前核对换端点后的能力覆盖。
+    """
+    spec = (
+        get_provider_spec(provider_id, "video", endpoint)
+        if endpoint is not None
+        else builtin_model_spec(provider_id, "video", model_id)
+    )
     if spec.registry_backend == "declarative":
         from lib.custom_provider.builtin_definitions import declarative_video_capabilities
-        from lib.custom_provider.endpoints import get_endpoint_spec
 
-        definition = get_endpoint_spec(_minimax_video_endpoint(model_id)).definition
+        definition = _declarative_definition(spec)
         if definition is None:
             raise ValueError(f"builtin declarative definition missing for {provider_id}/{model_id}")
         return declarative_video_capabilities(definition)
@@ -640,12 +807,11 @@ def builtin_video_metered_usage(
     ``result`` 为 ``None`` 时是提交前预估；给出时与结算时调用通道实例上报的计量相同。请求没带能力时补上
     叠加用户覆盖后的能力，与执行时请求携带的那份同源，放宽的维度按实际发出的请求计量。
     """
-    spec = get_provider_spec(provider_id, "video")
+    spec = builtin_model_spec(provider_id, "video", model_id)
     if spec.registry_backend == "declarative":
         from lib.custom_provider.declarative_backend import declarative_video_usage
-        from lib.custom_provider.endpoints import get_endpoint_spec
 
-        definition = get_endpoint_spec(_minimax_video_endpoint(model_id)).definition
+        definition = _declarative_definition(spec)
         if definition is None:
             raise ValueError(f"builtin declarative definition missing for {provider_id}/{model_id}")
         return declarative_video_usage(definition, request, result)
@@ -664,7 +830,7 @@ def builtin_video_metered_usage(
 
 
 def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str) -> bool:
-    spec = get_provider_spec(provider_id, "video")
+    spec = builtin_model_spec(provider_id, "video", model_id)
     if spec.registry_backend == "declarative":
         # 计价口径与能力声明同源：定义声明成片恒无音轨时，默认执行档不可能产出人声。
         from arcreel_market_core.video_backend_contract import VideoAudioMode

@@ -123,8 +123,8 @@ def builtin_model_bucket_fit(provider_id: str, model_id: str, model_info: Catalo
     """内置模型对各任务类型桶的判定，连同不进桶的原因。"""
     if model_info.media_type == "image":
         try:
-            channel = builtin_channel_capabilities(provider_id)
-            channel_limit = builtin_channel_reference_limit(provider_id)
+            channel = builtin_channel_capabilities(provider_id, model_id)
+            channel_limit = builtin_channel_reference_limit(provider_id, model_id)
         except ValueError:
             return BucketFit.undetermined("image")
         return _image_fit(

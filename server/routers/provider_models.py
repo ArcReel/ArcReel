@@ -31,6 +31,7 @@ from arcreel_catalog_core import (
     VideoFacts,
     dump_entry,
 )
+from lib.backends.backend_assembly.specs import PROVIDER_ONLY_ENDPOINTS, builtin_model_endpoint
 from lib.billing.multipliers import get_provider_multiplier
 from lib.catalog import builtin_discovery, builtin_models
 from lib.catalog import query as catalog
@@ -60,6 +61,7 @@ from lib.custom_provider.capability_view import (
 from lib.custom_provider.discovery_formats import is_comfyui_protocol
 from lib.custom_provider.duration_presets import infer_supported_durations
 from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+from lib.custom_provider.endpoints import get_endpoint_spec
 from lib.custom_provider.model_facts import entry_summary, model_entry
 from lib.db import get_async_session
 from lib.db.models.custom_provider import CustomProviderModel
@@ -157,8 +159,8 @@ class ProviderModelEnabledUpdate(BaseModel):
 
 class AddProviderModelRequest(BaseModel):
     """按 ID 添加：``media_type`` 用来区分两栖模型，以及给对应不上条目的模型指定媒体类型；``entry_binding`` 是
-    用户为它指定的条目（「模型厂商/官方模型名」）。``endpoint`` 是自定义供应商模型的调用端点，不给时按名字推断
-    （docs/adr/0105）；内置供应商不接受。"""
+    用户为它指定的条目（「模型厂商/官方模型名」）。``endpoint`` 是新模型的调用端点，不给时按名字推断
+    （docs/adr/0105）；内置供应商只接受它在该媒体类型下的内置调用端点，对上官方收录的模型时忽略。"""
 
     model_id: Annotated[str, Field(min_length=1, max_length=128)]
     media_type: MediaType | None = None
@@ -257,6 +259,15 @@ class EntryInfoResponse(BaseModel):
     shared_with: list[SharedProviderResponse]
 
 
+class EndpointOption(BaseModel):
+    """内置供应商下用户添加的模型可选的一个调用端点。``display_name_key`` 是界面文案的 i18n key（dashboard ns），
+    声明式端点为空串，名字取 ``display_name``。"""
+
+    key: str
+    display_name_key: str
+    display_name: str | None = None
+
+
 class ProviderModelDetail(BaseModel):
     """供应商模型 Sheet 的内容。
 
@@ -267,6 +278,8 @@ class ProviderModelDetail(BaseModel):
       模型没有绑定。
     - 自定义供应商的模型另有 ``endpoint``、``resolution``、``path_overrides`` 与 ``requests``（调用端点可覆盖路径的
       请求）；内置供应商为空。
+    - 内置供应商下用户添加的模型另有 ``endpoint``（挂接的内置调用端点）与 ``endpoint_options``（这个供应商在该媒体类型下
+      可选的内置调用端点，按声明顺序）；官方收录的模型两者为空，端点跟随官方。
     """
 
     model: ProviderModelItem
@@ -279,6 +292,7 @@ class ProviderModelDetail(BaseModel):
     resolution: str | None = None
     path_overrides: dict[str, str] | None = None
     requests: list[EndpointRequestDescriptor] = []
+    endpoint_options: list[EndpointOption] = []
 
 
 class EntryUpdate(BaseModel):
@@ -298,11 +312,12 @@ class ProviderModelSettingsUpdate(BaseModel):
     """保存供应商模型 Sheet 的供应商设置与模型信息；没有传的字段不改。
 
     - 所有供应商模型：``enabled``，以及 ``entry``（修改对应的条目，存为用户副本，条目从此不再随官方更新）。
-    - 用户负责的模型：``model_id``（改模型 ID）、``multiplier``、``capability_overrides``（整份替换，``null`` 或
+    - 用户负责的模型：``model_id``（改模型 ID）、``endpoint``（调用端点；内置供应商只能选它在该媒体类型下的内置调用
+      端点）、``multiplier``、``capability_overrides``（整份替换，``null`` 或
       空对象表示清除）、``entry_binding``（关联到目录里的另一个模型，须是同媒体类型的现有条目；``null`` 解除，改回
       按名字对应）、``new_entry``（目录里找不到时手动填写：新建条目并绑定到它，目录里已有同名模型时 422；与
       ``entry_binding`` 同传时以 ``new_entry`` 为准）。条目与绑定都随这一次保存写入，任一步被拒则都不落库。
-    - 自定义供应商的模型：``is_default``、``endpoint``、``path_overrides``、``resolution``。
+    - 自定义供应商的模型：``is_default``、``path_overrides``、``resolution``。
     """
 
     enabled: bool | None = None
@@ -352,6 +367,7 @@ async def reload_user_added_models(session: AsyncSession) -> None:
                 capability_overrides=user_added_runtime_overrides(
                     row.media_type, row.capability_overrides, model_id=row.model_id
                 ),
+                endpoint=row.endpoint,
             )
             for row in rows
             if row.media_type in MEDIA_TYPES
@@ -567,11 +583,6 @@ async def add_provider_model(
             raise HTTPException(status_code=404, detail=_t("provider_model_not_found", model=model_id))
         return AddProviderModelResponse(model=item, official=False)
     _require_builtin(provider_id, _t)
-    if body.endpoint is not None:
-        raise HTTPException(
-            status_code=422,
-            detail=_t("provider_model_setting_not_applicable", model=body.model_id, setting="endpoint"),
-        )
     try:
         added = await builtin_models.add_builtin_model(
             session,
@@ -580,6 +591,7 @@ async def add_provider_model(
             media_type=body.media_type,
             entry_binding=body.entry_binding,
             inferred_media_type=builtin_discovery.name_media_type(provider_id, body.model_id.strip()),
+            endpoint=body.endpoint,
         )
     except builtin_models.BuiltinModelError as exc:
         raise _raise_for(exc, _t) from exc
@@ -822,14 +834,36 @@ async def _builtin_detail(
         official=view.official,
         overrides=view.capability_overrides,
     )
+    media_type = view.model.media_type
     return ProviderModelDetail(
         model=_builtin_item(item, provider_multiplier),
         multiplier=None if view.official else view.multiplier,
         provider_multiplier=provider_multiplier,
         entry=await _entry_info(session, view.entry, provider_id),
         entry_binding=await _builtin_binding(session, provider_id, model_id, official=view.official),
-        capabilities=_capabilities_response(capabilities, view.model.media_type),
+        capabilities=_capabilities_response(capabilities, media_type),
+        endpoint=None if view.official else _user_added_endpoint(provider_id, media_type, model_id),
+        endpoint_options=(
+            []
+            if view.official
+            else [_endpoint_option(e) for e in builtin_models.endpoint_options(provider_id, media_type)]
+        ),
     )
+
+
+def _user_added_endpoint(provider_id: str, media_type: str, model_id: str) -> str | None:
+    try:
+        return builtin_model_endpoint(provider_id, media_type, model_id)
+    except ValueError:
+        return None
+
+
+def _endpoint_option(endpoint: str) -> EndpointOption:
+    """内置调用端点的界面名：与自定义供应商共用的端点取端点注册表的文案，只属于内置供应商的端点按端点名取 i18n key。"""
+    if endpoint in PROVIDER_ONLY_ENDPOINTS:
+        return EndpointOption(key=endpoint, display_name_key=f"endpoint_{endpoint.replace('-', '_')}_display")
+    spec = get_endpoint_spec(endpoint)
+    return EndpointOption(key=endpoint, display_name_key=spec.display_name_key, display_name=spec.display_name)
 
 
 async def _custom_detail(
@@ -870,7 +904,7 @@ async def get_provider_model(
 
 
 _BUILTIN_SETTING_FIELDS = frozenset(
-    {"enabled", "model_id", "multiplier", "capability_overrides", "entry", "entry_binding", "new_entry"}
+    {"enabled", "model_id", "endpoint", "multiplier", "capability_overrides", "entry", "entry_binding", "new_entry"}
 )
 
 
@@ -945,6 +979,11 @@ async def _apply_binding(session: AsyncSession, change: _BindingChange, media_ty
         raise HTTPException(status_code=422, detail=_t("provider_model_binding_not_found", binding=change.ref))
 
 
+def _endpoint_in_options(provider_id: str, media_type: str, endpoint: str | None) -> str | None:
+    """同一次保存里换到的端点，供按新端点核对能力覆盖；不在可选端点里的由保存时拒绝，这里按没换处理。"""
+    return endpoint if endpoint in builtin_models.endpoint_options(provider_id, media_type) else None
+
+
 async def _save_builtin_settings(
     session: AsyncSession,
     provider_id: str,
@@ -968,7 +1007,11 @@ async def _save_builtin_settings(
         if item is not None and not item.view.official:
             try:
                 kwargs["capability_overrides"] = check_user_added_overrides(
-                    provider_id, model_id, item.view.model.media_type, body.capability_overrides
+                    provider_id,
+                    model_id,
+                    item.view.model.media_type,
+                    body.capability_overrides,
+                    endpoint=_endpoint_in_options(provider_id, item.view.model.media_type, body.endpoint),
                 )
             except OverrideRejected as exc:
                 raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
@@ -984,6 +1027,7 @@ async def _save_builtin_settings(
             enabled=body.enabled,
             new_model_id=body.model_id,
             multiplier=body.multiplier,
+            endpoint=body.endpoint,
             **kwargs,
         )
     except builtin_models.BuiltinModelError as exc:

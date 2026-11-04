@@ -21,6 +21,7 @@ _HIDDEN = {"agnes-2.0-flash", "agnes-image-2.1-flash", "agnes-video-v2.0"}
 
 
 async def _disabled(db_path: Path) -> dict[str, frozenset[str]]:
+    """经当前的读侧代码读停用状态；调用方须先把库升到最新，ORM 映射的是最新的表结构。"""
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
     try:
         async with async_sessionmaker(engine)() as session:
@@ -35,6 +36,7 @@ def test_hidden_agnes_models_disabled_and_others_enabled(
     cfg, db_path = alembic_cfg
     revision, _parent = migration_revisions("*_builtin_provider_model.py")
     command.upgrade(cfg, revision)
+    command.upgrade(cfg, "head")
 
     disabled = asyncio.run(_disabled(db_path))
 
@@ -55,6 +57,7 @@ def test_hidden_models_stay_disabled_when_entry_no_longer_discontinued(
     cfg, db_path = alembic_cfg
     revision, _parent = migration_revisions("*_builtin_provider_model.py")
     command.upgrade(cfg, revision)
+    command.upgrade(cfg, "head")
     data = factory_snapshot()
     for model_id in _HIDDEN:
         data = with_entry_changes(data, "agnes", model_id, discontinued=False)

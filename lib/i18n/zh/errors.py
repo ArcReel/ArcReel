@@ -326,6 +326,7 @@ MESSAGES = {
     "builtin_model_media_type_required": "无法判断模型「{model}」的类型，请选择模型类型后重试",
     "builtin_model_media_type_unsupported": "这个供应商不支持这类模型（{media_type}）",
     "builtin_model_binding_invalid": "对应模型「{binding}」的格式不正确，应为「厂商/模型名」",
+    "builtin_model_endpoint_unavailable": "这个供应商的 {media_type} 模型不能挂接调用端点「{endpoint}」",
     "comfyui_model_endpoint_missing": "还没有 ComfyUI 端点。先导入 ComfyUI 端点，再添加模型",
     "discovery_not_applicable_builtin": "这个供应商没有模型列表接口，请按模型 ID 添加",
     "builtin_model_official_settings": "「{model}」是官方收录的模型，只能启用或停用，其他设置由官方维护",

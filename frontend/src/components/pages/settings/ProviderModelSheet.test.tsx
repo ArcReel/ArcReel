@@ -82,6 +82,7 @@ function unmatchedVideo(overrides: Partial<ProviderModelDetail> = {}): ProviderM
     resolution: null,
     path_overrides: null,
     requests: [],
+    endpoint_options: [],
     ...overrides,
   };
 }
@@ -237,6 +238,31 @@ describe("ProviderModelSheet", () => {
     await waitFor(() =>
       expect(update).toHaveBeenCalledWith("custom-3", "relay-video", { endpoint: "xai-video", path_overrides: null }),
     );
+  });
+
+  it("lets a model added under a builtin provider pick only that provider's endpoints", async () => {
+    const user = userEvent.setup();
+    const detail = unmatchedVideo({
+      model: item({ model_id: "acme-video", api_model_name: "acme-video", endpoint: null }),
+      endpoint: "minimax-hailuo-v1",
+      endpoint_options: [
+        { key: "minimax-hailuo-v1", display_name_key: "", display_name: "MiniMax 海螺" },
+        { key: "minimax-h3", display_name_key: "", display_name: "MiniMax H3" },
+      ],
+    });
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(detail);
+    const update = vi.spyOn(API, "updateProviderModel").mockResolvedValue(detail);
+    renderSheet({ providerId: "minimax", providerName: "MiniMax", custom: undefined, open: { modelId: "acme-video", key: 1 } });
+
+    await user.click(await screen.findByRole("combobox", { name: "调用端点" }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["MiniMax 海螺", "MiniMax H3"]);
+    await user.click(screen.getByRole("option", { name: "MiniMax H3" }));
+
+    // 参数随调用端点变化，换了端点先保存再改
+    expect(screen.getByText("调用端点已更换。保存后，再按新的调用端点修改这些参数。")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "在调用端点中打开" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith("minimax", "acme-video", { endpoint: "minimax-h3" }));
   });
 
   it("opens the model's endpoint with a way back to this provider", async () => {

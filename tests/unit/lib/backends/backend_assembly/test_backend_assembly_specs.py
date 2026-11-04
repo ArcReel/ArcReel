@@ -17,6 +17,7 @@ from lib.backends.backend_assembly.specs import (
     PROVIDER_SPEC_REGISTRY,
     ProviderSpec,
     _validate_provider_specs,
+    builtin_model_spec,
     get_provider_spec,
 )
 from lib.backends.provider_assets import InferenceCredentialRef
@@ -52,7 +53,7 @@ def _built(spec: ProviderSpec, config: LoadedConfig, model: str | None) -> dict[
     ],
 )
 def test_migrated_builtin_video_providers_use_shipped_definitions(provider_id: str, model: str, endpoint: str):
-    backend = get_provider_spec(provider_id, "video").build_backend(
+    backend = builtin_model_spec(provider_id, "video", model).build_backend(
         _loaded(credentials={"api_key": "sk-test"}, provider_id=provider_id), model
     )
 
