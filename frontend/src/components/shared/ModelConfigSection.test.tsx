@@ -313,10 +313,12 @@ describe("ModelConfigSection", () => {
           t2i: ["gemini/nano-banana"],
           i2i: ["gemini/nano-banana", "openai/gpt-image-edit"],
         },
+        filtered: {},
       },
       video: {
         default: ["gemini/veo-3", "ark/seedance"],
         buckets: { i2v: ["gemini/veo-3"], r2v: ["ark/seedance"] },
+        filtered: {},
       },
       provider_names: {},
       model_names: {},
@@ -1340,10 +1342,12 @@ describe("音频开关的模型可控性", () => {
       image: {
         default: ["kling/v3-omni"],
         buckets: { t2i: ["kling/v3-omni"], i2i: ["kling/v3-omni"] },
+        filtered: {},
       },
       video: {
         default: ["kling/v3-omni"],
         buckets: { i2v: ["kling/v3-omni"], r2v: ["kling/v3-omni"] },
+        filtered: {},
       },
       provider_names: {},
       model_names: {},

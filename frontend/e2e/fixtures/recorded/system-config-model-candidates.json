@@ -8,11 +8,19 @@
       "buckets": {
         "t2i": [],
         "i2i": []
+      },
+      "filtered": {
+        "t2i": [],
+        "i2i": []
       }
     },
     "video": {
       "default": [],
       "buckets": {
+        "i2v": [],
+        "r2v": []
+      },
+      "filtered": {
         "i2v": [],
         "r2v": []
       }

@@ -61,10 +61,22 @@ export type GenerationTypeBucket = "t2i" | "i2i" | "i2v" | "r2v";
  */
 export type AutoBackendsResponse = Record<GenerationTypeBucket | "text", string | null>;
 
-/** 单一 media_type 的候选：默认层全量 + 各任务类型桶按能力过滤后的子集。 */
+/** 任务类型桶滤掉模型时不满足的能力维度，键与能力接口同名。 */
+export type BucketDimension = "text_to_image" | "image_to_image" | "max_reference_images" | "first_frame";
+
+/** 默认层里有、某个任务类型桶因能力不满足而没有列出的模型。 */
+export interface FilteredCandidate {
+  option: string;
+  /** 不满足的能力维度；为空表示判定不出（调用端点已下线、调用通道没有声明能力）。 */
+  unmet: BucketDimension[];
+}
+
+/** 单一 media_type 的候选：默认层全量 + 各任务类型桶按能力过滤后的子集，以及各桶滤掉的模型与原因。 */
 export interface MediaCandidates {
   default: string[];
   buckets: Partial<Record<GenerationTypeBucket, string[]>>;
+  /** 停用、已下线或低于最低应用版本的模型不在默认层，也不在这里。 */
+  filtered: Partial<Record<GenerationTypeBucket, FilteredCandidate[]>>;
 }
 
 /** 引用位置：`default` 为默认层（文本档位与配音模型也取它），其余为该媒体类型的任务类型桶。 */

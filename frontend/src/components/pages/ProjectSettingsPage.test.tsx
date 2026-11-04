@@ -50,10 +50,12 @@ const FAKE_CANDIDATES = {
   image: {
     default: ["gemini/nano-banana"],
     buckets: { t2i: ["gemini/nano-banana"], i2i: ["gemini/nano-banana"] },
+    filtered: {},
   },
   video: {
     default: ["gemini/veo-3"],
     buckets: { i2v: ["gemini/veo-3"], r2v: [] },
+    filtered: {},
   },
   provider_names: {},
 };
