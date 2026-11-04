@@ -65,7 +65,7 @@ def _data_uri(i: int) -> str:
 
 
 def _backend(path_overrides=None):
-    spec = ENDPOINT_REGISTRY["ark-seedream"]
+    spec = ENDPOINT_REGISTRY["ark-seedream-4"]
     if path_overrides is None:
         return spec.build_backend(_PROVIDER, _MODEL)
     return spec.build_backend(_PROVIDER, _MODEL, path_overrides)
@@ -111,7 +111,9 @@ async def test_reference_images_go_to_generations_as_an_image_list(tmp_path: Pat
 
 async def test_the_endpoint_sends_every_reference_and_takes_the_limit_from_the_matched_entry(tmp_path: Path):
     """Seedream 各代的上限是模型事实：通道不按型号名截断，生效上限取对应条目（4.5 记为 14 张）。"""
-    backend = create_custom_backend(provider=_PROVIDER, model_id="doubao-seedream-4-5-251128", endpoint="ark-seedream")
+    backend = create_custom_backend(
+        provider=_PROVIDER, model_id="doubao-seedream-4-5-251128", endpoint="ark-seedream-4"
+    )
     assert isinstance(backend, CustomImageBackend)
     assert await backend.reference_image_limit() is None
     assert await backend_reference_image_limit(backend, provider_id="custom-1") == InputLimit.at_most(14)
@@ -145,7 +147,7 @@ async def test_generate_path_override_is_relative_to_the_raw_base_url(tmp_path: 
     ],
 )
 async def test_factory_builds_a_seedream_backend_on_the_ark_api_root(tmp_path: Path, base_url, generations_url):
-    backend = create_custom_backend(provider=_provider(base_url), model_id=_MODEL, endpoint="ark-seedream")
+    backend = create_custom_backend(provider=_provider(base_url), model_id=_MODEL, endpoint="ark-seedream-4")
     assert isinstance(backend, CustomImageBackend)
     assert backend.name == "custom-7"
     assert backend.model == _MODEL
@@ -159,7 +161,7 @@ async def test_factory_builds_a_seedream_backend_on_the_ark_api_root(tmp_path: P
 
 @pytest.mark.parametrize("reference_count", [0, 2, 20, None])
 def test_estimate_matches_the_builtin_ark_backend(reference_count):
-    spec = ENDPOINT_REGISTRY["ark-seedream"]
+    spec = ENDPOINT_REGISTRY["ark-seedream-4"]
     assert spec.metering_backend is ArkImageBackend
     facts = ImageRequestFacts(model=_MODEL, aspect_ratio="16:9", reference_count=reference_count)
 
@@ -194,7 +196,8 @@ async def test_seedream_saved_on_openai_images_explains_the_404_from_images_edit
     assert len(set(messages)) == 3
     for message in messages:
         assert message is not None
-        assert "(Seedream)" in message
+        assert "Seedream (1K)" in message
+        assert "Seedream (2K)" in message
         assert "image_seedream_edits_unavailable" not in message
         assert "404" not in message
 

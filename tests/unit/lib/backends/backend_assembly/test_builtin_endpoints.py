@@ -61,9 +61,9 @@ class TestDeclarations:
         monkeypatch.setitem(
             PROVIDER_ENDPOINTS,
             ("ark", "video"),
-            ProviderEndpoints("ark", "video", ("ark-seedance-2", "ark-seedream"), "ark-seedance-2"),
+            ProviderEndpoints("ark", "video", ("ark-seedance-2", "ark-seedream-4"), "ark-seedance-2"),
         )
-        with pytest.raises(ValueError, match="'ark-seedream'"):
+        with pytest.raises(ValueError, match="'ark-seedream-4'"):
             validate_endpoint_declarations()
 
     def test_shared_endpoint_names_are_builtin_endpoints_of_the_registry(self):
@@ -144,7 +144,7 @@ class TestPrefill:
             ("minimax", "video", "acme-video", "minimax-hailuo-v1"),
             # 名字推出的是别的供应商的端点：落回这个供应商的默认端点
             ("grok", "video", "grok-imagine-video-2", "grok-video"),
-            ("ark", "image", "kling-image-o2", "ark-seedream"),
+            ("ark", "image", "kling-image-o2", "ark-seedream-4"),
             ("ark", "video", "doubao-seedance-2-5-260628", "ark-seedance-2-5"),
             ("ark-agent-plan", "video", "doubao-seedance-2.0-mini", "ark-seedance-2"),
             ("ark", "video", "doubao-seedance-1-5-pro-251215", "ark-seedance-1"),
@@ -155,3 +155,24 @@ class TestPrefill:
         self, provider_id: str, media_type: str, model_id: str, expected: str
     ):
         assert infer_builtin_endpoint(provider_id, media_type, model_id) == expected
+
+
+@pytest.mark.parametrize(
+    ("provider", "model", "endpoint"),
+    [
+        ("ark", "doubao-seedream-3-0-t2i", "ark-seedream-3"),
+        ("ark-agent-plan", "doubao-seedream-4-5", "ark-seedream-4"),
+        ("dashscope", "wan2.7-image-pro", "dashscope-wan-image"),
+        ("dashscope", "qwen-image-edit-plus", "dashscope-qwen-image-edit"),
+        ("dashscope", "qwen-image-2.0", "dashscope-qwen-image"),
+        ("agnes", "agnes-image-2.5-flash", "agnes-image-tier"),
+        ("agnes", "agnes-image-2.1-flash", "agnes-image-pixels"),
+    ],
+)
+def test_official_image_selection_and_new_model_prefill_preserve_the_old_request_contract(
+    provider: str, model: str, endpoint: str
+):
+    from lib.backends.backend_assembly.specs import official_model_endpoint
+
+    assert official_model_endpoint(provider, "image", model) == endpoint
+    assert infer_builtin_endpoint(provider, "image", model) == endpoint

@@ -495,12 +495,44 @@
         ]
       },
       {
-        "key": "ark-seedream",
+        "key": "ark-seedream-3",
         "media_type": "image",
         "family": "ark",
         "kind": "python",
         "source": "builtin",
-        "display_name_key": "endpoint_ark_seedream_display",
+        "display_name_key": "endpoint_ark_seedream_3_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/api/v3/images/generations",
+        "image_capabilities": [
+          "image_to_image",
+          "text_to_image"
+        ],
+        "end_image_capable": false,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "generate",
+            "display_name_key": "cp_request_generate",
+            "default_path": "/images/generations",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "ensure_api_v3"
+          }
+        ]
+      },
+      {
+        "key": "ark-seedream-4",
+        "media_type": "image",
+        "family": "ark",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_ark_seedream_4_display",
         "display_name": null,
         "request_method": "POST",
         "request_path_template": "/api/v3/images/generations",
@@ -593,12 +625,76 @@
         ]
       },
       {
-        "key": "dashscope-image",
+        "key": "dashscope-qwen-image",
         "media_type": "image",
         "family": "dashscope",
         "kind": "python",
         "source": "builtin",
-        "display_name_key": "endpoint_dashscope_image_display",
+        "display_name_key": "endpoint_dashscope_qwen_image_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/api/v1/services/aigc/multimodal-generation/generation",
+        "image_capabilities": [
+          "image_to_image",
+          "text_to_image"
+        ],
+        "end_image_capable": false,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "generate",
+            "display_name_key": "cp_request_generate",
+            "default_path": "/services/aigc/multimodal-generation/generation",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "dashscope_api_v1"
+          }
+        ]
+      },
+      {
+        "key": "dashscope-wan-image",
+        "media_type": "image",
+        "family": "dashscope",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_dashscope_wan_image_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/api/v1/services/aigc/multimodal-generation/generation",
+        "image_capabilities": [
+          "image_to_image",
+          "text_to_image"
+        ],
+        "end_image_capable": false,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "generate",
+            "display_name_key": "cp_request_generate",
+            "default_path": "/services/aigc/multimodal-generation/generation",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "dashscope_api_v1"
+          }
+        ]
+      },
+      {
+        "key": "dashscope-qwen-image-edit",
+        "media_type": "image",
+        "family": "dashscope",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_dashscope_qwen_image_edit_display",
         "display_name": null,
         "request_method": "POST",
         "request_path_template": "/api/v1/services/aigc/multimodal-generation/generation",

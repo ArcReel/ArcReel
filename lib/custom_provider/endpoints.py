@@ -27,9 +27,9 @@ from lib.backends.audio_backends.gemini import GeminiAudioBackend
 from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
 from lib.backends.dashscope_shared import dashscope_native_base_url
-from lib.backends.image_backends.ark import ArkImageBackend
+from lib.backends.image_backends.ark import SEEDREAM_BACKENDS
 from lib.backends.image_backends.base import ImageCapability
-from lib.backends.image_backends.dashscope import DashScopeImageBackend
+from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS
 from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
@@ -684,12 +684,14 @@ def _build_ark_seedance(
 
 
 def _build_ark_seedream(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES, *, endpoint: str
 ) -> CustomImageBackend:
     # 直接包装内置 ArkImageBackend：尺寸推导、参考图上限与编码、计量都与预置方舟供应商同一份
     base_url = _ensure_url_path_suffix(provider.base_url, "/api/v3")
     layer = path_override_layer(_ARK_SEEDREAM_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
-    delegate = ArkImageBackend(api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer)
+    delegate = SEEDREAM_BACKENDS[endpoint](
+        api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer
+    )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -701,7 +703,7 @@ def _build_vidu_video(provider, model_id: str, path_overrides: PathOverrides = N
 
 
 def _build_dashscope_image(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES, *, endpoint: str
 ) -> CustomImageBackend:
     # backend 内部由 host 派生 /api/v1（容忍带/不带后缀），此处传原始 base_url 即可，不重复归一化
     layer = path_override_layer(
@@ -711,7 +713,7 @@ def _build_dashscope_image(
         dashscope_native_base_url(provider.base_url),
         model_id,
     )
-    delegate = DashScopeImageBackend(
+    delegate = DASHSCOPE_IMAGE_BACKENDS[endpoint](
         api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
     )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
@@ -936,19 +938,22 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         )
         for key, backend_class in SEEDANCE_BACKENDS.items()
     },
-    "ark-seedream": EndpointSpec(
-        key="ark-seedream",
-        media_type="image",
-        family="ark",
-        display_name_key="endpoint_ark_seedream_display",
-        request_method="POST",
-        # 文生图与带参考图生成同走 /images/generations，参考图按方舟格式放进 JSON 的 image 字段
-        request_path_template="/api/v3/images/generations",
-        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
-        build_backend=_build_ark_seedream,
-        requests=_ARK_SEEDREAM_REQUESTS,
-        metering_backend=ArkImageBackend,
-    ),
+    **{
+        key: EndpointSpec(
+            key=key,
+            media_type="image",
+            family="ark",
+            display_name_key=f"endpoint_{key.replace('-', '_')}_display",
+            request_method="POST",
+            # 文生图与带参考图生成同走 /images/generations，参考图按方舟格式放进 JSON 的 image 字段
+            request_path_template="/api/v3/images/generations",
+            image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+            build_backend=partial(_build_ark_seedream, endpoint=key),
+            requests=_ARK_SEEDREAM_REQUESTS,
+            metering_backend=backend_class,
+        )
+        for key, backend_class in SEEDREAM_BACKENDS.items()
+    },
     "vidu-video": EndpointSpec(
         key="vidu-video",
         media_type="video",
@@ -962,18 +967,21 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         video_caps_for_model=ViduVideoBackend.video_capabilities_for_model,
         end_image_capable=True,
     ),
-    "dashscope-image": EndpointSpec(
-        key="dashscope-image",
-        media_type="image",
-        family="dashscope",
-        display_name_key="endpoint_dashscope_image_display",
-        request_method="POST",
-        request_path_template="/api/v1/services/aigc/multimodal-generation/generation",
-        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
-        build_backend=_build_dashscope_image,
-        requests=_DASHSCOPE_GENERATION_REQUESTS,
-        metering_backend=DashScopeImageBackend,
-    ),
+    **{
+        key: EndpointSpec(
+            key=key,
+            media_type="image",
+            family="dashscope",
+            display_name_key=f"endpoint_{key.replace('-', '_')}_display",
+            request_method="POST",
+            request_path_template="/api/v1/services/aigc/multimodal-generation/generation",
+            image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+            build_backend=partial(_build_dashscope_image, endpoint=key),
+            requests=_DASHSCOPE_GENERATION_REQUESTS,
+            metering_backend=backend_class,
+        )
+        for key, backend_class in DASHSCOPE_IMAGE_BACKENDS.items()
+    },
     "openai-tts": EndpointSpec(
         key="openai-tts",
         media_type="audio",
@@ -1542,7 +1550,7 @@ _FAMILY_ENDPOINTS: tuple[tuple[str, Mapping[str, str]], ...] = (
     ("gemini", {"text": "gemini-generate", "image": "gemini-image", "audio": "gemini-tts"}),
     # Seedance 的代际按名字再细分，见 _seedance_endpoint
     ("seedance", {"video": "ark-seedance-1"}),
-    ("seedream", {"image": "ark-seedream"}),
+    ("seedream", {"image": "ark-seedream-4"}),
     ("viduq3", {"video": "vidu-video"}),
     ("hailuo", {"video": "minimax-hailuo-v1"}),
 )
@@ -1575,7 +1583,13 @@ def infer_endpoint(model_id: str, discovery_format: str, media_type: str | None 
     lowered = model_id.lower()
     for token, endpoints in _FAMILY_ENDPOINTS:
         if token in lowered and media_type in endpoints:
-            return _seedance_endpoint(model_id) if endpoints[media_type] in SEEDANCE_BACKENDS else endpoints[media_type]
+            if endpoints[media_type] in SEEDANCE_BACKENDS:
+                return _seedance_endpoint(model_id)
+            if endpoints[media_type] in SEEDREAM_BACKENDS:
+                from lib.backends.backend_assembly.specs import image_endpoint_for_name
+
+                return image_endpoint_for_name("ark", model_id)
+            return endpoints[media_type]
     google_default, other_default = _DEFAULT_ENDPOINTS[media_type]
     return google_default if discovery_format == "google" else other_default
 
@@ -1616,7 +1630,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
        "gemini-generate"（不分 discovery_format）
     4) 视频家族 → seedance 按名字里的代际取 "ark-seedance-2-5" / "ark-seedance-2"，没写明代际取
        "ark-seedance-1"；viduq3→"vidu-video"、Veo 且 discovery_format=google→"gemini-video"、否则 "openai-video"
-    5) 图像家族 → seedream→"ark-seedream"（不分 discovery_format），其余 discovery_format=google 走
+    5) 图像家族 → seedream→"ark-seedream-3" / "ark-seedream-4"（不分 discovery_format），其余 discovery_format=google 走
        "gemini-image" 否则 "openai-images"（imagen 随图像家族推断，不再单独拦截）
     6) TTS 家族（tts/speech/cosyvoice）→ qwen-tts / qwen3-tts 走 "dashscope-tts"，MiniMax 的
        speech-<版本>-hd|turbo 走 "minimax-tts"，其余 "openai-tts"
@@ -1729,7 +1743,9 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     if is_image:
         # 方舟 Seedream 没有 /images/edits，带参考图的生成也走 /images/generations；不分 discovery_format
         if "seedream" in lowered:
-            return "ark-seedream"
+            from lib.backends.backend_assembly.specs import image_endpoint_for_name
+
+            return image_endpoint_for_name("ark", model_id)
         return "gemini-image" if discovery_format == "google" else "openai-images"
     if _AUDIO_PATTERN.search(model_id) and not _ASR_PATTERN.search(model_id):
         if _QWEN_TTS_PATTERN.search(model_id):
