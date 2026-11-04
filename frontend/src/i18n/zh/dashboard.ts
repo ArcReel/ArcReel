@@ -1787,6 +1787,16 @@ export default {
   'endpoint_grok_video_display': 'xAI Grok（视频）',
   'endpoint_grok_video_classic_display': 'Grok 视频（经典）',
   'endpoint_grok_video_mixed_display': 'Grok 视频（混合输入）',
+
+
+  'endpoint_dashscope_always_on_video_display': '阿里百炼（固定有声视频）',
+  'endpoint_dashscope_video_display': '阿里百炼（视频）',
+  'endpoint_dashscope_reference_video_display': '阿里百炼（参考生视频）',
+  'endpoint_dashscope_reference_voice_video_display': '阿里百炼（参考图配音视频）',
+  'endpoint_dashscope_wan3_video_display': '阿里百炼（Wan3 视频）',
+  'endpoint_agnes_video_2_display': 'Agnes（视频 2.0）',
+  'endpoint_agnes_video_2_5_display': 'Agnes（视频 2.5）',
+  'endpoint_gemini_vertex_video_display': 'Vertex AI 视频 (Veo)',
   'endpoint_agnes_video_display': 'Agnes（视频）',
   'endpoint_catalog_loading': '加载端点目录…',
   // Image Capability

@@ -710,3 +710,42 @@ async def test_old_kling_job_rejects_a_different_protocol(chain_project: Path, s
     row = await _load_task_row(session_factory, "T-kling-switched")
     assert row.status == "failed"
     assert "resume_endpoint_changed" in (row.error_message or "")
+
+
+@pytest.mark.parametrize("endpoint", ["dashscope-wan3-video", "openai-video"])
+async def test_dashscope_legacy_job_resumes_only_on_successor(chain_project: Path, session_factory, endpoint: str):
+    provider_id = await _seed_relay_model(session_factory, endpoint=endpoint, model_id="wan3.0-video")
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-dashscope-legacy",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-dashscope-legacy",
+            provider_id=provider_id,
+            endpoint_guard="dashscope-async-video",
+            model_id="wan3.0-video",
+        ),
+    )
+    with capture_http() as router:
+        submit = router.post("https://ark-relay.test/api/v1/services/aigc/video-generation/video-synthesis")
+        poll = router.get("https://ark-relay.test/api/v1/tasks/job-old").respond(
+            200,
+            json={
+                "output": {"task_status": "SUCCEEDED", "video_url": "https://cdn.test/legacy.mp4"},
+                "usage": {"duration": 5},
+            },
+        )
+        download = router.get("https://cdn.test/legacy.mp4").respond(200, content=b"resumed")
+        await _run_orphan_recovery(session_factory)
+    row = await _load_task_row(session_factory, "T-dashscope-legacy")
+    assert submit.call_count == 0
+    if endpoint == "dashscope-wan3-video":
+        assert row.status == "succeeded", row.error_message
+        assert (poll.call_count, download.call_count) == (1, 1)
+        paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
+        assert [path.read_bytes() for path in paid_files] == [b"resumed"]
+    else:
+        assert row.status == "failed"
+        assert row.error_message
+        assert "resume_endpoint_changed" in row.error_message
+        assert len(router.calls) == 0

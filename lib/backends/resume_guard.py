@@ -46,6 +46,17 @@ RETIRED_ENDPOINT_SUCCESSORS: Mapping[str, frozenset[str]] = {
         {"kling-video-pro-silent", "kling-video-pro-audio", "kling-video-audio", "kling-video-silent"}
     ),
     "ark-seedance": frozenset({"ark-seedance-1", "ark-seedance-2", "ark-seedance-2-5"}),
+    "dashscope-async-video": frozenset(
+        {
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
+        }
+    ),
+    "agnes-video": frozenset({"agnes-video-2", "agnes-video-2-5"}),
+    "gemini-video": frozenset({"gemini-vertex-video"}),
 }
 
 

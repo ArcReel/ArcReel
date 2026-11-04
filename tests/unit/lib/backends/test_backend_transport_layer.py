@@ -125,7 +125,7 @@ _CALLS: dict[str, Call] = {
     "vidu-video-q3-turbo": lambda layer, tmp_path: ViduVideoBackend(
         api_key="k", base_url=f"{BASE}/ent/v2", transport_layer=layer
     ).generate(_video(tmp_path)),
-    "dashscope-async-video": lambda layer, tmp_path: DashScopeVideoBackend(
+    "dashscope-video": lambda layer, tmp_path: DashScopeVideoBackend(
         api_key="k", base_url=BASE, transport_layer=layer
     ).generate(_video(tmp_path)),
     "kling-video-pro-silent": lambda layer, tmp_path: KlingVideoBackend(

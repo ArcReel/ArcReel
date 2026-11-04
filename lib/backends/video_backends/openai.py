@@ -34,7 +34,6 @@ from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import (
     EntryBoundCapabilities,
-    match_by_names,
 )
 from lib.billing.metering import Usage
 from lib.infra.async_thread import run_noninterruptible_sync
@@ -47,9 +46,7 @@ logger = logging.getLogger(__name__)
 _INPUT_REFERENCE_SLOTS = 1
 
 
-# sora 合法 size 按 model 能力 + 分辨率档分级（OpenAI 官方 changelog / 模型页）：
-# - sora-2（base）：仅 720p —— 9:16 720x1280 / 16:9 1280x720。
-# - sora-2-pro：720p 同上 + 1080p —— 9:16 1080x1920 / 16:9 1920x1080。
+# 端点接受两组 size；各型号可用的分辨率记录在条目上。
 # SDK 的 VideoSize Literal 滞后（只列 720/1024 档、漏 1080），以官方模型页为准；
 # 合法档不含 1024x1792 / 1792x1024（4:7，违背比例优先，1080p 精确档已覆盖该用途）。
 # 非任意 WxH，只能吸附合法档：比例优先选档，分辨率档只决定 720p vs 1080p 子集（清晰度其次）。
@@ -97,31 +94,25 @@ def _video_error_message(video: object) -> str:
     return "unknown"
 
 
-def _sora_family_model(model: str, entry: CatalogEntry | None) -> str | None:
-    """按名字族认得的 sora 型号（``entry`` 是模型对应的条目）；认不得时为 ``None``，由 :func:`_resolve_size` 看 API 模型名。"""
-    return match_by_names(model, lambda name: name if name.startswith("sora-2") else None, entry=entry)
-
-
-def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, family_model: str | None = None) -> str:
-    """比例优先：在 model+分辨率档对应的 sora 合法档中选比例最接近 aspect_ratio 的；并列取像素更高者。
-
-    分辨率档只决定 720p vs 1080p 子集、不决定比例：sora-2-pro 选 1080p 时 9:16→1080x1920（精确且高清），
-    sora-2（base）或缺分辨率时落 720p（缺分辨率默认 720P，不擅自升 1080p 以免超额计费）。size 必传以锁定
-    比例，绝不出现「不传 size → 上游默认比例」。其它比例（1:1/21:9 等）sora 无对应档，吸附后告警。
-
-    ``family_model`` 是按名字族认得的 sora 型号（绑定条目的不透明模型取条目的名字），不给时按 ``model`` 判断。
-    """
+def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, entry: CatalogEntry | None = None) -> str:
+    """按条目上的分辨率与端点合法尺寸吸附，比例优先；未收录时只受端点约束。"""
     aw, ah = parse_aspect_ratio(aspect_ratio)
     target = aw / ah
-    is_pro = "pro" in (family_model or model).lower()
     short = resolution_to_short_edge(resolution, tier_map=VIDEO_TIER_SHORT_EDGE)
-    # sora 支持的短边档：base 仅 720；pro 增 1080。按「最近档」选（等距取更高档），避免把
+    # 按条目里的分辨率上限取合法短边档，再选最近档（等距取更高档），避免把
     # short=1000 这类自定义分辨率值无故降到 720p（floor 会误降，最近档不会）。
-    supported_shorts = [720, _SORA_1080P_MIN_SHORT] if is_pro else [720]
+    from lib.backends.video_capabilities import entry_video_facts
+    from lib.catalog import query as catalog
+
+    facts = entry_video_facts(entry or catalog.find_entry(model, media_type="video"))
+    ceiling = max(
+        (resolution_to_short_edge(r, tier_map=VIDEO_TIER_SHORT_EDGE) for r in facts.resolutions), default=1080
+    )
+    supported_shorts = [720, _SORA_1080P_MIN_SHORT] if ceiling >= 1080 else [720]
     achieved_short = min(supported_shorts, key=lambda s: (abs(s - short), -s))
     legal = _SORA_SIZES_1080P if achieved_short == _SORA_1080P_MIN_SHORT else _SORA_SIZES_720P
     if short > achieved_short:
-        # 请求高于模型可达档（base 请 1080p、或 pro 请 4K）：封顶并提示清晰度让位
+        # 请求高于条目或端点的最高档时，封顶并提示清晰度让位
         logger.warning(
             "OpenAI video: model=%s 无法满足分辨率请求 %s（短边 %d），输出封顶到 %dp 档（清晰度让位比例）",
             model,
@@ -221,9 +212,7 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         分辨率取下发的 ``size`` 的短边档（如 ``1024x1792`` 记为 1024p），``size`` 与请求构造按模型对应的同一个
         条目（``entry``）求得。请求没有音轨开关，不上报是否有声。
         """
-        width, _, height = _resolve_size(
-            model, request.resolution, request.aspect_ratio, family_model=_sora_family_model(model, entry)
-        ).partition("x")
+        width, _, height = _resolve_size(model, request.resolution, request.aspect_ratio, entry=entry).partition("x")
         return video_usage(
             request,
             result,
@@ -258,7 +247,7 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             self._model,
             request.resolution,
             request.aspect_ratio,
-            family_model=_sora_family_model(self._model, self._catalog_entry),
+            entry=self._catalog_entry,
         )
 
         # 收集所有参考图（start_image + reference_images）：存在性检查与读图都是阻塞 I/O，整体卸载到线程

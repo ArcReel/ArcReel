@@ -175,7 +175,7 @@ const customProvider = {
     customModel(4, "gpt-image-1", "openai-images", {
       matched_entry: entry("openai", "gpt-image-1", "image", "GPT Image 1", false),
     }),
-    customModel(5, "kling-v2-6-master-image-to-video-pro-1080p", "kling-video", {
+    customModel(5, "kling-v2-6-master-image-to-video-pro-1080p", "kling-video-pro-audio", {
       is_default: true,
       resolution: "1080p",
       multiplier: 1.25,
@@ -189,7 +189,7 @@ const customProvider = {
     }),
     customModel(7, "MiniMax-Hailuo-02", "minimax-hailuo-v1", { system_capabilities: VIDEO_CAPABILITIES }),
     customModel(8, "tts-1-hd", "openai-tts", { is_default: true }),
-    customModel(9, "wan2.5-i2v-preview", "dashscope-async-video", { is_enabled: false }),
+    customModel(9, "wan2.5-i2v-preview", "dashscope-video", { is_enabled: false }),
   ],
   created_at: "2026-09-01T00:00:00Z",
   image_max_workers: 4,
@@ -201,11 +201,11 @@ const ENDPOINT_MEDIA: Record<string, string> = {
   "openai-chat": "text",
   "gemini-image": "image",
   "openai-images": "image",
-  "kling-video": "video",
+  "kling-video-pro-audio": "video",
   "ark-seedance-1": "video",
   "minimax-hailuo-v1": "video",
   "openai-tts": "audio",
-  "dashscope-async-video": "video",
+  "dashscope-video": "video",
 };
 
 // 模型列表的行（GET /providers/custom-7/models）与已保存的模型一一对应
@@ -219,7 +219,7 @@ const customListItems = customProvider.models.map((m) => ({
   official: false,
   flags: m.matched_entry && (m.matched_entry as { priced: boolean }).priced ? [] : ["unpriced"],
   price:
-    m.endpoint === "kling-video"
+    m.endpoint === "kling-video-pro-audio"
       ? { currency: "CNY", items: [{ meter: "output_seconds", min_price: 0.5, max_price: 1, per: 1 }] }
       : null,
   lifecycle: { status: "available", shutdown_date: null, successor: null },
@@ -335,7 +335,7 @@ const klingDetail = {
     overrides: { last_frame: false, durations: [5, 10] },
     effective: {},
   },
-  endpoint: "kling-video",
+  endpoint: "kling-video-pro-audio",
   resolution: "1080p",
   path_overrides: null,
   requests: [],

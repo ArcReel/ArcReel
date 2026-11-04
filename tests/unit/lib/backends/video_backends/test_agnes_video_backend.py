@@ -22,7 +22,7 @@ from arcreel_market_core.video_backend_contract import (
 )
 from lib.backends.http_status_errors import AmbiguousSubmitError, ArtifactDownloadError
 from lib.backends.providers import PROVIDER_AGNES
-from lib.backends.video_backends.agnes import AgnesVideoBackend
+from lib.backends.video_backends.agnes import Agnes25VideoBackend, AgnesVideoBackend
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -100,14 +100,14 @@ class TestCapabilities:
     def test_name_and_default_model(self):
         backend = AgnesVideoBackend(api_key="sk-test", base_url=_GATEWAY_BASE_URL)
         assert backend.name == PROVIDER_AGNES
-        assert backend.model == "agnes-video-2.5-flash"
+        assert backend.model == "agnes-video-v2.0"
 
     def test_default_model_when_unset(self):
         backend = AgnesVideoBackend(api_key="sk-test")
-        assert backend.model == "agnes-video-2.5-flash"
+        assert backend.model == "agnes-video-v2.0"
 
     def test_default_v25_flash_capabilities(self):
-        backend = AgnesVideoBackend(api_key="sk-test")
+        backend = Agnes25VideoBackend(api_key="sk-test")
         caps = backend.video_capabilities
         assert caps.first_frame is True
         assert caps.last_frame is True
@@ -830,8 +830,8 @@ class TestRegistration:
     def test_registered_in_video_backend_registry(self):
         from lib.backends.video_backends import create_backend, get_registered_backends
 
-        assert PROVIDER_AGNES in get_registered_backends()
-        backend = create_backend(PROVIDER_AGNES, api_key="sk-test", base_url=_BASE_URL)
+        assert {"agnes-video-2", "agnes-video-2-5"} <= set(get_registered_backends())
+        backend = create_backend("agnes-video-2-5", api_key="sk-test", base_url=_BASE_URL)
         assert backend.name == PROVIDER_AGNES
 
 

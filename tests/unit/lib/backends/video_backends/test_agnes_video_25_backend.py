@@ -17,7 +17,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoCapabilityError,
     VideoGenerationRequest,
 )
-from lib.backends.video_backends.agnes import AgnesVideoBackend
+from lib.backends.video_backends.agnes import Agnes25VideoBackend
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -85,8 +85,8 @@ def _data_uri(payload: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(payload).decode("ascii")
 
 
-def _backend(model: str = "agnes-video-2.5") -> AgnesVideoBackend:
-    return AgnesVideoBackend(api_key="sk-test", model=model, base_url=_BASE_URL)
+def _backend(model: str = "agnes-video-2.5") -> Agnes25VideoBackend:
+    return Agnes25VideoBackend(api_key="sk-test", model=model, base_url=_BASE_URL)
 
 
 def _assert_v25_core_body(body: dict, *, mode: str, seconds: str, size: str) -> None:
@@ -231,12 +231,22 @@ class TestV25RequestBodies:
 
 class TestV25PreSubmitValidation:
     @pytest.mark.parametrize("resolution", ["1080p", "2K"])
-    async def test_flash_rejects_non_720p_resolution(self, tmp_path: Path, resolution: str):
-        with _agnes_api() as routes, pytest.raises(VideoCapabilityError) as exc:
-            await _backend("agnes-video-2.5-flash").generate(_request(tmp_path, resolution=resolution))
+    async def test_resolution_limit_follows_entry_instead_of_flash_name(
+        self, tmp_path: Path, resolution: str, monkeypatch
+    ):
+        from lib.catalog import query as catalog
+        from tests.catalog_support import install_catalog, with_entry_facts
 
-        assert exc.value.code == "video_resolution_not_supported"
-        assert routes.submit.call_count == 0
+        data = with_entry_facts(
+            catalog.factory_snapshot(), "agnes", "agnes-video-2.5-flash", resolutions=("720p", "1080p", "2K")
+        )
+        install_catalog(monkeypatch, data)
+        with _agnes_api() as routes:
+            routes.submit.mock(return_value=_queued())
+            routes.query.mock(return_value=_completed())
+            routes.download.mock(return_value=httpx.Response(200, content=b"mp4"))
+            await _backend("agnes-video-2.5-flash").generate(_request(tmp_path, resolution=resolution))
+        assert request_json(only_request(routes.submit))["size"] == resolution.upper()
 
     async def test_invalid_aspect_ratio_is_rejected(self, tmp_path: Path):
         with _agnes_api() as routes, pytest.raises(VideoCapabilityError) as exc:

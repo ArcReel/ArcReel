@@ -154,7 +154,7 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
         # 未声明（None）：按 model_id 调 backend 纯 caps 函数读上限，不构造 backend
         ("ark-seedance-2", "doubao-seedance-2-0", 9, "storyboard"),
         # 条目显式记录不接受参考图 → 0（HappyHorse 1.0 i2v）；对应不上条目 → 只受通道约束（方舟通道不设上限，为未收录）
-        ("dashscope-async-video", "happyhorse-1.0-i2v", 0, "storyboard"),
+        ("dashscope-always-on-video", "happyhorse-1.0-i2v", 0, "storyboard"),
         ("ark-seedance-2", "doubao-seedance-1-0", None, "storyboard"),
         ("vidu-video-q3-turbo", "viduq3-turbo", 7, "storyboard"),
         # MiniMax 声明式端点：S2V-01 端点单脸参考 → 1；海螺系列走首帧无参考 → 0。S2V-01 端点无首帧能力，

@@ -14,8 +14,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
+from typing import ClassVar
 from urllib.parse import urlsplit
 
 import httpx
@@ -45,11 +47,10 @@ from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import image_to_base64_data_uri
 from lib.backends.providers import PROVIDER_AGNES
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import (
-    EntryBoundCapabilities,
-    match_by_names,
-)
+from lib.backends.video_backends.name_family import EntryBoundCapabilities
+from lib.backends.video_capabilities import entry_video_facts
 from lib.billing.metering import Usage
+from lib.catalog import query as catalog
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
@@ -72,12 +73,8 @@ _VIDEO_QUERY_ENDPOINT = "/agnesapi"
 _FPS = 24
 _FRAME_STEP = 8
 
-_V20_MODEL = "agnes-video-v2.0"
-_V25_FLASH_MODEL = "agnes-video-2.5-flash"
-_V25_MODEL = "agnes-video-2.5"
 _V25_ASPECT_RATIOS = frozenset({"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"})
 _V25_RESOLUTIONS = {"720P": "720P", "1080P": "1080P", "2K": "2K"}
-_V25_FLASH_RESOLUTIONS = {"720P": "720P"}
 # v2.0 契约的参考图（多图主体）上限，是这份请求结构一次能承载的张数（通道事实）。2.5 契约不在通道一侧限张数，
 # flash 与完整版各接受几张记在模型条目上（docs/adr/0104）。
 _MAX_REFERENCE_IMAGES = 4
@@ -188,19 +185,11 @@ def _image_to_data_uri(image_path: Path) -> str:
     return image_to_base64_data_uri(image_path)
 
 
-_KNOWN_MODELS = frozenset({_V20_MODEL, _V25_FLASH_MODEL, _V25_MODEL})
+@dataclass(frozen=True)
+class AgnesVideoEndpoint:
+    """提交体、轮询与音轨共用的请求契约。"""
 
-
-def _uses_v25_contract(model: str | None) -> bool:
-    return model in {_V25_MODEL, _V25_FLASH_MODEL}
-
-
-def _known_model(model: str, entry: CatalogEntry | None = None) -> str | None:
-    """按名字认得的 Agnes 型号，决定请求契约（2.5 或 v2.0）与逐型号限制；认不得时为 ``None``，按 v2.0 契约提交。
-
-    名字按 name_family 的规则取（``entry`` 是模型对应的条目），与能力声明同一套名字，请求里仍发 API 模型名。
-    """
-    return match_by_names(model, lambda name: name if name in _KNOWN_MODELS else None, entry=entry)
+    v25: bool
 
 
 def _safe_body_for_log(body: dict) -> dict:
@@ -284,6 +273,9 @@ def _failure_reason(state: dict) -> str | None:
 class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """Agnes 视频后端（异步 submit/poll，裸 base64 图像，支持 resume）。"""
 
+    endpoint: ClassVar[AgnesVideoEndpoint] = AgnesVideoEndpoint(v25=False)
+    default_model: ClassVar[str] = "agnes-video-v2.0"
+
     def __init__(
         self,
         *,
@@ -295,7 +287,7 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         self._api_key = resolve_agnes_api_key(api_key)
         self._base_url = agnes_base_url(base_url)
         self._host = agnes_host(base_url)
-        self._model = model or DEFAULT_MODEL
+        self._model = model or self.default_model
         self._http_timeout = http_timeout
 
     @property
@@ -306,31 +298,18 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     def model(self) -> str:
         return self._model
 
-    @staticmethod
-    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """Agnes 调用通道的声明（通道事实）—— 纯计算，不构造 SDK client（无需 api_key）。
-
-        两份请求契约都发得出首帧、首尾帧（首尾关键帧）与多图主体参考；参考图不与首帧叠加（单通道 + mode 不可叠加），
-        不收参考音频。v2.0 契约一次最多承载 4 张参考图，2.5 契约不在通道一侧限张数。各型号接受哪些输入、能接受几张
-        参考图记在模型条目上，与本声明两侧求值（``lib.backends.video_capabilities``，docs/adr/0104）。
-
-        请求契约按名字认定（待按代际拆成调用端点）：2.5 系列固定产出音频，v2.0 与认不得的型号按 v2.0 契约提交、
-        成片无声。instance property 委托至此，保持 backend 为单一真相源。
-        """
-        if _uses_v25_contract(_known_model(model, entry)):
-            return VideoCapabilities(last_frame=True, max_reference_images=None, audio_track=VideoAudioMode.ALWAYS_ON)
+    @classmethod
+    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
+        """输入槽位与音轨由调用端点决定，不读取型号名。"""
         return VideoCapabilities(
-            last_frame=True, max_reference_images=_MAX_REFERENCE_IMAGES, audio_track=VideoAudioMode.ALWAYS_OFF
+            last_frame=True,
+            max_reference_images=None if cls.endpoint.v25 else _MAX_REFERENCE_IMAGES,
+            audio_track=VideoAudioMode.ALWAYS_ON if cls.endpoint.v25 else VideoAudioMode.ALWAYS_OFF,
         )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model, self._catalog_entry)
-
-    @property
-    def _contract_model(self) -> str | None:
-        """决定请求契约的型号：与 :attr:`video_capabilities` 按同一个条目认定，绑定 2.5 条目的不透明模型走 2.5 契约。"""
-        return _known_model(self._model, self._catalog_entry)
+        return self.video_capabilities_for_model(self._model)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         # 请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
@@ -356,8 +335,9 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         async with artifact_http_client(timeout=self._http_timeout) as client:
             return await self._poll_and_build(client, job_id, request, is_resume=True)
 
-    @staticmethod
+    @classmethod
     def metered_usage(
+        cls,
         model: str,
         request: VideoGenerationRequest,
         result: VideoGenerationResult | None = None,
@@ -367,24 +347,22 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         两版契约的分辨率都由请求档位决定，未指定时按 720p 下发（2.5 的 ``size``、v2.0 的短边）；结算的输出秒数
-        取 Agnes 回报的成片时长。2.5 契约的成片有声，v2.0 无声；契约按模型对应的条目认定（``entry``），与请求
-        构造的 :attr:`_contract_model` 同一个。
+        取 Agnes 回报的成片时长。2.5 契约的成片有声，v2.0 无声，计量与请求构造共同读取端点声明。
         """
         return video_usage(
             request,
             result,
             seconds=request.duration_seconds,
             resolution=request.resolution or "720p",
-            audio=_uses_v25_contract(_known_model(model, entry)),
+            audio=cls.endpoint.v25,
         )
 
     # ── request building ────────────────────────────────────────────────
 
     def _build_payload(self, request: VideoGenerationRequest) -> dict:
-        """按 model 分派旧 v2.0 或 2.5 请求契约。"""
-        contract = self._contract_model
-        if contract is not None and _uses_v25_contract(contract):
-            return self._build_v25_payload(request, contract)
+        """按端点声明构造 v2.0 或 2.5 请求。"""
+        if self.endpoint.v25:
+            return self._build_v25_payload(request)
         return self._build_v20_payload(request)
 
     def _build_v20_payload(self, request: VideoGenerationRequest) -> dict:
@@ -429,10 +407,10 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
         return payload
 
-    def _build_v25_payload(self, request: VideoGenerationRequest, contract: str) -> dict:
+    def _build_v25_payload(self, request: VideoGenerationRequest) -> dict:
         """构建 2.5 提交体：mode + 秒数字符串 + 分辨率档位 + Data URI 媒体。"""
         self._reject_v25_aspect_ratio(request.aspect_ratio)
-        size = self._normalize_v25_resolution(request.resolution, contract)
+        size = self._normalize_v25_resolution(request.resolution)
 
         payload: dict = {
             "model": self._model,
@@ -467,8 +445,13 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
         return payload
 
-    def _normalize_v25_resolution(self, resolution: str | None, contract: str) -> str:
-        allowed = _V25_FLASH_RESOLUTIONS if contract == _V25_FLASH_MODEL else _V25_RESOLUTIONS
+    def _normalize_v25_resolution(self, resolution: str | None) -> str:
+        facts = entry_video_facts(self._catalog_entry or catalog.find_entry(self._model, media_type="video"))
+        allowed = (
+            {r.upper(): r.upper() for r in facts.resolutions if r.upper() in _V25_RESOLUTIONS}
+            if facts.resolutions
+            else _V25_RESOLUTIONS
+        )
         normalized = (resolution or "720p").upper()
         if normalized not in allowed:
             raise VideoCapabilityError(
@@ -562,7 +545,7 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             provider=PROVIDER_AGNES,
             request=request,
         )
-        return _extract_task_id(resp.json(), prefer_video_id=_uses_v25_contract(self._contract_model))
+        return _extract_task_id(resp.json(), prefer_video_id=self.endpoint.v25)
 
     async def _poll_once(self, client: httpx.AsyncClient, task_id: str) -> dict:
         resp = await client.get(
@@ -575,7 +558,7 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     async def _query_video_once(self, client: httpx.AsyncClient, video_id: str) -> dict:
         """单次按 ``video_id`` 查询；重试由调用方选择内层装饰器或外层轮询统一承担。"""
         params = {"video_id": video_id}
-        if _uses_v25_contract(self._contract_model):
+        if self.endpoint.v25:
             params["model_name"] = self._model
         resp = await client.get(
             f"{self._host}{_VIDEO_QUERY_ENDPOINT}",
@@ -645,7 +628,7 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         is_resume: bool,
     ) -> VideoGenerationResult:
         async def poll_fn() -> dict:
-            if _uses_v25_contract(self._contract_model):
+            if self.endpoint.v25:
                 return await self._query_video_once(client, task_id)
             return await self._poll_once(client, task_id)
 
@@ -683,10 +666,20 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             video_uri=video_url,
             task_id=task_id,
             seed=request.seed,
-            generate_audio=_uses_v25_contract(self._contract_model),
+            generate_audio=self.endpoint.v25,
         )
 
     @staticmethod
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
         """下载成片 URL（幂等 GET），走共用的产物下载预算，不回退到重跑生成 POST。"""
         await download_resumable_video(video_url, output_path, label="Agnes")
+
+
+class Agnes25VideoBackend(AgnesVideoBackend):
+    """Agnes 2.5：秒数、Data URI 输入与成片查询接口。"""
+
+    endpoint = AgnesVideoEndpoint(v25=True)
+    default_model = DEFAULT_MODEL
+
+
+AGNES_VIDEO_BACKENDS = {"agnes-video-2": AgnesVideoBackend, "agnes-video-2-5": Agnes25VideoBackend}
