@@ -38,7 +38,7 @@
 依次执行，在得出结果的一步停下：
 
 1. **关闭检查**：请求明显命中 `.out-of-scope/` 条目，或关联 issue 带 `ready-for-agent`（理由见 `CONTRIBUTING.md`）时，评论引用对应条目或理由，打 `wontfix` 并关闭。
-2. **CLA**：`license/cla` 状态为 success 的继续下一步。最新提交上没有这个状态的，不按未签署处理，继续下一步，并把重新检查链接 `https://cla-assistant.io/check/ArcReel/ArcReel?pullRequest=<PR 号>` 列入巡检摘要。未签署时发一条签署提醒，同一 PR 只提醒一次，打 `needs-info`。
+2. **CLA**：`license/cla` 状态为 success 的继续下一步。最新提交上没有这个状态时，访问 `https://cla-assistant.io/check/ArcReel/ArcReel?pullRequest=<PR 号>` 触发重新检查，再读一次状态；仍然没有的，不按未签署处理，继续下一步，并把这个链接列入巡检摘要。未签署时发一条签署提醒，同一 PR 只提醒一次，打 `needs-info`。
 3. **检查**：按 skill 第 1 步与第 3 步收集上下文并验证 diff，再用 `code-review` skill 审查 diff：固定点取 PR 的 base 分支，spec 取关联 issue，没有关联 issue 时以 PR 正文作为 spec。请求的行为已经实现的，按第 2 步第 1 条关闭；信息不足以验证的，按第 2 步第 2 条打 `needs-info`。
 4. **分流**：
    - 方向待判断：转交。评论不列 `code-review` 的具体修改意见，这些意见在维护者做出决定后由第 5 步发给作者。
