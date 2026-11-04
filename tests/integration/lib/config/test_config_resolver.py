@@ -1019,12 +1019,12 @@ class TestResolveImageBackend:
         resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
         assert resolved.provider_id == "grok"
 
-    async def test_project_bare_provider_pins_provider_with_default_model(self):
+    async def test_project_bare_provider_pins_provider_with_default_model(self, db_session):
         """裸 provider 项目覆盖（写边界放行）→ pin 该 provider 并补全其默认 model，不静默回退全局默认。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
         project = {"image_provider_t2i": "openai"}  # 裸 provider，无 model
-        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        resolved = await resolver._resolve_image_provider_model(fake_svc, db_session, project, {}, "t2i")
         assert resolved.provider_id == "openai"
         assert resolved.model_id == "gpt-image-2"  # registry 中 openai 的默认 image model
 
@@ -1036,12 +1036,12 @@ class TestResolveImageBackend:
         resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
         assert resolved.provider_id == "grok"
 
-    async def test_project_provider_with_trailing_slash_uses_provider_default(self):
+    async def test_project_provider_with_trailing_slash_uses_provider_default(self, db_session):
         """脏值 "openai/"（缺 model，写校验器会放行）→ 取 openai 默认 model，不带空 model 下游。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
         project = {"image_provider_t2i": "openai/"}
-        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        resolved = await resolver._resolve_image_provider_model(fake_svc, db_session, project, {}, "t2i")
         assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
 
     async def test_payload_legacy_provider_not_trusted_falls_through_to_project(self):
@@ -1053,13 +1053,35 @@ class TestResolveImageBackend:
         resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, payload, "t2i")
         assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
 
-    async def test_payload_known_provider_missing_model_uses_provider_default(self):
+    async def test_payload_known_provider_missing_model_uses_provider_default(self, db_session):
         """半截 payload（已知 provider 但缺 model）→ 补该 provider 默认 model，不带空 model 到执行层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
         payload = {"image_provider": "openai"}  # 只有 provider，无 image_model
-        resolved = await resolver._resolve_image_provider_model(fake_svc, None, {}, payload, "t2i")
+        resolved = await resolver._resolve_image_provider_model(fake_svc, db_session, {}, payload, "t2i")
         assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
+
+    async def test_disabled_default_model_is_not_filled_in(self, db_session):
+        """用户停用了供应商的默认模型：裸 provider 项目覆盖与缺 model 的 payload 都不补它，按没有默认模型处理。"""
+        from lib.catalog.errors import ModelNotInCatalogError
+        from lib.db.models.builtin_provider_model import BuiltinProviderModelState
+
+        db_session.add(BuiltinProviderModelState(provider_id="openai", model_id="gpt-image-2", enabled=False))
+        await db_session.flush()
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+
+        # payload 补不出默认模型 → 回退配置层
+        resolved = await resolver._resolve_image_provider_model(
+            fake_svc, db_session, {}, {"image_provider": "openai"}, "t2i"
+        )
+        assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-2-image")
+        # 项目层的裸内置供应商补不出默认模型 → 报错让用户重新选择，不回退到另一供应商
+        with pytest.raises(ModelNotInCatalogError) as exc_info:
+            await resolver._resolve_image_provider_model(
+                fake_svc, db_session, {"image_provider_t2i": "openai"}, {}, "t2i"
+            )
+        assert exc_info.value.code == "provider_unsupported_media"
 
 
 class TestLayeredBackendSkeleton:
@@ -1130,11 +1152,11 @@ class TestLayeredBackendSkeleton:
         result = await resolver._resolve_layered_backend(fake_svc, None, None, self._keys())
         assert result == ("g-def", "m")
 
-    async def test_project_bare_provider_supported(self):
+    async def test_project_bare_provider_supported(self, db_session):
         """项目层兼容裸 provider 覆盖（补该 provider 默认 model），与既有图片/视频项目字段语义一致。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"global_default": "g-def/m"})
-        result = await resolver._resolve_layered_backend(fake_svc, None, {"img_bucket": "openai"}, self._keys())
+        result = await resolver._resolve_layered_backend(fake_svc, db_session, {"img_bucket": "openai"}, self._keys())
         assert result == ("openai", "gpt-image-2")
 
 
@@ -1265,12 +1287,12 @@ class TestResolveVideoBackend:
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, None)
         assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-1-5-pro")
 
-    async def test_project_bare_provider_pins_provider_with_default_model(self):
+    async def test_project_bare_provider_pins_provider_with_default_model(self, db_session):
         """裸 video_backend(如 "ark") → pin ark 并补全其默认 video model，不回退全局默认的另一供应商。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_video_backend": "grok/grok-imagine-video"})
         project = {"video_backend": "ark"}  # 裸 provider
-        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, {})
+        resolved = await resolver._resolve_video_provider_model(fake_svc, db_session, project, {})
         assert resolved.provider_id == "ark"
         assert resolved.model_id == "doubao-seedance-2-0-mini-260615"  # registry 中 ark 的默认 video model
 
@@ -1646,18 +1668,16 @@ class TestTextBackendTierResolution:
         result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.SCRIPT, None)
         assert result == ("g-def", "m")
 
-    async def test_project_bare_provider_pins_its_default_model(self):
+    async def test_project_bare_provider_pins_its_default_model(self, db_session):
         """项目档位写裸 provider（写边界放行的合法值）→ pin 住该 provider 补默认 model，
         不静默回退到全局默认的另一供应商。与图片 / 视频的项目层同构。"""
-        from unittest.mock import MagicMock
-
         from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_text_backend": "g-def/m"})
         with patch("lib.config.resolver.get_project_manager") as mock_pm:
             mock_pm.return_value.load_project.return_value = {"text_backend_complex": "openai"}
-            result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.SCRIPT, "demo")
+            result = await resolver._resolve_text_backend(fake_svc, db_session, TextTaskType.SCRIPT, "demo")
         assert result == ("openai", "gpt-5.4-mini")
 
 

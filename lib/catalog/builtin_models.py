@@ -68,6 +68,19 @@ async def list_builtin_models(session: AsyncSession, provider_id: str) -> list[B
     ]
 
 
+async def default_builtin_model(session: AsyncSession, provider_id: str, media_type: str) -> str | None:
+    """内置供应商在该媒体类型下实际可用的默认模型键：目录指定的默认模型，已下线或被用户停用时为 ``None``。
+
+    没有给模型的调用（裸供应商覆盖、缺模型的 payload、装配层）都经这里补默认，``None`` 即按没有指定默认模型处理；
+    与自动挑选（``ProviderStatus.disabled_models``）同一口径。不是内置供应商时同样为 ``None``。
+    """
+    model_id = catalog.default_model(provider_id, media_type)  # 已下线的默认模型目录不给
+    if model_id is None:
+        return None
+    row = await BuiltinProviderModelRepository(session).get(provider_id, model_id)
+    return model_id if row is None or row.enabled else None
+
+
 def disabled_without_state(provider_id: str) -> frozenset[str]:
     """没有任何状态行时不作候选的模型键：条目已下线的模型。"""
     return frozenset(view.model_id for view in catalog.provider_models(provider_id) if not _enabled(view, None))

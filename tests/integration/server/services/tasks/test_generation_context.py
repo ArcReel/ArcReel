@@ -624,7 +624,7 @@ class TestBackendCache:
         await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
         assert len(fake_assemble) == 2, "失效后须重建 backend"
 
-    async def test_cached_backend_is_not_reused_once_the_model_is_discontinued(self, monkeypatch):
+    async def test_cached_backend_is_not_reused_once_the_model_is_discontinued(self, db_factory, monkeypatch):
         """同一进程跨过关停日期：缓存里关停前构造的 backend 不再被取用，调用报下线，默认模型也不再沿用。"""
         default = catalog.default_model("ark", "image")
         assert default is not None
@@ -643,7 +643,7 @@ class TestBackendCache:
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
         use_backend_assembler(monkeypatch, _assemble)
-        resolver = cast(ConfigResolver, None)
+        resolver = ConfigResolver(db_factory)  # 没给模型时按目录默认与停用状态补默认模型
 
         set_catalog_today(monkeypatch, date(2026, 11, 23))
         explicit = await generation_context._get_or_create_image_backend("ark", {"model": default}, resolver)

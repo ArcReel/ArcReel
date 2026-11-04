@@ -59,7 +59,7 @@ async def test_schema_17_renamed_model_references_resolve_to_successors(db_facto
         **legacy,
         "default_image_backend": "gemini-aistudio/gemini-3.1-flash-image",
         "image_provider_i2i": "gemini-vertex/gemini-3-pro-image",
-        # 已下架而没有后继的模型原样保留，运行时报错由用户重新选择
+        # 已下线而没有后继的模型原样保留，运行时报错由用户重新选择
         "video_backend": "openai/sora-2",
         # 按旧 ID 存的分辨率跟到后继 ID 下；后继 ID 已有设置时以它为准，旧键原样留下
         "model_settings": {
