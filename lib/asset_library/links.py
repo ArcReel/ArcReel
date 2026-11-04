@@ -20,6 +20,14 @@
 事实，不改变选定，所以入库期间改选了另一张图片，结果仍归属提交时的内容版本，已解除的关系也不会因
 迟到的结果恢复。
 
+**复制**：同一实例里以相同内容保存到全局资产库或应用到另一个项目时，目标经 :func:`copy_usable_links` 得到来源
+可用关联的副本，连同原调用范围。副本由目标独立持有：解除或替换任一副本不改写其他副本；生成时仍按目标实际
+推理凭证的绑定范围选用，复制不授予新账号资格。
+
+**归档**：项目归档携带范围内内容版本的可用关联（:class:`ArchivedLink`），连同冻结的调用范围；其他状态依赖源实例的
+中转副本或后台任务，不携带。导入实例经 :func:`adopt_archived_links` 为内容一致的内容版本写入副本，规则同复制：
+账号身份不同的副本保留但不被选用，素材 ID 能否使用仍由供应商按账号鉴权。
+
 生成、导入已有素材与 Agent 工具都经本模块查询与改变关联，不在路由里各自实现。
 """
 
@@ -27,12 +35,13 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -135,12 +144,17 @@ async def get_link(session: AsyncSession, *, project_name: str, link_id: int) ->
 
 
 def _current_content_version(project_path: Path, resource_type: str, resource_id: str) -> ContentVersion:
-    """资源当前选中的内容版本，按记录的摘要校验快照；早期记录在这里补写身份与摘要。"""
+    """资源当前选中的内容版本，按记录的摘要校验快照；早期记录在这里补写身份与摘要。
+
+    远端内容版本的持久内容在对象存储里，本地工作文件可能已清理，这里不读本地文件，由入库时取用。
+    """
     manager = VersionManager(project_path)
     current = manager.get_current_version(resource_type, resource_id)
     if current <= 0:
         raise UnprocessableError("provider_asset_upload_no_image")
     content_version = manager.ensure_content_version(resource_type, resource_id, current)
+    if content_version.stored is not None:
+        return content_version
     try:
         LocalMaterialStorage(project_path).open(content_version)
     except FileNotFoundError as exc:
@@ -297,6 +311,306 @@ async def record_imported_link(
     return link
 
 
+@dataclass(frozen=True)
+class LinkHolder:
+    """持有关联的一方：某个项目（或全局资产库的保留持有方）里的一个内容。
+
+    ``resource_type`` / ``resource_id`` / ``version`` / ``locator_path`` 只供展示与诊断，查找关联只按
+    ``project_name`` 与 ``content_version_id``。
+    """
+
+    project_name: str
+    content_version_id: str
+    content_digest: str
+    resource_type: str
+    resource_id: str
+    version: int
+    locator_path: str
+
+    @classmethod
+    def of(cls, project_name: str, content_version: ContentVersion) -> LinkHolder | None:
+        """项目里一个内容版本作为持有方；早期没有身份或摘要的记录不能持有关联，返回 ``None``。"""
+        if content_version.id is None or content_version.digest is None:
+            return None
+        material = content_version.material
+        return cls(
+            project_name=project_name,
+            content_version_id=content_version.id,
+            content_digest=content_version.digest,
+            resource_type=material.resource_type,
+            resource_id=material.resource_id,
+            version=content_version.version,
+            locator_path=content_version.locator.path,
+        )
+
+
+def _usable_copy(source: ProviderAssetLink | ArchivedLink, target: LinkHolder, *, account_id: int) -> ProviderAssetLink:
+    """一条可用关联交给目标持有的副本：保留供应商素材 ID 与冻结的调用范围，以可用状态选定，尚未写入。"""
+    return ProviderAssetLink(
+        project_name=target.project_name,
+        content_version_id=target.content_version_id,
+        content_digest=target.content_digest,
+        resource_type=target.resource_type,
+        resource_id=target.resource_id,
+        version=target.version,
+        locator_path=target.locator_path,
+        origin=source.origin,
+        account_id=account_id,
+        account_identity=source.account_identity,
+        site=source.site,
+        region=source.region,
+        provider_project_name=source.provider_project_name,
+        state="active",
+        provider_asset_id=source.provider_asset_id,
+        provider_group_id=source.provider_group_id,
+        submit_name=source.submit_name,
+        selected=True,
+        submitted_at=source.submitted_at,
+        settled_at=source.settled_at,
+        next_check_at=None,
+        check_attempts=0,
+    )
+
+
+async def copy_usable_links(
+    session: AsyncSession, *, source_project: str, source_content_version_id: str, target: LinkHolder
+) -> list[ProviderAssetLink]:
+    """把来源内容当前可用的关联复制给内容相同的目标，返回新建的副本。不提交事务。
+
+    只复制选定、可用且摘要与目标内容一致的关联：关联证明的是这份内容与供应商素材对应，内容不同时不复制。
+    入库中或失败的任务不复制，否则后台会为同一张图重复提交入库。副本保留来源的供应商素材 ID 与冻结的调用范围，
+    以可用状态选定，之后与来源各自解除、互不影响。目标在同一范围已有选定的关联时保留目标自己的。
+    """
+    copies: list[ProviderAssetLink] = []
+    for link in await selected_links(
+        session, project_name=source_project, content_version_id=source_content_version_id
+    ):
+        if not is_usable(link) or link.content_digest != target.content_digest:
+            continue
+        existing = await selected_link(
+            session,
+            project_name=target.project_name,
+            content_version_id=target.content_version_id,
+            scope=scope_of(link),
+        )
+        if existing is not None:
+            continue
+        copy = _usable_copy(link, target, account_id=link.account_id)
+        await _insert_selected(session, copy)
+        copies.append(copy)
+    return copies
+
+
+#: 归档导入的关联不经本实例的任何账号记录提交或查询，账号记录 ID 记为 0；账号记录 ID 从 1 起，不会与它相等。
+ARCHIVED_LINK_ACCOUNT_ID = 0
+
+_ARCHIVED_ORIGINS = frozenset({"upload", "import"})
+
+
+def _bounded_text(payload: dict[str, Any], key: str, limit: int) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value or len(value) > limit:
+        raise ValueError(key)
+    return value
+
+
+def _optional_text(payload: dict[str, Any], key: str) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError(key)
+    return value
+
+
+def _optional_time(payload: dict[str, Any], key: str) -> datetime | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(key)
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return (value if value.tzinfo is not None else value.replace(tzinfo=UTC)).isoformat()
+
+
+@dataclass(frozen=True)
+class ArchivedLink:
+    """项目归档携带的一条可用关联：它属于哪个内容版本、证明的是哪份内容，以及冻结的调用范围与供应商素材。
+
+    不含账号记录 ID、密钥、签名地址或中转副本：账号记录 ID 只在源实例里有意义，导入后记为
+    :data:`ARCHIVED_LINK_ACCOUNT_ID`；调用范围按冻结的云账号身份、站点、区域与供应商项目原样保留，不按目标实例的
+    账号改写。资源、版本号与定位取目标项目里的版本记录。
+    """
+
+    content_version_id: str
+    content_digest: str
+    origin: str
+    account_identity: str
+    site: str
+    region: str
+    provider_project_name: str
+    provider_asset_id: str
+    provider_group_id: str | None
+    submit_name: str
+    submitted_at: datetime | None
+    settled_at: datetime | None
+
+    @classmethod
+    def of(cls, link: ProviderAssetLink) -> ArchivedLink:
+        """可用关联的归档形式；调用方先用 :func:`is_usable` 筛选。"""
+        if link.provider_asset_id is None:
+            raise ValueError(f"provider asset link {link.id} has no provider asset id")
+        return cls(
+            content_version_id=link.content_version_id,
+            content_digest=link.content_digest,
+            origin=link.origin,
+            account_identity=link.account_identity,
+            site=link.site,
+            region=link.region,
+            provider_project_name=link.provider_project_name,
+            provider_asset_id=link.provider_asset_id,
+            provider_group_id=link.provider_group_id,
+            submit_name=link.submit_name,
+            submitted_at=link.submitted_at,
+            settled_at=link.settled_at,
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "content_version_id": self.content_version_id,
+            "content_digest": self.content_digest,
+            "origin": self.origin,
+            "account_identity": self.account_identity,
+            "site": self.site,
+            "region": self.region,
+            "provider_project_name": self.provider_project_name,
+            "provider_asset_id": self.provider_asset_id,
+            "provider_group_id": self.provider_group_id,
+            "submit_name": self.submit_name,
+            "submitted_at": _iso(self.submitted_at),
+            "settled_at": _iso(self.settled_at),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: object) -> ArchivedLink | None:
+        """读取归档里的一条关联；形状或取值不合法（包可能被手工改过）时返回 ``None``，由调用方丢弃。"""
+        if not isinstance(payload, dict):
+            return None
+        try:
+            digest = _bounded_text(payload, "content_digest", 64)
+            origin = _bounded_text(payload, "origin", 16)
+            if (
+                len(digest) != 64
+                or any(ch not in "0123456789abcdef" for ch in digest)
+                or origin not in _ARCHIVED_ORIGINS
+            ):
+                return None
+            return cls(
+                content_version_id=_bounded_text(payload, "content_version_id", 64),
+                content_digest=digest,
+                origin=origin,
+                account_identity=_bounded_text(payload, "account_identity", 64),
+                site=_bounded_text(payload, "site", 16),
+                region=_bounded_text(payload, "region", 64),
+                provider_project_name=_bounded_text(payload, "provider_project_name", 128),
+                provider_asset_id=_bounded_text(payload, "provider_asset_id", 1024),
+                provider_group_id=_optional_text(payload, "provider_group_id"),
+                submit_name=_bounded_text(payload, "submit_name", _NAME_LIMIT),
+                submitted_at=_optional_time(payload, "submitted_at"),
+                settled_at=_optional_time(payload, "settled_at"),
+            )
+        except ValueError:
+            return None
+
+    @property
+    def scope(self) -> AssetLibraryScope:
+        return AssetLibraryScope(
+            account_id=ARCHIVED_LINK_ACCOUNT_ID,
+            account_identity=self.account_identity,
+            site=self.site,
+            region=self.region,
+            project_name=self.provider_project_name,
+        )
+
+
+async def archivable_links(
+    session: AsyncSession, *, project_name: str, content_digests: dict[str, str]
+) -> list[ArchivedLink]:
+    """项目里这些内容版本（内容版本身份 → 摘要）当前可用的关联，按归档形式给出。
+
+    只带选定且可用、摘要与版本记录一致的关联。等待上传、提交中、处理中与结果待确认的任务依赖源实例的中转副本
+    或后台查询，失败的任务没有素材，已解除的关系不再生效，这些都不带。
+    """
+    if not content_digests:
+        return []
+    stmt = (
+        select(ProviderAssetLink)
+        .where(
+            ProviderAssetLink.project_name == project_name,
+            ProviderAssetLink.selected.is_(True),
+            ProviderAssetLink.state == "active",
+        )
+        .order_by(ProviderAssetLink.id)
+    )
+    return [
+        ArchivedLink.of(link)
+        for link in (await session.execute(stmt)).scalars()
+        if is_usable(link) and content_digests.get(link.content_version_id) == link.content_digest
+    ]
+
+
+async def adopt_archived_links(
+    session: AsyncSession, links: Iterable[tuple[ArchivedLink, LinkHolder]]
+) -> list[ProviderAssetLink]:
+    """为导入项目里内容一致的内容版本写入归档带来的关联，返回写入的记录。不提交事务。
+
+    调用方已核对 ``holder`` 的内容版本身份、摘要与实际内容都和关联一致。副本原样保留冻结的调用范围，以可用状态
+    选定；目标在同一范围已有选定的关联时保留目标自己的。账号身份与目标实例的绑定不一致的副本照样写入，
+    生成时按实际推理凭证的绑定范围选不中它。
+    """
+    adopted: list[ProviderAssetLink] = []
+    for archived, holder in links:
+        if archived.content_digest != holder.content_digest or archived.content_version_id != holder.content_version_id:
+            continue
+        existing = await selected_link(
+            session,
+            project_name=holder.project_name,
+            content_version_id=holder.content_version_id,
+            scope=archived.scope,
+        )
+        if existing is not None:
+            continue
+        copy = _usable_copy(archived, holder, account_id=ARCHIVED_LINK_ACCOUNT_ID)
+        try:
+            await _insert_selected(session, copy)
+        except ConflictError:
+            continue  # 包里同一内容版本在同一范围有两条关联：先写入的一条为准
+        adopted.append(copy)
+    return adopted
+
+
+async def delete_holder_links(
+    session: AsyncSession, *, project_name: str, content_version_ids: Iterable[str] | None = None
+) -> None:
+    """删除持有方名下这些内容（缺省为全部内容）的关联记录，只删记录，不涉及供应商素材与其他副本。不提交事务。
+
+    供不再持有某个内容的一方（全局资产库条目换图或删除）丢弃它那份副本。
+    """
+    condition = ProviderAssetLink.project_name == project_name
+    if content_version_ids is not None:
+        wanted = set(content_version_ids)
+        if not wanted:
+            return
+        condition = condition & ProviderAssetLink.content_version_id.in_(wanted)
+    await session.execute(delete(ProviderAssetLink).where(condition))
+
+
 async def release_link(session: AsyncSession, link: ProviderAssetLink, *, now: datetime | None = None) -> None:
     """解除关联：只解除当前选定关系，不删除 ArcReel 图片或供应商素材。不提交事务。
 
@@ -321,12 +635,19 @@ async def request_recheck(session: AsyncSession, link: ProviderAssetLink, *, now
 
 
 __all__ = [
+    "ARCHIVED_LINK_ACCOUNT_ID",
     "IN_FLIGHT_STATES",
     "UPLOADABLE_RESOURCE_TYPES",
+    "ArchivedLink",
+    "LinkHolder",
     "LinkState",
     "UploadTarget",
     "account_scope",
+    "adopt_archived_links",
+    "archivable_links",
     "asset_uri",
+    "copy_usable_links",
+    "delete_holder_links",
     "get_link",
     "is_usable",
     "record_imported_link",

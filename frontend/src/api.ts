@@ -54,7 +54,9 @@ import type {
   AssetLibraryBindingStatus,
   AssetLibraryCredentialType,
   CreateAssetLibraryAccountPayload,
+  NewImageTarget,
   ObjectStorageConnection,
+  ObjectStorageSettings,
   ProviderAssetImportResult,
   ProviderAssetLink,
   ProviderAssetLinkPanel,
@@ -3485,10 +3487,12 @@ class API {
 
   // ==================== 对象存储与供应商素材库 ====================
 
-  static async getObjectStorageConnection(
-    options: { signal?: AbortSignal } = {},
-  ): Promise<{ connection: ObjectStorageConnection | null }> {
+  static async getObjectStorageConnection(options: { signal?: AbortSignal } = {}): Promise<ObjectStorageSettings> {
     return this.request("/object-storage/connection", { signal: options.signal });
+  }
+
+  static async saveNewImageTarget(target: NewImageTarget): Promise<{ target: NewImageTarget }> {
+    return this.request("/object-storage/new-image-target", { method: "PUT", body: JSON.stringify({ target }) });
   }
 
   static async saveObjectStorageConnection(data: SaveObjectStorageConnectionPayload): Promise<ObjectStorageConnection> {

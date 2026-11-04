@@ -8,9 +8,12 @@ import pytest
 
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest, VideoGenerationResult
 from lib.backends.backend_assembly.specs import builtin_video_metered_usage
+from lib.backends.video_backends.agnes import AgnesVideoBackend
 from lib.backends.video_backends.ark import ArkVideoBackend
+from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 from lib.backends.video_backends.kling import KlingVideoBackend
 from lib.backends.video_backends.metering import video_usage
+from lib.backends.video_backends.openai import OpenAIVideoBackend
 from lib.backends.video_backends.vidu import ViduVideoBackend
 from lib.billing.catalog_pricing import price_builtin_call
 from lib.billing.metering import Priced, Unpriced, UnpricedReason
@@ -257,3 +260,70 @@ class TestViduMetering:
 
         assert ViduVideoBackend.metered_usage("viduq3-turbo", request).dimensions["audio"] is True
         assert ViduVideoBackend.metered_usage("vidu2.0", request).dimensions["audio"] is False
+
+
+class TestEntryBoundMetering:
+    """不透明 API 模型名带上对应的条目时，各调用通道的计量与同条目的官方模型相同（docs/adr/0105）。
+
+    覆盖按模型名派生计量的全部读点：方舟的视频 token 与服务档、可灵的有声约束、Vidu 的时长校正与音轨、Agnes 的
+    契约有声、OpenAI 的 ``size``、百炼的音轨与参考图上限。
+    """
+
+    _OPAQUE = "relay-opaque-video"
+
+    @pytest.mark.parametrize(
+        ("backend", "official"),
+        [
+            (ArkVideoBackend, "doubao-seedance-2-0-260128"),
+            (ArkVideoBackend, "doubao-seedance-2-5-260628"),
+            (KlingVideoBackend, "kling-v2-6"),
+            (KlingVideoBackend, "kling-v3"),
+            (ViduVideoBackend, "viduq3-turbo"),
+            (ViduVideoBackend, "vidu2.0"),
+            (AgnesVideoBackend, "agnes-video-2.5"),
+            (OpenAIVideoBackend, "sora-2-pro"),
+            (DashScopeVideoBackend, "wan3.0-video"),
+            (DashScopeVideoBackend, "wan2.7-r2v"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"duration_seconds": 5, "resolution": "720p", "generate_audio": True},
+            {"duration_seconds": 10, "resolution": "1080p", "generate_audio": False, "aspect_ratio": "9:16"},
+            {"duration_seconds": 5, "resolution": "480p", "start_image": Path("first.png"), "service_tier": "pro"},
+            {"duration_seconds": 8, "reference_images": [Path("a.png"), Path("b.png")], "generate_audio": True},
+        ],
+    )
+    def test_opaque_model_with_entry_meters_like_the_official_model(
+        self, backend: type, official: str, fields: dict[str, object]
+    ) -> None:
+        entry = catalog.find_entry(official, media_type="video")
+        assert entry is not None
+        request = _request(**fields)
+
+        assert backend.metered_usage(self._OPAQUE, request, entry=entry) == backend.metered_usage(official, request)
+        settled = _result(duration_seconds=7, usage_tokens=50_000)
+        assert backend.metered_usage(self._OPAQUE, request, settled, entry=entry) == backend.metered_usage(
+            official, request, settled
+        )
+
+    def test_entry_decides_the_seedance_generation_over_the_api_model_name(self) -> None:
+        """不透明名字认不出世代时没有 token 估算并上报服务档；条目给出 2.0 后按 2.0 像素表估算且不上报服务档。"""
+        request = _request(duration_seconds=5, resolution="720p")
+        entry = catalog.find_entry("doubao-seedance-2-0-260128", media_type="video")
+
+        unbound = ArkVideoBackend.metered_usage(self._OPAQUE, request)
+        bound = ArkVideoBackend.metered_usage(self._OPAQUE, request, entry=entry)
+
+        assert "video_tokens" not in unbound.quantities
+        assert unbound.dimensions["service_tier"] == "standard"
+        assert bound.quantities["video_tokens"] == pytest.approx(5 * 1280 * 720 * 24 / 1024)
+        assert "service_tier" not in bound.dimensions
+
+    @pytest.mark.parametrize(("official", "generates_audio"), [("kling-v3", True), ("kling-v2-6", False)])
+    def test_kling_default_tier_audio_follows_the_entry(self, official: str, generates_audio: bool) -> None:
+        entry = catalog.find_entry(official, media_type="video")
+
+        assert KlingVideoBackend.effective_generate_audio_for_model(self._OPAQUE) is False
+        assert KlingVideoBackend.effective_generate_audio_for_model(self._OPAQUE, entry) is generates_audio

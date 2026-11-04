@@ -28,7 +28,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import type { ObjectStorageConnection } from "@/types";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import type { NewImageTarget, ObjectStorageConnection, ObjectStorageSettings } from "@/types";
 import { errMsg } from "@/utils/async";
 
 const LABEL_CLS = "text-sm font-medium text-foreground";
@@ -36,11 +37,14 @@ const LABEL_CLS = "text-sm font-medium text-foreground";
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: unknown }
-  | { status: "ready"; connection: ObjectStorageConnection | null };
+  | { status: "ready"; settings: ObjectStorageSettings };
 
 type TestState = { status: "idle" } | { status: "testing" } | { status: "ok" } | { status: "failed"; error: unknown };
 
-/** 「对象存储」块：查看、配置、测试与删除实例唯一的 TOS 连接。配置在对话框里提交，立即生效。 */
+/**
+ * 「对象存储」块：查看、配置、测试与删除实例唯一的 TOS 连接，并选择新增图片的保存位置。
+ * 连接在对话框里提交；保存位置选中即保存。两者都立即生效。
+ */
 export function ObjectStorageBlock() {
   const { t } = useTranslation(["dashboard", "common"]);
   const headingId = useId();
@@ -55,9 +59,9 @@ export function ObjectStorageBlock() {
     const controller = new AbortController();
     loadController.current = controller;
     try {
-      const { connection } = await API.getObjectStorageConnection({ signal: controller.signal });
+      const settings = await API.getObjectStorageConnection({ signal: controller.signal });
       if (controller.signal.aborted) return;
-      setLoad({ status: "ready", connection });
+      setLoad({ status: "ready", settings });
     } catch (error) {
       if (controller.signal.aborted) return;
       setLoad({ status: "error", error });
@@ -77,13 +81,20 @@ export function ObjectStorageBlock() {
     setTest({ status: "idle" });
   }, []);
   const closeEditor = useCallback(() => setEditing(false), []);
+  const patchSettings = useCallback((patch: Partial<ObjectStorageSettings>) => {
+    setLoad((prev) => (prev.status === "ready" ? { status: "ready", settings: { ...prev.settings, ...patch } } : prev));
+  }, []);
   const handleSaved = useCallback(
     (saved: ObjectStorageConnection) => {
       setEditing(false);
       resetTest();
-      setLoad({ status: "ready", connection: saved });
+      patchSettings({ connection: saved });
     },
-    [resetTest],
+    [resetTest, patchSettings],
+  );
+  const handleTargetSaved = useCallback(
+    (target: NewImageTarget) => patchSettings({ new_image_target: target }),
+    [patchSettings],
   );
   const runTest = async () => {
     const generation = ++testGeneration.current;
@@ -96,7 +107,12 @@ export function ObjectStorageBlock() {
     }
   };
 
-  const connection = load.status === "ready" ? load.connection : null;
+  const settings = load.status === "ready" ? load.settings : null;
+  const connection = settings?.connection ?? null;
+  const uncleaned: UncleanedObjects = {
+    relay: settings?.retained_relay_objects ?? 0,
+    images: settings?.unreleased_image_objects ?? 0,
+  };
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
@@ -130,72 +146,213 @@ export function ObjectStorageBlock() {
           {t("object_storage_empty")}
         </p>
       ) : (
-        <div className="flex flex-col gap-2 rounded-lg border border-border px-3 py-2.5">
-          <div className="flex items-center gap-2">
-            <dl className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
-              <dt className="text-muted-foreground">{t("object_storage_bucket")}</dt>
-              <dd className="min-w-0">
-                <TruncatedText text={connection.bucket} className="font-mono" />
-              </dd>
-              <dt className="text-muted-foreground">{t("object_storage_endpoint")}</dt>
-              <dd className="min-w-0">
-                <TruncatedText text={connection.endpoint} className="font-mono" />
-              </dd>
-              <dt className="text-muted-foreground">{t("object_storage_region")}</dt>
-              <dd className="font-mono">{connection.region}</dd>
-              <dt className="text-muted-foreground">{t("object_storage_access_key_id")}</dt>
-              <dd className="font-mono">{connection.access_key_id_masked}</dd>
-            </dl>
-            <div className="flex shrink-0 items-center gap-1 self-start">
-              <Button variant="ghost" size="sm" disabled={test.status === "testing"} onClick={() => void runTest()}>
-                {test.status === "testing" ? (
-                  <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
-                ) : (
-                  <Wifi aria-hidden data-icon="inline-start" />
-                )}
-                {t("object_storage_test")}
-              </Button>
-              <Button variant="ghost" size="icon-sm" aria-label={t("object_storage_edit_title")} onClick={() => setEditing(true)}>
-                <Pencil aria-hidden />
-              </Button>
-              <Button variant="ghost" size="icon-sm" aria-label={t("object_storage_delete")} onClick={() => setDeleting(true)}>
-                <Trash2 aria-hidden />
-              </Button>
-            </div>
-          </div>
-          <div aria-live="polite">
-            {test.status === "ok" && <p className="text-xs text-good">{t("object_storage_test_ok")}</p>}
-            {test.status === "failed" && <RequestErrorNotice error={test.error} className="text-xs" />}
-          </div>
-        </div>
+        <ConnectionCard
+          connection={connection}
+          test={test}
+          onTest={() => void runTest()}
+          onEdit={() => setEditing(true)}
+          onDelete={() => setDeleting(true)}
+        />
+      )}
+
+      {settings && (
+        <NewImageTargetField
+          target={settings.new_image_target}
+          connectionConfigured={connection !== null}
+          onSaved={handleTargetSaved}
+        />
       )}
 
       {editing && (
         <ObjectStorageDialog
           connection={connection}
+          uncleaned={uncleaned}
           onCancel={closeEditor}
           onSaved={handleSaved}
         />
       )}
       <DeleteObjectStorageDialog
         open={deleting}
+        uncleaned={uncleaned}
         onClose={() => setDeleting(false)}
         onDeleted={() => {
           setDeleting(false);
           resetTest();
-          setLoad({ status: "ready", connection: null });
+          patchSettings({ connection: null });
         }}
       />
     </section>
   );
 }
 
+/** 已配置连接的摘要：桶、Endpoint、区域与掩码后的 Access Key ID，以及测试、编辑与删除入口。 */
+function ConnectionCard({
+  connection,
+  test,
+  onTest,
+  onEdit,
+  onDelete,
+}: {
+  connection: ObjectStorageConnection;
+  test: TestState;
+  onTest: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useTranslation(["dashboard", "common"]);
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <dl className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
+          <dt className="text-muted-foreground">{t("object_storage_bucket")}</dt>
+          <dd className="min-w-0">
+            <TruncatedText text={connection.bucket} className="font-mono" />
+          </dd>
+          <dt className="text-muted-foreground">{t("object_storage_endpoint")}</dt>
+          <dd className="min-w-0">
+            <TruncatedText text={connection.endpoint} className="font-mono" />
+          </dd>
+          <dt className="text-muted-foreground">{t("object_storage_region")}</dt>
+          <dd className="font-mono">{connection.region}</dd>
+          <dt className="text-muted-foreground">{t("object_storage_access_key_id")}</dt>
+          <dd className="font-mono">{connection.access_key_id_masked}</dd>
+        </dl>
+        <div className="flex shrink-0 items-center gap-1 self-start">
+          <Button variant="ghost" size="sm" disabled={test.status === "testing"} onClick={onTest}>
+            {test.status === "testing" ? (
+              <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <Wifi aria-hidden data-icon="inline-start" />
+            )}
+            {t("object_storage_test")}
+          </Button>
+          <Button variant="ghost" size="icon-sm" aria-label={t("object_storage_edit_title")} onClick={onEdit}>
+            <Pencil aria-hidden />
+          </Button>
+          <Button variant="ghost" size="icon-sm" aria-label={t("object_storage_delete")} onClick={onDelete}>
+            <Trash2 aria-hidden />
+          </Button>
+        </div>
+      </div>
+      <div aria-live="polite">
+        {test.status === "ok" && <p className="text-xs text-good">{t("object_storage_test_ok")}</p>}
+        {test.status === "failed" && <RequestErrorNotice error={test.error} className="text-xs" />}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 新增图片保存位置：选中即保存，只影响之后提交的图片内容版本。没有连接时不能选对象存储
+ * （只配置连接用于中转，不等于启用远端保存）。
+ */
+function NewImageTargetField({
+  target,
+  connectionConfigured,
+  onSaved,
+}: {
+  target: NewImageTarget;
+  connectionConfigured: boolean;
+  onSaved: (target: NewImageTarget) => void;
+}) {
+  const { t } = useTranslation("dashboard");
+  const headingId = useId();
+  const [saving, setSaving] = useState<NewImageTarget | null>(null);
+  const [error, setError] = useState<unknown>(null);
+
+  const choose = async (next: NewImageTarget) => {
+    if (next === target || saving) return;
+    setSaving(next);
+    setError(null);
+    try {
+      const saved = await API.saveNewImageTarget(next);
+      onSaved(saved.target);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const options: { value: NewImageTarget; title: string; hint: string; disabled: boolean }[] = [
+    {
+      value: "local",
+      title: t("new_image_target_local"),
+      hint: t("new_image_target_local_hint"),
+      disabled: false,
+    },
+    {
+      value: "object_storage",
+      title: t("new_image_target_object_storage"),
+      hint: connectionConfigured ? t("new_image_target_object_storage_hint") : t("new_image_target_needs_connection"),
+      // 已选中时保持可见可读：连接在别处被删掉的少见情况下，仍能看出当前设置并改回本地
+      disabled: !connectionConfigured && target !== "object_storage",
+    },
+  ];
+
+  return (
+    <div className="@container flex flex-col gap-2 pt-2">
+      <div className="flex flex-col gap-1">
+        <h4 id={headingId} className="text-sm font-medium">
+          {t("new_image_target_title")}
+        </h4>
+        <p className="text-sm text-muted-foreground">{t("new_image_target_desc")}</p>
+      </div>
+      <RadioGroup
+        aria-labelledby={headingId}
+        value={saving ?? target}
+        disabled={saving !== null}
+        onValueChange={(next) => void choose(next as NewImageTarget)}
+        className="@md:grid-cols-2"
+      >
+        {options.map((option) => (
+          // eslint-disable-next-line jsx-a11y/label-has-associated-control -- 控件是嵌套的 RadioGroupItem（Base UI 单选），规则识别不到
+          <label
+            key={option.value}
+            className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors duration-fast hover:bg-muted/50 has-data-checked:border-primary has-data-disabled:cursor-not-allowed has-data-disabled:opacity-60 has-data-disabled:hover:bg-transparent"
+          >
+            <RadioGroupItem value={option.value} disabled={option.disabled} className="mt-0.5" />
+            <span className="flex min-w-0 flex-col gap-1">
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                {option.title}
+                {saving === option.value && <Loader2 aria-hidden className="size-3.5 animate-spin text-primary" />}
+              </span>
+              <span className="text-xs text-muted-foreground">{option.hint}</span>
+            </span>
+          </label>
+        ))}
+      </RadioGroup>
+      {error !== null && <RequestErrorNotice error={error} className="text-xs" />}
+    </div>
+  );
+}
+
+/** 尚未清理的中转副本提示：更换桶或 Endpoint、删除连接后，这些副本不再自动清理。 */
+/** 桶里尚未清理、更换桶或 Endpoint 与删除连接后不再自动删除的对象：中转副本与没有引用的待删除图片对象。 */
+interface UncleanedObjects {
+  relay: number;
+  images: number;
+}
+
+function UncleanedObjectsNotice({ counts }: { counts: UncleanedObjects }) {
+  const { t } = useTranslation("dashboard");
+  if (counts.relay <= 0 && counts.images <= 0) return null;
+  return (
+    <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+      {counts.relay > 0 && <p>{t("object_storage_retained_relay", { count: counts.relay })}</p>}
+      {counts.images > 0 && <p>{t("object_storage_unreleased_images", { count: counts.images })}</p>}
+    </div>
+  );
+}
+
 function ObjectStorageDialog({
   connection,
+  uncleaned,
   onCancel,
   onSaved,
 }: {
   connection: ObjectStorageConnection | null;
+  uncleaned: UncleanedObjects;
   onCancel: () => void;
   onSaved: (connection: ObjectStorageConnection) => void;
 }) {
@@ -316,6 +473,7 @@ function ObjectStorageDialog({
                   ? t("credential_keep_existing", { masked: connection.secret_access_key_masked })
                   : undefined,
               })}
+              {!creating && <UncleanedObjectsNotice counts={uncleaned} />}
               {error && (
                 <p role="alert" className="text-sm wrap-break-word text-destructive">
                   {error}
@@ -340,10 +498,12 @@ function ObjectStorageDialog({
 
 function DeleteObjectStorageDialog({
   open,
+  uncleaned,
   onClose,
   onDeleted,
 }: {
   open: boolean;
+  uncleaned: UncleanedObjects;
   onClose: () => void;
   onDeleted: () => void;
 }) {
@@ -378,6 +538,7 @@ function DeleteObjectStorageDialog({
         <AlertDialogBody>
           <div className="flex flex-col gap-2">
             <AlertDialogDescription>{t("object_storage_delete_desc")}</AlertDialogDescription>
+            <UncleanedObjectsNotice counts={uncleaned} />
             {error && (
               <p role="alert" className="text-sm wrap-break-word text-destructive">
                 {error}

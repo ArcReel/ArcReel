@@ -90,8 +90,19 @@ Project-level overrides are suitable when:
 ### 3.1 Enabling and Disabling Models {#enable-models}
 
 The detail page of a Preset Provider lists all of its models grouped into text, image, video, and audio. Each row shows the model name,
-model ID, and a price summary; models that are discontinued, or whose calls will be recorded as "Unpriced", are flagged.
+model ID, and a price summary; models that are retiring, discontinued, or whose calls will be recorded as "Unpriced", are flagged,
+and the retiring flag shows the shutdown date. From its shutdown date (a UTC date) on, a model counts as discontinued: it stays in the list,
+but it no longer appears among any model candidates, even if you enabled it by hand, and it no longer serves as the provider's default model;
+calls from places that still select it fail with an error that gives the shutdown date and the officially recommended successor.
+Video tasks already submitted to the vendor before the shutdown date are not affected: when the service restarts and resumes them, their results are retrieved as usual. Tasks submitted after the shutdown date still fail, including tasks queued before it that only reach submission afterwards.
 Use "All / Enabled" to switch what is shown.
+
+In global and project settings, when a default model, a per-purpose model, or the narration model is set to a retiring or discontinued model,
+a notice below the dropdown gives the shutdown date and the officially recommended successor.
+When the successor is on the same provider and can be used in that place, the notice has a "Switch to …" button: it changes only that one selection,
+which takes effect once you save. When the successor is on another provider, disabled, or not usable in that place, only its name is shown.
+ArcReel never switches models for you.
+A notice also appears when the selected model is no longer in the provider's model list: if ArcReel has received its discontinuation details, the notice says it is discontinued and names the officially recommended successor (if any); otherwise it says the model is no longer available and needs to be reselected.
 
 - Turning off a model's switch disables it immediately: disabled models no longer appear among the global and project default model
   candidates, and when a provider's default model is disabled, automatic selection skips it;
@@ -450,6 +461,8 @@ The model discovery protocol only determines which type of model-listing interfa
 
 Model names are mapped to known models in the model catalog, ignoring case, ignoring any namespace before the last `/`, and treating dots as hyphens. For a mapped model, selectable durations, resolutions, maximum output length, and price all come from the model catalog; an unmapped model still works, its video durations are inferred from the model name, and its cost is recorded as "Unpriced".
 
+A mapped model also follows the catalog's [retiring and discontinued](#enable-models) states, with the same flags in the list. A discontinued model no longer appears among any model candidates and no longer serves as the custom provider's default model; calls from places that still select it fail with an error that gives the shutdown date and the officially recommended successor, instead of switching to the provider's default model, even if you disabled it.
+
 Each video call endpoint decides first/last frame, reference image, and reference audio support from the model name. When the name maps to a known model in the model catalog, the endpoint uses that model's official name and aliases. A video model the endpoint does not recognize supports only text-to-video and first-frame generation; last frame, reference images, and reference audio are unavailable. For image models, text-to-image and image-to-image are available only where both the model catalog entry and the call endpoint support them; a model that maps to no known model follows the call endpoint alone.
 
 To use image models through OpenRouter, change the call endpoint to "OpenRouter Images API" in [model settings](#model-settings). OpenRouter does not provide OpenAI's `/images/edits` endpoint, so models attached to "OpenAI Images API" cannot do image-to-image. With "OpenRouter Images API", both text-to-image and image-to-image go through `/images`, and the aspect ratio, resolution, and reference image limit follow the parameters OpenRouter declares for that model. When there are more reference images than the model allows, only the first ones are sent and the task result shows a notice; if any reference image cannot be read, generation fails right away instead of continuing with fewer reference images.
@@ -543,9 +556,9 @@ Recommended key rotation procedure:
 
 ## 12. Object Storage and Provider Asset Libraries {#object-storage-and-asset-library}
 
-Volcengine Ark and BytePlus provider asset libraries hold reviewed assets that generation requests reference as `asset://`. The **Asset library & storage** section of the global settings manages three settings related to the asset library. All three are optional; local projects keep working without them.
+Volcengine Ark and BytePlus provider asset libraries hold reviewed assets that generation requests reference as `asset://`. The **Asset library & storage** section of the global settings manages the settings related to object storage and the asset library. All of them are optional; local projects keep working without them.
 
-- **Object storage**: your own TOS bucket, configured with region, Endpoint, bucket name, and Access Key. Saving the connection does not change where images are stored; images stay local. Enter a TOS Endpoint (such as `tos-cn-beijing.volces.com`); S3-compatible Endpoints that start with `tos-s3-` are not supported. After saving, use **Test connection** to confirm that the credentials can reach the bucket.
+- **Object storage**: your own TOS bucket, configured with region, Endpoint, bucket name, and Access Key. Saving the connection alone does not change where images are stored, and new images are still saved locally by default. To save new images to this bucket, also choose **Object storage** under **Save new images to**; see [Save New Images to Object Storage](#remote-image-storage). Enter a TOS Endpoint (such as `tos-cn-beijing.volces.com`); S3-compatible Endpoints that start with `tos-s3-` are not supported. After saving, use **Test connection** to confirm that the credentials can reach the bucket.
 - **Asset library accounts**: the Access Key for the asset library control plane. It is stored separately from the inference API Key and needs asset library permissions. When adding an account, choose a site (Volcano Engine (China) or BytePlus (international)) and enter a project; the default project is `default`. The provider isolates assets by project, so the inference key must belong to the same project. Control-plane requests go only to the official address of the selected site, never to the inference key's Base URL. A provider asset belongs only to the cloud account that created it, so links and ingestion jobs record the cloud account that the account's Access Key ID belonged to at the time. After you replace the account's Access Key ID with a different one, existing links stay with the original cloud account and are no longer used for generation, and unfinished ingestion jobs are not continued with the new Access Key; upload or select the image again under this account. Changing only the Secret Access Key does not affect existing links.
 - **Inference key bindings**: for each Volcengine Ark key or custom provider, choose the asset library account it may use. After you change the inference key's secret or Base URL, or the account's site, project, or Access Key ID, the binding shows **Needs confirmation**, and that account's assets are not used until you confirm again. A binding only records that you confirmed the inference key and the account belong together; the provider still checks permissions on every call.
 
@@ -563,6 +576,8 @@ Choose **Upload to provider asset library** from the more-actions menu on a proj
 
 Relay copies in the bucket all live under the `arcreel-relay/` prefix and are cleaned up automatically by ArcReel. Once an upload has a result, its copy is kept for at least 1 hour after it was written and then deleted; if there is never a result, the copy is kept until 1 hour after the download URL expires. Failed deletions are retried automatically, and cleanup never touches other objects in the bucket. After you change the bucket or Endpoint of the object storage connection, relay copies left in the old bucket are no longer deleted automatically; remove them in the TOS console.
 
+When an image is already [saved to object storage](#remote-image-storage), no relay copy is written; the download URL is signed for that image in the bucket directly. If you delete the image in ArcReel and purge it while the upload is still in progress, the image in the bucket is kept for the same period so the provider can still fetch it, and is deleted only after that period if nothing else uses it.
+
 ### Select an Existing Image from an Asset Library {#select-from-asset-library}
 
 Choose **Select from provider asset library** from the more-actions menu on a project asset card or on a derivative in the character details to view the name, type, and availability of the assets in each account, and select an image that is already in the library to use as this asset image or derivative image. Selecting does not require object storage.
@@ -571,6 +586,24 @@ Choose **Select from provider asset library** from the more-actions menu on a pr
 - The new version is automatically linked to the selected asset with an **Available** link that records the asset library account's site, region, and project. Earlier versions do not inherit this link.
 - If the original image cannot be retrieved, nothing is imported, for example when the asset was deleted on the provider side, the access URL has expired, or the network dropped. The original image must be PNG, JPEG, or WebP and no larger than 30 MB. When an import fails, the image keeps its previous version and no link is created; try again later or select another asset.
 - Imports never compress or scale the original image, so the saved version matches the provider asset: asset images keep the original image bytes; derivative images are always saved as PNG, so a PNG original is saved as is and a JPEG or WebP original is converted to PNG with its original pixels.
+
+### Save to the Global Asset Library and Apply to Other Projects {#asset-library-across-projects}
+
+When you save a project asset to the global asset library, or apply an asset from the global asset library to another project, the **Available** links of the current version of its asset image and derivative images go along with the images. They still belong to the original asset library account, site, region, and project.
+
+- What goes along is a copy of each link, held independently by each project or by the global asset library: unlinking or replacing the image in one place does not affect the other copies.
+- Generation still decides whether a link applies by the inference credential actually used for the call. If that credential is bound to a different account, the copied link does not apply and the image content is sent as usual.
+- Only **Available** links are copied. Tasks that are still uploading or that failed are not copied; upload again in the target project if needed.
+- After you delete the source project or asset, the global asset library and the projects it was applied to keep working, and the assets in the provider asset library are not deleted.
+
+### Project ZIPs and Provider Asset Links {#asset-library-in-project-zip}
+
+When you export a project ZIP, the **Available** links of the image versions in the package go along with the images. They still belong to the original asset library account, site, region, and project. After you import the ZIP into another ArcReel instance, if the asset library account bound to the inference credential belongs to the same cloud account as the original account, generation uses these assets directly, without uploading again.
+
+- An imported link is used only when the account bound to the inference credential belongs to the same cloud account as the original account and has the same site, region, and project. Otherwise the link is kept but not used, and the image content is sent as usual. Whether an asset can be used is ultimately decided by the provider for each account.
+- Only **Available** links are included. Tasks that are still uploading, waiting for confirmation, or that failed are not included; upload again in the target project after import.
+- A "current version only" ZIP includes links only for the versions that ship in the package. Images whose version records do not ship in the package (such as generated asset images) carry no links.
+- The ZIP contains no asset library Access Keys, signed URLs, or object storage details. If an image in the package has been modified, its link is not imported, and the image is imported as usual.
 
 ### Use the Asset Library During Generation {#generate-with-asset-library}
 
@@ -594,6 +627,65 @@ The ArcReel Agent and external Agents connected through remote MCP can perform t
 - unlink after you agree; neither the ArcReel image nor the provider asset is deleted.
 
 The Agent uploads only when you explicitly ask. After a provider rejects a generation during moderation, the Agent relays the reason and explains that you can upload; you decide, and it does not upload or generate again automatically. After an upload, the Agent receives the ingestion job right away and does not wait for provider review; you can ask the Agent to check the status later. Asset library accounts, object storage, and inference credential bindings are still configured in the **Asset library & storage** section. The Agent cannot see their keys, and it cannot rename or delete assets in the provider asset library.
+
+### Save New Images to Object Storage {#remote-image-storage}
+
+By default, the object storage connection is only used to relay images when adding them to an asset library. To keep new images in the bucket and leave only a cache that can be cleaned up on this machine, choose **Object storage** under **Save new images to** in the **Asset library & storage** section. This is a global setting for the instance. It defaults to **Local**, and there is no per-project or per-image option.
+
+**Minimum setup**
+
+1. Configure the object storage connection and use **Test connection** to confirm that the credentials can reach the bucket.
+2. Under **Save new images to**, choose **Object storage**. The choice takes effect as soon as it is selected. It cannot be chosen while no connection is configured.
+
+The connection's Access Key needs permission to upload, read (including reading object metadata), and delete objects in this bucket. **Test connection** only checks that the bucket can be accessed, not these object permissions. The delete permission is used to clean up relay copies and to remove image objects that are no longer used.
+
+**What the setting affects**
+
+- The setting applies only to image versions saved from now on: generated and inpainted images, grid images and the storyboard images split from them, manually uploaded asset images, storyboard images, derivatives and grid images, images selected from an asset library, imported project ZIPs, and images saved to the global asset library or applied to a project.
+- Existing images and earlier versions are not moved and are still read from where they are. Switching back to an earlier version or restoring from the trash keeps that version's original location and does not count as saving a new image.
+- Switching back to **Local** affects only images saved afterwards; images already in the bucket are still read as usual. A project can contain local and remote images at the same time.
+- The following images have no version history and are always saved locally: storyboard end frames, character and product original images, and the project's style reference image. Video and audio are also always saved locally.
+
+**Relay copies and image objects**
+
+The bucket holds two kinds of objects, which are managed separately:
+
+| Prefix | Content | Cleanup |
+| --- | --- | --- |
+| `arcreel-relay/` | Relay copies for asset library uploads | Deleted in the background once the upload has a result or the download URL has expired; see [Upload Images to an Asset Library](#upload-to-asset-library) |
+| `arcreel-materials/` | Images saved to object storage, named by content, so identical images are stored once | Kept as long as version history, the trash, a deleted project, the global asset library, another project, or an upload in progress still uses them; deleted by ArcReel once nothing uses them (for example, after permanently deleting from the trash) |
+
+Do not delete or overwrite objects under `arcreel-materials/` in the TOS console; otherwise the corresponding images can no longer be previewed, generated from, or exported. Relay cleanup never touches these objects.
+
+**Local cache**
+
+Each remote image has a local cache copy that preview, generation, and image processing use directly. The cache is only a copy: after it is cleaned up, the image is fetched from object storage again when needed and its content is verified. Opening the workspace or viewing status does not trigger downloads.
+
+- ArcReel cleans up cache files that have been idle for more than 24 hours once an hour in the background.
+- To free space immediately, call `POST /api/v1/object-storage/work-cache/cleanup`. The request body can include `min_idle_seconds` to clean up only cache files idle for longer than that many seconds; the default is `0`. The response returns the number of files removed (`removed`), the bytes freed (`freed_bytes`), and the number of files kept because they are in use (`kept_in_use`).
+- Cleanup only deletes cache files that are confirmed to be saved in object storage and match the remote content. Local images, files in use, and objects in the bucket are not affected.
+
+**Backup and migration**
+
+- The content of remote images lives only in the bucket, so a backup of the ArcReel data directory does not include it. Keep the bucket as well once you enable remote storage. ArcReel deletes image objects that are no longer used; to be able to restore an older backup, also back up the objects under `arcreel-materials/` in the bucket, or enable versioning on the bucket. See [Backup and Restore](../ops/deployment.md#backup-and-restore).
+- To move to another ArcReel instance, export a project ZIP. Before exporting, ArcReel fetches remote images whose cache has been cleaned up, so the ZIP contains the actual image content and no bucket name or access keys. The other instance saves these images again according to its own **Save new images to** setting.
+
+**Changing or deleting the connection**
+
+- While the bucket still holds image objects that ArcReel is using or saving, the bucket, Endpoint, and region cannot be changed and the connection cannot be deleted; only the Access Key can be updated. This way existing images are always read from their original bucket and are never pointed at another bucket. Image objects left behind by failed saves and no longer used anywhere do not prevent changing or deleting the connection.
+- While **Save new images to** is **Object storage**, the connection cannot be deleted; switch it back to **Local** first.
+- If the connection is changed while an image is being saved, that save fails and the previous image is kept; retry to save it to the new bucket.
+- While a project is being deleted or replaced by an import, images saved to that project fail; the project's existing images are not affected.
+- While the bucket still holds relay copies that have not been cleaned up, or image objects waiting to be deleted (left behind by failed saves, or no longer used), the dialogs for editing and deleting the connection show how many of each. After you change the bucket or Endpoint, or delete the connection, those objects are no longer deleted automatically; remove them in the TOS console.
+
+**Troubleshooting**
+
+- **"The image could not be saved to object storage"**: the new version does not appear, and earlier versions, artifacts, and files are unchanged. Use **Test connection** to check the connection, check the Access Key's upload permission and the network, and try again. You can also switch back to **Local** and keep working. If this message appears while importing a project ZIP, the import did not write any project; check the connection and import again.
+- **The region, Endpoint, or bucket is wrong and images keep failing to save**: first switch **Save new images to** back to **Local**, then edit the connection to correct it, or delete the connection and configure it again. Images that failed to save are not used anywhere and do not block the change. After the correction, the image objects waiting to be deleted that the dialog reports are no longer deleted automatically: if the Endpoint was unreachable, they were never written to the bucket and need no action; any that were written to the original bucket must be cleaned up in the TOS console. Do not bulk-delete objects by the `arcreel-materials/` prefix: if the bucket is the same before and after the correction, it contains images that are in use.
+- **"The image could not be retrieved from object storage" during preview, generation, or export**: the image's object in the bucket is missing, has been overwritten, or is temporarily unreachable. Check the network and read permission. If the object was deleted or overwritten, restore from the trash or another version, or generate or upload the image again.
+- **The image is saved in the original bucket, but the current connection was deleted or points to another bucket**: the connection's bucket or Endpoint no longer matches the settings used when the image was saved. Change the connection back to the original bucket and Endpoint to read it again.
+- **New images are set to be saved to object storage, but no connection is configured**: configure the connection, or switch **Save new images to** back to **Local**.
+- **Saving images is slow**: images are uploaded to object storage while the version is saved, and the new version appears only after the upload is confirmed. During the upload, other image saves in the same project wait in line; this is more noticeable with large images or slow networks. When importing a project ZIP, images are uploaded one by one within the import request.
 
 ## 13. Cost Tracking {#cost-tracking}
 
@@ -635,7 +727,7 @@ Each Agent provider can have a multiplier, applied to the cost of every Agent ca
 
 The Agent provider list in Settings shows the model actually called by the main model and by each of the four tiers (Haiku, Sonnet, Opus, and subagent), along with whether each tier is priced and which model in the catalog it matches. Tiers that match no model show "Unpriced", and their calls are recorded as unpriced. Tiers left empty in the official Anthropic preset are resolved by Claude Code, and their cost is computed from the model actually called.
 
-For an unpriced tier, choose "Select model" to pick a model from the catalog by hand; the tier's calls are then priced as the selected model, and "Unbind" returns it to automatic matching by model name. The selection is stored only on that Agent provider: it does not change the catalog entry or its official updates. If the selected model is later delisted from the catalog, the tier falls back to matching by model name and shows "Selected model delisted"; you can still unbind it.
+For an unpriced tier, choose "Select model" to pick a model from the catalog by hand; the tier's calls are then priced as the selected model, and "Unbind" returns it to automatic matching by model name. The selection is stored only on that Agent provider: it does not change the catalog entry or its official updates. If the selected model later disappears from the catalog, the tier falls back to matching by model name and shows "Selected model discontinued"; you can still unbind it.
 
 Use ArcReel's cost tracking for:
 

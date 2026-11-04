@@ -247,6 +247,7 @@ export function ModelConfigSection({
         {
           key: "i2v",
           ...bucketLabels.i2v,
+          bucket: "i2v",
           value: value.videoProviderI2V,
           options: mediaCandidates?.video.buckets.i2v ?? [],
           effective: effectiveModel(value.videoBackend, globalDefaults.videoI2V, globalDefaults.video),
@@ -256,6 +257,7 @@ export function ModelConfigSection({
         {
           key: "r2v",
           ...bucketLabels.r2v,
+          bucket: "r2v",
           value: value.videoProviderR2V,
           options: mediaCandidates?.video.buckets.r2v ?? [],
           effective: effectiveModel(value.videoBackend, globalDefaults.videoR2V, globalDefaults.video),
@@ -270,6 +272,7 @@ export function ModelConfigSection({
         {
           key: "t2i",
           ...bucketLabels.t2i,
+          bucket: "t2i",
           value: value.imageBackendT2I,
           options: mediaCandidates?.image.buckets.t2i ?? [],
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageT2I, globalDefaults.image),
@@ -279,6 +282,7 @@ export function ModelConfigSection({
         {
           key: "i2i",
           ...bucketLabels.i2i,
+          bucket: "i2i",
           value: value.imageBackendI2I,
           options: mediaCandidates?.image.buckets.i2i ?? [],
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageI2I, globalDefaults.image),
@@ -513,6 +517,7 @@ export function ModelConfigSection({
             renderOptionMeta={renderVideoOptionMeta}
             subFields={videoSubFields}
             subFieldsError={mediaCandidatesError}
+            lifecycle={candidates?.lifecycle}
           >
           {executingVideo && (
             <VideoModelSpecBar
@@ -644,6 +649,7 @@ export function ModelConfigSection({
             modelNames={options.modelNames}
             subFields={imageSubFields}
             subFieldsError={mediaCandidatesError}
+            lifecycle={candidates?.lifecycle}
           >
             {renderResolutionField(executingImage, value.imageResolution, (v) =>
               onChange({ ...value, imageResolution: v }),
@@ -690,6 +696,7 @@ export function ModelConfigSection({
             }}
             auto={globalDefaults.auto?.text}
             showTiers={showSubFields}
+            lifecycle={candidates?.lifecycle}
           />
         </ChannelCard>
       )}

@@ -35,6 +35,7 @@ from lib.artifacts.visual_artifact_provenance import (
 from lib.db.base import DEFAULT_USER_ID
 from lib.infra.api_errors import NotFoundError
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
+from lib.material.work_files import local_work_files
 from lib.project.asset_derivatives import (
     DERIVATIVE_ASSET_TYPE,
     DERIVATIVE_TASK_TYPE,
@@ -353,9 +354,11 @@ async def execute_image_edit_task(
             raise ValueError(f"no current image to edit: {resource_type}/{resource_id}")
         # 资产名可能以 NFC/NFD 任一形态传入：选择缝返回真实落盘 key，之后的版本登记与
         # canonical 图路径统一按它写，避免同一资产落出两种编码形式的文件与版本记录。
+        return _project, _project_path, _source
+
+    def _freeze(_project: dict[str, Any], _project_path: Path, _source: _ImageEditSource):
         _key = _source.resource_id
-        _current_rel = _source.artifact_path
-        _current_image = _project_path / _current_rel
+        _current_image = _project_path / _source.artifact_path
         _aspect_ratio = get_aspect_ratio(_project, version_resource_type)
         _frozen = freeze_image_references(
             [_current_image],
@@ -383,8 +386,14 @@ async def execute_image_edit_task(
             raise
         return _project, _project_path, _current_image, _key, _aspect_ratio, _frozen, _basis, _source
 
-    try:
+    async def _prepare_frozen():
         # 读剧本可能顺带落盘迁移
+        prepared_project, prepared_path, source = await run_sync_transaction(_prepare)
+        # 编辑源是缓存已清理的远端内容版本时先取回，冻结期间登记使用
+        async with local_work_files(prepared_path, [source.artifact_path]):
+            return await run_sync_transaction(_freeze, prepared_project, prepared_path, source)
+
+    try:
         (
             project,
             project_path,
@@ -394,7 +403,7 @@ async def execute_image_edit_task(
             frozen_references,
             edit_basis,
             selected_source,
-        ) = await run_sync_transaction(_prepare)
+        ) = await _prepare_frozen()
     except BaseException:
         for frozen in frozen_snapshots:
             await run_noninterruptible_sync(frozen.cleanup)

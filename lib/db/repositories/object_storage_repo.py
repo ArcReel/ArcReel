@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from lib.db.models.object_storage import ObjectStorageConnection
+from lib.db.models.object_storage import CURRENT_CONNECTION_SLOT, ObjectStorageConnection
 from lib.db.repositories.base import BaseRepository
 
 
 class ObjectStorageConnectionRepository(BaseRepository):
-    """实例至多一条对象存储连接；``get`` 取这一条，``save`` 新建或原位更新。"""
+    """实例至多一条当前对象存储连接；``get`` 取这一条，``save`` 新建或原位更新。
+
+    并发首次保存时，后提交的一方在插入时触发唯一索引冲突（``IntegrityError``），由调用方回滚后按更新重做。
+    """
 
     async def get(self) -> ObjectStorageConnection | None:
-        stmt = select(ObjectStorageConnection).order_by(ObjectStorageConnection.id).limit(1)
+        stmt = select(ObjectStorageConnection).where(ObjectStorageConnection.slot == CURRENT_CONNECTION_SLOT)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -36,6 +39,7 @@ class ObjectStorageConnectionRepository(BaseRepository):
                 bucket=bucket,
                 access_key_id=access_key_id or "",
                 secret_access_key=secret_access_key or "",
+                slot=CURRENT_CONNECTION_SLOT,
             )
             self.session.add(conn)
         else:

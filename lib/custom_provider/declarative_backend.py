@@ -22,6 +22,7 @@ from urllib.parse import quote
 
 import httpx
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.endpoint_definition import (
     AssetData,
     JsonPathEvaluationError,
@@ -800,10 +801,15 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         return video_capabilities_from_definition(self._definition)
 
     def metered_usage(
-        self, model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        self,
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
-        """这次请求的计量，见 :func:`declarative_video_usage`。"""
-        del model
+        """这次请求的计量，见 :func:`declarative_video_usage`；按定义计量，与模型和条目无关。"""
+        del model, entry
         return declarative_video_usage(self._definition, request, result)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:

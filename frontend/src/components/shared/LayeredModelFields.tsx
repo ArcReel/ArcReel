@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { InlineWarning } from "@/components/shared/InlineWarning";
+import { ModelLifecycleNotice, type ModelLifecycleNotices } from "@/components/shared/ModelLifecycleNotice";
 import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
 import type { GenerationTypeBucket } from "@/types/system";
 
@@ -48,6 +49,8 @@ export interface LayeredSubField {
   effective?: string;
   /** 各层全空时自动选中的模型，语义同 `ProviderModelSelect` 的 `autoValue`。 */
   auto?: string | null;
+  /** 细分项对应的任务类型桶，下线提示据此取这一处的切换目标；文本档位不传，按默认层取。 */
+  bucket?: GenerationTypeBucket;
   onChange: (next: string) => void;
 }
 
@@ -95,6 +98,8 @@ export interface LayeredModelFieldsProps {
   };
   /** 折叠区之后常驻的补充说明（如文本档位的 Agent 边界）。 */
   footnote?: React.ReactNode;
+  /** 下线提示（候选接口的 `lifecycle`）：默认层与各细分项选中的模型即将下线或已下线时，在各自下拉下方提示。 */
+  lifecycle?: ModelLifecycleNotices;
 }
 
 export function LayeredModelFields({
@@ -113,6 +118,7 @@ export function LayeredModelFields({
   subFields,
   subFieldsError,
   footnote,
+  lifecycle,
 }: LayeredModelFieldsProps) {
   const { t } = useTranslation(["templates", "common"]);
   const fields = subFields ?? [];
@@ -150,6 +156,12 @@ export function LayeredModelFields({
         autoValue={defaultAuto}
         aria-label={defaultLabel}
         renderOptionMeta={renderOptionMeta}
+      />
+      <ModelLifecycleNotice
+        value={defaultValue}
+        notices={lifecycle}
+        modelNames={modelNames}
+        onSwitch={onDefaultChange}
       />
 
       {children}
@@ -198,6 +210,13 @@ export function LayeredModelFields({
                       renderOptionMeta={
                         renderOptionMeta && ((fullValue: string) => renderOptionMeta(fullValue, field.key))
                       }
+                    />
+                    <ModelLifecycleNotice
+                      value={field.value}
+                      notices={lifecycle}
+                      layer={field.bucket}
+                      modelNames={modelNames}
+                      onSwitch={field.onChange}
                     />
                     {field.caption && <p className="text-xs text-muted-foreground">{field.caption}</p>}
                   </div>

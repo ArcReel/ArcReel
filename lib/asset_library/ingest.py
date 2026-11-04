@@ -1,5 +1,9 @@
 """后台推进入库任务：中转上传、提交 CreateAsset、查询处理状态，并清理到期的中转副本。
 
+内容版本已作为正式对象保存在当前连接的桶里时直接为它签发地址，签发前以入库任务的引用方键
+（:func:`ingest_holder`，见 ``docs/adr/0118``）登记引用，按与中转副本相同的保留规则到期后撤下，
+供应商异步取图期间来源被彻底清除也不会回收这个对象。
+
 页面与 Agent 只创建入库任务并查询状态，不等待供应商审核；推进全部在这里进行，进程重启后从数据库继续。
 状态与选定的含义见 :mod:`lib.asset_library.links`。每一步都只按条件更新状态事实，不改变 ``selected``。
 
@@ -33,25 +37,28 @@ from lib.asset_library.control_plane import (
 )
 from lib.db.base import utc_now
 from lib.db.models.asset_library import AssetLibraryAccount, ProviderAssetLink
+from lib.db.models.object_storage import FormalObjectRef, ObjectStorageConnection
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.api_errors import ApiError
 from lib.infra.async_thread import run_noninterruptible_async
 from lib.infra.logging_utils import redact_diagnostic_text
 from lib.infra.task_cancel import raise_if_cancel_absorbed
+from lib.material.formal_objects import REF_ACTIVE, add_reference, release_holder
 from lib.material.storage import (
     ContentVersion,
     LocalLocator,
-    LocalMaterialStorage,
     MaterialRef,
     VersionSnapshotCorruptedError,
 )
-from lib.object_storage.client import ObjectStorageClient, ObjectStorageError
+from lib.material.work_files import ensure_content_version_file, local_work_files
+from lib.object_storage.client import IMAGE_CONTENT_TYPES, ObjectStorageClient, ObjectStorageError
 from lib.object_storage.connection import config_from_connection
 from lib.object_storage.relay import (
     RELAY_URL_TTL,
     mark_relay_signed,
     record_relay_object,
     relay_object_key,
+    signed_content_retained_until,
     sweep_relay_objects,
 )
 from lib.project.project_manager import get_project_manager
@@ -73,8 +80,14 @@ UNCERTAIN_LOOKUP_WINDOW = RELAY_URL_TTL + timedelta(hours=1)
 LOOP_INTERVAL_SECONDS = 10.0
 
 _MESSAGE_LIMIT = 500
-# 不用 mimetypes：它首次调用时读系统文件，会阻塞事件循环。
-_CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+
+#: 入库任务对直接签名的正式对象持有引用时的引用方键前缀（不是项目的消费者，见 ``docs/adr/0118``）。
+INGEST_HOLDER_PREFIX = "ingest:"
+
+
+def ingest_holder(link_id: int) -> str:
+    """入库任务 ``link_id`` 持有正式对象引用时的引用方键。"""
+    return f"{INGEST_HOLDER_PREFIX}{link_id}"
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -216,19 +229,39 @@ async def _fail_before_submit(
     )
 
 
-def _read_content(project_path_of: Callable[[str], Path], link: _LinkSnapshot) -> bytes:
-    project_path = project_path_of(link.project_name)
+def _frozen_content_version(project_path: Path, link: _LinkSnapshot) -> ContentVersion:
     # 按内容版本身份取此刻的定位：入库在途时资源改名会移动快照，提交时记下的路径随之失效。
     # 摘要始终用提交时冻结的值，读到的内容与关联认定的内容不符即拒绝。
     current = VersionManager(project_path).find_content_version(link.resource_type, link.content_version_id)
-    content_version = ContentVersion(
+    return ContentVersion(
         material=current.material if current else MaterialRef(link.resource_type, link.resource_id),
         version=current.version if current else link.version,
         id=link.content_version_id,
         digest=link.content_digest,
         locator=current.locator if current else LocalLocator(link.locator_path),
+        stored=current.stored if current and current.digest == link.content_digest else None,
     )
-    return LocalMaterialStorage(project_path).open(content_version).read_bytes()
+
+
+def _formal_object_on(connection: ObjectStorageConnection, content_version: ContentVersion) -> str | None:
+    """内容版本已作为正式对象保存在这条连接的桶里时返回对象 key：直接为它签发地址，不另写中转副本。
+
+    对象 key 按内容摘要命名，签发的地址固定指向这个内容版本；它不是中转副本，中转清理不会删除它。签发前由
+    :func:`_hold_formal_object` 以入库任务的引用方键登记引用，保留期内来源被彻底清除也不会回收它。
+    """
+    stored = content_version.stored
+    if stored is None or stored.connection_id != connection.id or stored.bucket != connection.bucket:
+        return None
+    return stored.key
+
+
+async def _content_bytes(
+    project_path: Path, content_version: ContentVersion, session_factory: async_sessionmaker[AsyncSession]
+) -> bytes:
+    # 取回到读取期间登记使用：缓存清理不会在两者之间删掉工作文件
+    async with local_work_files(project_path, [content_version.locator.path], session_factory=session_factory):
+        path = await ensure_content_version_file(project_path, content_version, session_factory=session_factory)
+        return await asyncio.to_thread(path.read_bytes)
 
 
 async def _submit(
@@ -254,26 +287,35 @@ async def _submit(
         return
 
     # 内容按提交时冻结的内容版本读取并校验摘要：入库期间改选或替换图片不影响这次上传。
+    client = ObjectStorageClient(config_from_connection(connection))
     try:
-        data = await asyncio.to_thread(_read_content, project_path_of, link)
+        project_path = await asyncio.to_thread(project_path_of, link.project_name)
+        content_version = await asyncio.to_thread(_frozen_content_version, project_path, link)
+        formal_key = _formal_object_on(connection, content_version)
+        if formal_key is not None and not await _hold_formal_object(session_factory, link, content_version, now):
+            formal_key = None  # 对象已不在或等待删除之外的状态：按中转副本上传
+        data = None if formal_key is not None else await _content_bytes(project_path, content_version, session_factory)
     except VersionSnapshotCorruptedError:
         await _fail(session_factory, link.id, now, "content_changed")
         return
-    except (OSError, ValueError, ApiError):  # 快照不在盘上，或项目已不存在、已删除
+    except (OSError, ValueError, ApiError):  # 快照不在盘上，或项目已不存在、已删除，或远端取回失败
         await _fail(session_factory, link.id, now, "content_unavailable")
         return
 
-    suffix = Path(link.locator_path).suffix or ".png"
-    key = relay_object_key(suffix, now=now)
-    relay_id = await record_relay_object(session_factory, connection, key, link_id=link.id)
-    client = ObjectStorageClient(config_from_connection(connection))
     try:
-        await client.put_bytes(key, data, content_type=_CONTENT_TYPES.get(suffix.lower()))
-        url = await client.presign_get(key, expires_seconds=int(RELAY_URL_TTL.total_seconds()))
+        if formal_key is not None:
+            url = await client.presign_get(formal_key, expires_seconds=int(RELAY_URL_TTL.total_seconds()))
+        else:
+            assert data is not None
+            suffix = Path(link.locator_path).suffix or ".png"
+            key = relay_object_key(suffix, now=now)
+            relay_id = await record_relay_object(session_factory, connection, key, link_id=link.id)
+            await client.put_bytes(key, data, content_type=IMAGE_CONTENT_TYPES.get(suffix.lower()))
+            url = await client.presign_get(key, expires_seconds=int(RELAY_URL_TTL.total_seconds()))
+            await mark_relay_signed(session_factory, relay_id, now + RELAY_URL_TTL)
     except ObjectStorageError as exc:
         await _fail(session_factory, link.id, now, "relay_upload_failed", f"{exc.kind}:{exc.code}")
         return
-    await mark_relay_signed(session_factory, relay_id, now + RELAY_URL_TTL)
 
     credentials = credentials_of(account)
     try:
@@ -330,6 +372,57 @@ async def _submit(
         )
     )
     raise_if_cancel_absorbed()
+
+
+async def _hold_formal_object(
+    session_factory: async_sessionmaker[AsyncSession],
+    link: _LinkSnapshot,
+    content_version: ContentVersion,
+    now: datetime,
+) -> bool:
+    """签发正式对象地址前，以入库任务的引用方键登记引用，并把保留起点记为这次签发；返回对象是否仍可用。"""
+    assert content_version.stored is not None
+    holder = ingest_holder(link.id)
+    if not await add_reference(content_version.stored, holder, link.content_version_id, session_factory):
+        return False
+    async with session_factory() as session:
+        await session.execute(
+            update(FormalObjectRef).where(FormalObjectRef.project_name == holder).values(updated_at=now)
+        )
+        await session.commit()
+    return True
+
+
+async def release_ingest_holds(session_factory: async_sessionmaker[AsyncSession], *, now: datetime) -> int:
+    """撤下保留期已过的入库任务引用，并回收因此失去全部引用的正式对象；返回删除的对象数量。
+
+    保留期与中转副本相同（:func:`~lib.object_storage.relay.signed_content_retained_until`），自最近一次签发起算：
+    任务有定论后至少一小时，没有定论（处理中、结果不确定、已解除、账号不可用）或任务记录已不在时保留到地址过期
+    再加一小时。进程重启不影响，引用与签发时间都在数据库里。
+    """
+    async with session_factory() as session:
+        rows = (
+            await session.execute(
+                select(FormalObjectRef.project_name, FormalObjectRef.updated_at).where(
+                    FormalObjectRef.project_name.startswith(INGEST_HOLDER_PREFIX),
+                    FormalObjectRef.state == REF_ACTIVE,
+                )
+            )
+        ).all()
+        signed: dict[str, datetime] = {}
+        for holder, held_at in rows:
+            held_at = _aware(held_at) or now
+            signed[holder] = max(signed.get(holder, held_at), held_at)
+        expired: list[str] = []
+        for holder, signed_at in signed.items():
+            link_id = holder.removeprefix(INGEST_HOLDER_PREFIX)
+            link = await session.get(ProviderAssetLink, int(link_id)) if link_id.isdigit() else None
+            if signed_content_retained_until(signed_at, signed_at + RELAY_URL_TTL, link) <= now:
+                expired.append(holder)
+    deleted = 0
+    for holder in expired:
+        deleted += await release_holder(holder, session_factory)
+    return deleted
 
 
 def _schedule_after(link: _LinkSnapshot, now: datetime, window: timedelta) -> datetime | None:
@@ -502,6 +595,12 @@ async def run_once(
         raise
     except Exception:
         logger.warning("清理中转副本失败，等下一轮", exc_info=True)
+    try:
+        await release_ingest_holds(session_factory, now=now)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.warning("撤下到期的入库任务引用失败，等下一轮", exc_info=True)
 
 
 class AssetIngestRunner:
@@ -576,9 +675,12 @@ def wake_asset_ingest() -> None:
 __all__ = [
     "ASSET_GROUP_NAME",
     "CHECK_INITIAL_DELAY",
+    "INGEST_HOLDER_PREFIX",
     "POLL_WINDOW",
     "AssetIngestRunner",
+    "ingest_holder",
     "recover_interrupted",
+    "release_ingest_holds",
     "run_once",
     "start_asset_ingest",
     "stop_asset_ingest",

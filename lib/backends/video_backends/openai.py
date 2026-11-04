@@ -100,6 +100,11 @@ def _video_error_message(video: object) -> str:
     return "unknown"
 
 
+def _sora_family_model(model: str, entry: CatalogEntry | None) -> str | None:
+    """按名字族认得的 sora 型号（``entry`` 是模型对应的条目）；认不得时为 ``None``，由 :func:`_resolve_size` 看 API 模型名。"""
+    return match_by_names(model, lambda name: name if name.startswith("sora-2") else None, entry=entry)
+
+
 def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, family_model: str | None = None) -> str:
     """比例优先：在 model+分辨率档对应的 sora 合法档中选比例最接近 aspect_ratio 的；并列取像素更高者。
 
@@ -216,13 +221,20 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     @staticmethod
     def metered_usage(
-        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
-        分辨率取下发的 ``size`` 的短边档（如 ``1024x1792`` 记为 1024p）。请求没有音轨开关，不上报是否有声。
+        分辨率取下发的 ``size`` 的短边档（如 ``1024x1792`` 记为 1024p），``size`` 与请求构造按模型对应的同一个
+        条目（``entry``）求得。请求没有音轨开关，不上报是否有声。
         """
-        width, _, height = _resolve_size(model, request.resolution, request.aspect_ratio).partition("x")
+        width, _, height = _resolve_size(
+            model, request.resolution, request.aspect_ratio, family_model=_sora_family_model(model, entry)
+        ).partition("x")
         return video_usage(
             request,
             result,
@@ -257,9 +269,7 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             self._model,
             request.resolution,
             request.aspect_ratio,
-            family_model=match_by_names(
-                self._model, lambda name: name if name.startswith("sora-2") else None, entry=self._catalog_entry
-            ),
+            family_model=_sora_family_model(self._model, self._catalog_entry),
         )
 
         # 收集所有参考图（start_image + reference_images）：存在性检查与读图都是阻塞 I/O，整体卸载到线程

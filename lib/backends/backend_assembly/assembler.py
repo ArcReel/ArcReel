@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.backend_assembly.specs import get_provider_spec
+from lib.catalog import builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
@@ -46,11 +47,15 @@ async def assemble_backend(
     resolver: ConfigResolver,
     rate_limiter: Any | None = None,
     generation_type: str | None = None,
+    submitted_job: bool = False,
 ) -> Any:
     """统一构造入口。按 provider_id 是否自定义分流；未登记的内置 provider × media fail-loud。
 
     ``generation_type`` 是调用点所属的任务类型桶，只在自定义侧消费（默认模型按桶分槽，见
     ``lib.custom_provider.loader.load_custom_backend``）；内置侧的 model 由 registry 定，不分桶。
+
+    ``submitted_job`` 为真表示构造出的 backend 只用于续跑已提交给厂商的任务（只轮询、不发起新的生成）：模型已下线
+    也照常构造，其余检查不变。新调用恒为假。
     """
     if is_custom_provider(provider_id):
         from lib.custom_provider.loader import load_custom_backend
@@ -64,20 +69,96 @@ async def assemble_backend(
                 model_id=model_id,
                 media_type=media_type,
                 generation_type=generation_type,
+                submitted_job=submitted_job,
             )
     spec = get_provider_spec(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
-    # 默认模型只来自模型目录：调用方没给 model 时取该供应商在这个媒体类型下的默认模型。
-    if model_id is None:
-        model_id = catalog.default_model(provider_id, media_type)
-    if model_id is not None:
-        _ensure_listed(provider_id, model_id, media_type)
+    model_id = await _callable_builtin_model(provider_id, media_type, model_id, resolver, submitted_job=submitted_job)
     config = await _load_builtin_config(resolver, provider_id, rate_limiter)
     # 构造闭包可能读凭证文件（Vertex 服务账号 JSON），放线程里跑，不阻塞事件循环。工作线程里没有事件循环，
     # backend 构造时不能创建要求事件循环的 SDK 客户端（xai_sdk.AsyncClient 的做法见 grok_shared.LazyGrokClient）。
     backend = await asyncio.to_thread(spec.build_backend, config, model_id)
-    if media_type == "video" and model_id is not None:
+    if media_type == "video":
         backend = _with_model_entry(backend, provider_id, model_id)
     return backend
+
+
+async def callable_model_key(
+    *,
+    provider_id: str,
+    media_type: str,
+    model_id: str | None,
+    resolver: ConfigResolver,
+    generation_type: str | None = None,
+    submitted_job: bool = False,
+) -> str | None:
+    """复用 backend 实例前的调用检查：按今天的生命周期确认这次调用的模型可以调用，返回实例缓存用的模型键。
+
+    缓存里的实例可能构造于关停日期之前，命中缓存会绕过 :func:`assemble_backend` 里的检查，所以调用方在查缓存前调用本函数。
+
+    - 内置供应商：``model_id`` 为 ``None`` 时取可用的默认模型（已下线或被用户停用的不算，没有时抛 ``ModelNotInCatalogError``，与装配同一口径），
+      返回定下的模型键；已下线抛 ``ModelDiscontinuedError``。这里刻意不查「是否在清单里」，完整检查在真正构造时执行。
+    - 自定义供应商：按装载同一条规则（``lib.custom_provider.loader.select_custom_model``）定下模型行，显式引用的模型已下线、
+      或回退后没有未下线的默认模型时同样报错；``model_id`` 原样返回（默认模型按任务类型桶分槽，键里另有桶）。
+    - 未登记的供应商原样返回，由装配报错。
+
+    ``submitted_job`` 为真（续跑已提交给厂商的任务，见 :func:`assemble_backend`）时不拦已下线的模型，其余照旧。
+    续跑写入缓存的实例可能是已下线模型的实例，之后的新调用取缓存前不带这一声明，照常被拦下。
+    """
+    if is_custom_provider(provider_id):
+        from lib.custom_provider.loader import select_custom_model
+
+        async with resolver._open_session() as (session, _):
+            await select_custom_model(
+                session=session,
+                provider_id=provider_id,
+                model_id=model_id,
+                media_type=media_type,
+                generation_type=generation_type,
+                submitted_job=submitted_job,
+            )
+        return model_id
+    if provider_id not in PROVIDER_REGISTRY:
+        return model_id
+    model_id = await _builtin_model_or_default(provider_id, media_type, model_id, resolver)
+    if not submitted_job:
+        catalog.reject_discontinued(provider_id, model_id, media_type)
+    return model_id
+
+
+async def _builtin_model_or_default(
+    provider_id: str, media_type: str, model_id: str | None, resolver: ConfigResolver
+) -> str:
+    """``model_id`` 为 ``None`` 时取内置供应商在这个媒体类型下可用的默认模型（:func:`lib.catalog.builtin_models.default_builtin_model`）。
+
+    默认模型只来自模型目录：没有可用的默认模型（没有指定、已下线、被用户停用或低于最低应用版本）时抛
+    ``ModelNotInCatalogError``，不落到 backend 构造函数里写死的模型名。
+    """
+    if model_id is not None:
+        return model_id
+    async with resolver._open_session() as (session, _):
+        default = await builtin_models.default_builtin_model(session, provider_id, media_type)
+    if default is None:
+        raise ModelNotInCatalogError(provider_id=provider_id, model_id="", media_type=media_type)
+    return default
+
+
+async def _callable_builtin_model(
+    provider_id: str, media_type: str, model_id: str | None, resolver: ConfigResolver, *, submitted_job: bool = False
+) -> str:
+    """内置供应商这次调用实际使用的模型键，按今天的生命周期检查过可以调用。
+
+    ``model_id`` 为 ``None`` 时取可用的默认模型，没有时报错（:func:`_builtin_model_or_default`）。
+    模型已下线抛 ``ModelDiscontinuedError``，不在清单里抛 ``ModelNotInCatalogError``（见
+    :func:`lib.catalog.query.require_callable`）。生命周期按当天日期判定，复用 backend 实例的调用方取缓存前另行检查
+    （``server.services.tasks.generation_context``）。``submitted_job`` 为真（续跑已提交的任务）时只查是否在清单里
+    （:func:`lib.catalog.query.require_listed`）。
+    """
+    model_id = await _builtin_model_or_default(provider_id, media_type, model_id, resolver)
+    if submitted_job:
+        catalog.require_listed(provider_id, model_id, media_type)
+    else:
+        catalog.require_callable(provider_id, model_id, media_type)
+    return model_id
 
 
 def _with_model_entry(backend: Any, provider_id: str, model_id: str) -> Any:
@@ -90,12 +171,6 @@ def _with_model_entry(backend: Any, provider_id: str, model_id: str) -> Any:
     if not callable(rebind):
         return backend
     return rebind(catalog.provider_model_entry(provider_id, model_id, "video"))
-
-
-def _ensure_listed(provider_id: str, model_id: str, media_type: str) -> None:
-    """内置供应商的模型必须在该供应商该媒体类型的模型清单中；不在时报错，由用户重新选择，不回落到别的模型。"""
-    if catalog.get_model(provider_id, model_id, media_type=media_type) is None:
-        raise ModelNotInCatalogError(provider_id=provider_id, model_id=model_id, media_type=media_type)
 
 
 @dataclass(frozen=True)

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, TypeGuard
 
 from lib.custom_provider.comfyui.artifacts import expected_suffixes_text
@@ -135,8 +135,10 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in VIDEO_REQUEST_FACTS_FAILURE_CODES},
     **{code: code for code in PROVIDER_ASSET_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
-    # 内置供应商的模型引用不在模型清单中（已下架或改名）：引用原样保留，由用户重新选择。
+    # 内置供应商的模型引用不在模型清单中（已改名或从未收录）：引用原样保留，由用户重新选择。
     "model_not_in_provider_catalog": "model_not_in_provider_catalog",
+    # 引用的模型已下线：带下线日期与官方后继，没有登记的那一句按 failure_message_key 换用省去它的文案。
+    "model_discontinued": "model_discontinued",
     # 上游确定性 4xx 拒绝。params 里的 provider_reason 是脱敏截断后的上游原文，刻意不进
     # 译文模板：它不该被翻译，读侧按独立字段原样展示。
     "provider_rejected": "task_fail_provider_rejected",
@@ -372,6 +374,17 @@ def bound_reason(reason: str, limit: int) -> str:
 _COMFYUI_ARTIFACT_MISMATCH_CODES = frozenset({"comfyui_output_type_mismatch", "comfyui_output_container_mismatch"})
 
 
+def failure_message_key(code: str, params: Mapping[str, Any]) -> str:
+    """已登记失败码的文案 key。``model_discontinued`` 按参数里有没有下线日期与后继，选用省去对应一句的文案。"""
+    key = FAILURE_CODE_KEYS[code]
+    if code == "model_discontinued":
+        if not params.get("shutdown_date"):
+            key += "_undated"
+        if not params.get("successor"):
+            key += "_no_successor"
+    return key
+
+
 def render_failure(error_message: str | None, translate: Callable[..., str], names: DisplayNames) -> str | None:
     """Render a stored failure reason for display via the request Translator.
 
@@ -409,7 +422,7 @@ def render_failure(error_message: str | None, translate: Callable[..., str], nam
     if code in _COMFYUI_ARTIFACT_MISMATCH_CODES:
         media_type = params.get("media_type")
         params = {**params, "expected": expected_suffixes_text(media_type if isinstance(media_type, str) else "")}
-    return render_generation_input_error(FAILURE_CODE_KEYS[code], params, translate, names)
+    return render_generation_input_error(failure_message_key(code, params), params, translate, names)
 
 
 def parse_failure(error_message: str | None) -> tuple[str, dict[str, Any]] | None:

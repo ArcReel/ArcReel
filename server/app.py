@@ -60,6 +60,7 @@ from lib.infra.logging_config import (
 )
 from lib.infra.loop_stall_probe import start_loop_stall_probe, stop_loop_stall_probe
 from lib.infra.path_safety import try_safe_join
+from lib.material.maintenance import start_material_maintenance
 from lib.project.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.script.source_loader.migration import migrate_project_source_encoding, migrate_project_source_encoding_once
 from server.auth import ensure_auth_password, ensure_token_secret, get_current_user, warn_if_auth_disabled
@@ -468,15 +469,6 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("text tier settings migration failed (non-fatal): %s", exc)
 
-    # 设置里已改名的模型改写为后继模型（退役模型映射）。放在档位迁移之后：旧任务级键收编进档位键后一并改写
-    try:
-        from lib.config.migration import migrate_retired_model_settings
-
-        async with async_session_factory() as session:
-            await migrate_retired_model_settings(session)
-    except Exception as exc:
-        logger.warning("retired model settings migration failed (non-fatal): %s", exc)
-
     # 官方市场源 seed：不存在则插入，地址常量变了就同步；不抓取
     try:
         from lib.market.sources import seed_official_source
@@ -552,10 +544,15 @@ async def lifespan(app: FastAPI):
     trash_expiry = start_trash_expiry(layout)
     # 供应商素材库入库任务：启动时恢复中断的提交，之后推进中转上传、状态查询与中转副本清理；随应用关停取消
     asset_ingest = start_asset_ingest(async_session_factory)
+    # 远端素材：启动时结算中断的正式提交，之后重试删除待删除的正式对象、重算对象引用、清理闲置的本地工作文件（项目与全局资产库）；随应用关停取消
+    material_maintenance = start_material_maintenance(
+        async_session_factory, layout.projects_dir, layout.deleted_projects_dir, data_root=layout.root
+    )
     try:
         async with remote_mcp_host.run():
             yield
     finally:
+        await material_maintenance.stop()
         await stop_asset_ingest(asset_ingest)
         await stop_trash_expiry(trash_expiry)
         await stop_official_sync(catalog_sync)

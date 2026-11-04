@@ -380,6 +380,7 @@ function DirectoryList(props: DirectoryListProps) {
                 <span className="text-xs text-muted-foreground">
                   {entry.role ? `${t(`file_view_role_${entry.role}`)} · ` : null}
                   <span className="num">{formatFileSize(entry.size)}</span>
+                  {entry.remote_only ? ` · ${t("file_view_remote_only")}` : null}
                 </span>
               </span>
             </button>
@@ -434,6 +435,7 @@ function FileDetail({
         </p>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           {entry.role ? <Badge variant="outline">{t(`file_view_role_${entry.role}`)}</Badge> : null}
+          {entry.remote_only ? <Badge variant="secondary">{t("file_view_remote_only")}</Badge> : null}
           <span className="num">{formatFileSize(entry.size)}</span>
           {modified ? <span>{t("file_view_modified_at", { time: modified })}</span> : null}
         </div>
@@ -476,6 +478,7 @@ function FileDetail({
     <DetailPane header={header}>
       <div className="flex flex-col gap-4 px-6 py-4">
         {description ? <p className="text-sm text-subtle-foreground">{description}</p> : null}
+        {entry.remote_only ? <p className="text-sm text-subtle-foreground">{t("file_view_remote_only_desc")}</p> : null}
         {/* 同一路径的文件被改写后（修改时间或大小变化）重新挂载：等待新内容时显示加载中，不沿用旧预览 */}
         <FilePreview key={`${entry.modified_at}:${entry.size}`} projectName={projectName} entry={entry} />
       </div>

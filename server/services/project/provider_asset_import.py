@@ -15,7 +15,8 @@
 关联指向的身份不再存在、不会被任何查询选中，这里再尽力删掉它。
 
 保存的内容与供应商素材一致：资产图保留下载到的原始字节；衍生图的规范路径固定为 ``.png``，PNG 原样保存，
-JPEG 与 WebP 按解码后的原像素换成 PNG 封装，不缩放、不做有损压缩。
+JPEG 与 WebP 按解码后的原像素换成 PNG 封装，不缩放、不做有损压缩。新内容版本与手动上传一样经正式提交入口
+按全局存储选择保存到本地或对象存储；远端没有确认保存时不发布版本，钩子不会执行，也就不建立关联。
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from lib.db.repositories.asset_library_repo import AssetLibraryRepository
 from lib.infra.api_errors import BadRequestError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async, run_sync_transaction
 from lib.infra.image_utils import normalize_storyboard_upload
+from lib.material.formal_objects import formal_commit
 from lib.material.storage import ContentVersion
 from lib.project.asset_derivatives import split_derivative_artifact_id
 from lib.project.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
@@ -121,8 +123,10 @@ async def _asset_sheet_install(
                     require_asset=True,
                 )
 
-        # 取图期间资产可能被删除：项目锁内复核，不存在时什么也不写
-        if await run_sync_transaction(_install) is None:
+        # 取图期间资产可能被删除：项目锁内复核，不存在时什么也不写。新版本按全局存储选择保存
+        async with formal_commit(project_name):
+            installed = await run_sync_transaction(_install)
+        if installed is None:
             raise NotFoundError(_NOT_FOUND_KEYS[asset_type], name=name)
 
     return install

@@ -180,8 +180,9 @@ class RateLimiter:
 
 
 # 共享限流器按模型名记 RPM；调用方没给模型名时，限额记在这两个模型名下。视频 backend 没给模型时也用它。
+# 装配路径总会给出模型（目录里可用的默认模型，没有就报错），视频的这个名字只在直接构造 backend 时兜底，取在役的 GA 型号。
 GEMINI_DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
-GEMINI_DEFAULT_VIDEO_MODEL = "veo-3.1-lite-generate-preview"
+GEMINI_DEFAULT_VIDEO_MODEL = "veo-3.1-fast-generate-001"
 
 
 def resolve_gemini_api_key(api_key: str | None = None) -> str:

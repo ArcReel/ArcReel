@@ -160,6 +160,10 @@ MESSAGES = {
         "Không nhận diện được bảng mã tệp nguồn nên chưa chuyển sang UTF-8: source/{name} "
         "(khâu hoạch định tập không đọc được tệp này)"
     ),
+    "arch_provider_asset_links_not_restored": (
+        "Đã nhập dự án nhưng không lưu được {count} liên kết thư viện tư liệu; khi tạo, các ảnh này được "
+        "gửi dưới dạng nội dung ảnh. Nếu cần, hãy tải lên lại hoặc chọn từ thư viện tư liệu"
+    ),
     "arch_non_standard_entry_excluded": "Thư mục/tệp cấp cao không chuẩn '{entry}' không được đưa vào bản xuất",
     "arch_invalid_project_json": "Không phân tích được {file}: {path}",
     "arch_version_history_malformed": "{location}: cấu trúc lịch sử phiên bản không đúng định dạng mong đợi",

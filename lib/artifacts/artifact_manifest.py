@@ -41,6 +41,7 @@ from lib.infra.content_digest import (
     remember_file_digest,
 )
 from lib.infra.schema_guards import is_str
+from lib.material.work_files import absent_work_file_digest
 from lib.project.asset_types import ASSET_TYPES, asset_name_comparison_key
 
 
@@ -897,18 +898,30 @@ class ProjectArtifactManifestAdapter:
         except ValueError as exc:
             blocker = ArtifactBlocker(code="artifact_path_invalid", path=str(artifact_path), detail=str(exc))
             return ArtifactObservation(artifact_path=str(artifact_path), present=False, blocker=blocker)
-        if os.name == "posix":
-            return self._inspect_artifact_posix(
-                normalized,
-                include_content_digest=include_content_digest,
-                include_content_bytes=include_content_bytes,
-                chunk_observer=chunk_observer,
-            )
-        return self._inspect_artifact_portable(
+        inspect = self._inspect_artifact_posix if os.name == "posix" else self._inspect_artifact_portable
+        observation = inspect(
             normalized,
             include_content_digest=include_content_digest,
             include_content_bytes=include_content_bytes,
             chunk_observer=chunk_observer,
+        )
+        if observation.present or observation.blocker is not None or include_content_bytes or chunk_observer:
+            return observation
+        return self._absent_work_file(normalized, include_content_digest=include_content_digest) or observation
+
+    def _absent_work_file(self, normalized: str, *, include_content_digest: bool) -> ArtifactObservation | None:
+        """缓存已清理的远端内容版本工作文件：正式素材仍在对象存储，按版本记录的摘要视为在场。
+
+        需要实际字节的读取方先经 ``lib.material.work_files.local_work_files`` 取回；这里只回答在场与内容身份。
+        没有 stat：图片类产物不记内容事实。
+        """
+        digest = absent_work_file_digest(self._project_dir, normalized)
+        if digest is None:
+            return None
+        return ArtifactObservation(
+            artifact_path=normalized,
+            present=True,
+            content_digest=digest if include_content_digest else None,
         )
 
     def _read_open_artifact(

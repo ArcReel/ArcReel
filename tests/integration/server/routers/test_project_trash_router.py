@@ -58,7 +58,6 @@ def trash_project_dir(tmp_path):
 @pytest.fixture
 def trash_client(trash_project_dir, monkeypatch):
     manager = ProjectManager(str(trash_project_dir.parents[1]))
-    monkeypatch.setattr(file_view, "get_project_manager", lambda: manager)
     use_project_manager(monkeypatch, manager)
     app = FastAPI()
     for module in (file_view, trash_router):

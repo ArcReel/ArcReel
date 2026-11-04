@@ -176,7 +176,22 @@ def _mutate(path: str, value: Any) -> Callable[[dict[str, Any]], None]:
         pytest.param(
             _mutate("entries[0].discontinued", True),
             ("builtin_providers.gemini-aistudio.defaults.text", "default_model_discontinued"),
-            id="默认模型已下架",
+            id="默认模型已下线",
+        ),
+        pytest.param(
+            _mutate("entries[0].shutdown_date", "2027-06-30"),
+            ("builtin_providers.gemini-aistudio.defaults.text", "default_model_retiring"),
+            id="默认模型带关停日期",
+        ),
+        pytest.param(
+            _mutate("entries[0].successor", "google/gemini-9-ultra"),
+            ("entries[0].successor", "unknown_successor"),
+            id="后继模型指向不存在的条目",
+        ),
+        pytest.param(
+            _mutate("entries[3].successor", "google/gemini-3.1-pro"),
+            ("entries[3].successor", "successor_media_type_mismatch"),
+            id="后继模型的媒体类型与原条目不同",
         ),
         pytest.param(
             _mutate("builtin_providers.kling.models[1].min_app_version", "next"),
@@ -215,5 +230,21 @@ def test_price_resolution_case_is_unchecked_when_entry_declares_no_resolutions()
     data = catalog()
     del data["entries"][2]["facts"]["resolutions"]
     data["entries"][2]["price"]["meters"][0]["rows"][0]["when"]["resolution"] = "2k"
+
+    assert check_catalog(data) == []
+
+
+def test_entry_with_lifecycle_and_valid_successor_passes():
+    """后继按原条目的媒体类型对应条目，指向两栖模型时不必另写媒体类型；默认模型只带后继、没有关停日期时放行。"""
+    data = catalog()
+    successor = {**text_entry(), "name": "gemini-3.5-pro", "aliases": [], "release_date": "2026-09-01"}
+    retiring = {
+        **video_entry(),
+        "name": "kling-v2-master",
+        "shutdown_date": "2026-11-24",
+        "successor": "kuaishou/kling-v3-omni",
+    }
+    data["entries"] += [successor, retiring]
+    data["entries"][0].update(successor="google/gemini-3.5-pro")
 
     assert check_catalog(data) == []

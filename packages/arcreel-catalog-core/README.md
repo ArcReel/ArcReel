@@ -26,6 +26,9 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
   "display_name": "Gemini 3.1 Pro",
   "aliases": ["gemini-3.1-pro-latest"],
   "discontinued": false,
+  "release_date": "2026-02-19",
+  "shutdown_date": "2027-03-31",
+  "successor": "google/gemini-3.5-pro",
   "context_length": 1048576,
   "facts": {"image_input": true, "structured_output": true, "max_output_tokens": 65536}
 }
@@ -34,7 +37,14 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 - 身份是「模型厂商/官方模型名」（`maker`/`name`），两栖模型的两个条目再以 `media_type` 区分。`maker` 不含 `/`。
 - `aliases` 是模型别名，只用于把模型名对应到条目。同一媒体类型内，所有条目的官方模型名与模型别名按
   `normalize_model_name`（忽略大小写、去掉命名空间、点号视同连字符）归一化后不能重复。
-- `discontinued` 表示已下架；`context_length` 是上下文长度（token）。
+- `discontinued` 表示已下线；`context_length` 是上下文长度（token）。
+- 生命周期字段都可选，缺失表示未收录，写出时省略：
+  - `release_date`、`shutdown_date` 是上线日期与关停日期，写作 `YYYY-MM-DD`，精确到日。关停日期按 UTC
+    日期判断，关停当天即视为已下线；目录构建在关停日期不晚于构建当天时置真 `discontinued`，不认识关停日期的
+    旧版实例据此认出已下线的模型。
+  - `successor` 是厂商官方指定的后继模型，写作「模型厂商/官方模型名」，指向媒体类型与本条目相同的条目，
+    所以引用两栖模型时不另写媒体类型。只记直接后继。
+  - 生命周期表示模型厂商层面的退役，对所有供应商（包括自定义供应商）都适用。
 - `facts` 是模型事实，按媒体类型取不同字段：
   - `text`：`image_input`、`structured_output`、`max_output_tokens`；
   - `image`：`text_to_image`、`image_to_image`、`resolutions`（可选分辨率档位），以及可选的 `max_reference_images`、`output_token_bases`；
@@ -100,7 +110,7 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 - 每个供应商模型给出 API 模型名、引用的条目（「模型厂商/官方模型名」）、供应商模型倍率（默认 1）与
   可选的最低应用版本。只有引用两栖模型时才需要 `media_type` 指明条目。
 - 同一供应商下，供应商模型以 API 模型名与所引用条目的媒体类型区分。
-- `defaults` 按媒体类型给出默认模型的 API 模型名，必须在该供应商这一媒体类型的清单中，且条目未下架。
+- `defaults` 按媒体类型给出默认模型的 API 模型名，必须在该供应商这一媒体类型的清单中，且条目既未下线，也没有关停日期。
 
 ## 两侧的判定
 
@@ -110,7 +120,7 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 | 不认识的计量项、选择维度、币种 | 照常读入，`PriceTable.is_priceable` 为 False，按未定价处理 | 报告 |
 | 不认识的媒体类型 | 跳过该条目 | 报告 |
 | 结构无法解析、哈希或数据集版本对不上 | 抛 `CatalogFormatError`，整份拒收 | 报告 |
-| 条目身份重复、名字冲突、清单引用不存在的条目、价目表行重叠等 | 不检查 | 报告 |
+| 条目身份重复、名字冲突、清单引用不存在的条目、后继模型不存在或媒体类型不同、默认模型带关停日期、价目表行重叠等 | 不检查 | 报告 |
 
 问题以 `CatalogIssue(path, code, detail)` 给出，`code` 是稳定的比较依据。
 

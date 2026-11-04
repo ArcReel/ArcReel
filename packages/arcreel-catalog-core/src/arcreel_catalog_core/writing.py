@@ -98,6 +98,12 @@ def dump_entry(entry: CatalogEntry) -> dict[str, object]:
         raw["discontinued"] = True
     if entry.context_length is not None:
         raw["context_length"] = entry.context_length
+    if entry.release_date is not None:
+        raw["release_date"] = entry.release_date.isoformat()
+    if entry.shutdown_date is not None:
+        raw["shutdown_date"] = entry.shutdown_date.isoformat()
+    if entry.successor is not None:
+        raw["successor"] = entry.successor
     raw["facts"] = _facts(entry.facts)
     if entry.price is not None:
         raw["price"] = _price(entry.price)

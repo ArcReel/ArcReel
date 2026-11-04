@@ -103,10 +103,17 @@ class GrokVideoBackend(EntryBoundCapabilities):
 
     @staticmethod
     def metered_usage(
-        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
-        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）；结算的输出秒数取 xAI 回报的时长。"""
-        del model
+        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）；结算的输出秒数取 xAI 回报的时长。
+
+        各型号按同一组请求字段计量，不按型号或条目区分。
+        """
+        del model, entry
         return video_usage(
             request,
             result,

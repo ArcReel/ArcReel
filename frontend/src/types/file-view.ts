@@ -32,6 +32,8 @@ export interface FileViewEntry {
   owner?: FileViewOwner | null;
   /** 历史版本里的当前版本快照才带，且恒为 true；服务端拒绝删除它。 */
   is_current?: true;
+  /** 远端内容版本的工作文件、本地缓存已清理时才带，且恒为 true：预览、下载与删除前服务端先从对象存储取回。 */
+  remote_only?: true;
 }
 
 export interface FileViewListing {

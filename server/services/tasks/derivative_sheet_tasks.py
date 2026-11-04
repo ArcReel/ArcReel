@@ -256,7 +256,11 @@ async def execute_character_derivative_task(
         )
 
     pm = get_project_manager()
-    async with frozen_generation_input(_freeze) as frozen:
+    async with frozen_generation_input(
+        _freeze,
+        project_path=project_path,
+        sources=[reference.visual.path for reference in inputs.generation_input.references],
+    ) as frozen:
 
         def _build_commit(generator: Any, outcome_box: list[FormalImageCommitOutcome]) -> StagedImageCommit:
             return derivative_sheet_commit_callback(

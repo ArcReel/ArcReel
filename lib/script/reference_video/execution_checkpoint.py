@@ -24,6 +24,7 @@ from lib.infra.content_digest import canonical_json, canonical_json_digest, sha2
 from lib.infra.json_io import atomic_write_json, load_json
 from lib.infra.path_safety import safe_join
 from lib.infra.schema_guards import is_bool, is_int, is_shape, is_str
+from lib.material.work_files import local_work_files
 
 logger = logging.getLogger(__name__)
 
@@ -428,8 +429,22 @@ async def stage_provider_media_for_task(
     *,
     stage: Callable[[Path, str, tuple[ProviderMediaInput, ...]], tuple[StagedProviderMedia, ...]] | None = None,
 ) -> tuple[StagedProviderMedia, ...]:
-    """Finish an in-flight local copy before propagating cancellation, then clean any published bytes."""
+    """Finish an in-flight local copy before propagating cancellation, then clean any published bytes.
 
+    Remote content versions whose local work files were evicted are fetched first and held while they are copied.
+    """
+
+    async with local_work_files(project_path, [item.path for item in inputs]):
+        return await _stage_provider_media(project_path, task_id, inputs, stage=stage)
+
+
+async def _stage_provider_media(
+    project_path: Path,
+    task_id: str,
+    inputs: tuple[ProviderMediaInput, ...],
+    *,
+    stage: Callable[[Path, str, tuple[ProviderMediaInput, ...]], tuple[StagedProviderMedia, ...]] | None,
+) -> tuple[StagedProviderMedia, ...]:
     async def _await_uninterruptibly(task: asyncio.Task[Any]) -> Any:
         while True:
             try:

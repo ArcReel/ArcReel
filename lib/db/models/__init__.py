@@ -15,7 +15,7 @@ from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.models.market_installation import MarketInstallation
 from lib.db.models.market_source import MarketSource
 from lib.db.models.market_submission import MarketSubmission
-from lib.db.models.object_storage import ObjectStorageConnection, RelayObject
+from lib.db.models.object_storage import FormalObject, FormalObjectRef, ObjectStorageConnection, RelayObject
 from lib.db.models.session import AgentSession
 from lib.db.models.session_event import AgentSessionEventLogEntry
 from lib.db.models.session_message_link import AgentSessionUserMessageLink
@@ -40,6 +40,8 @@ __all__ = [
     "CustomEndpoint",
     "CustomProvider",
     "CustomProviderModel",
+    "FormalObject",
+    "FormalObjectRef",
     "GenerationBatch",
     "MarketInstallation",
     "MarketSource",

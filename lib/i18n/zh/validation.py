@@ -138,6 +138,7 @@ MESSAGES = {
     "val_unit_duration_slotted": ("unit {unit_id} 时长 {duration}s 不是模型档位（{durations}）成员，已取档为 {slot}s"),
     # ---- 归档修复与导入导出诊断 ----
     "arch_source_encoding_unconverted": "源文件编码无法识别，未转换为 UTF-8：source/{name}（分集规划无法读取该文件）",
+    "arch_provider_asset_links_not_restored": "项目已导入，但 {count} 条供应商素材关联没能保存，生成时这些图片照常发送图片内容；需要时重新上传或从素材库选择",
     "arch_non_standard_entry_excluded": "非标准顶层目录/文件 '{entry}' 未包含在导出中",
     "arch_invalid_project_json": "无法解析 {file}: {path}",
     "arch_version_history_malformed": "{location}: 版本历史的结构不符合预期格式",

@@ -64,6 +64,7 @@ function manyModelsOverrides(): ApiOverrides {
         video: { default: video, buckets: { i2v: video, r2v: video } },
         provider_names: Object.fromEntries(LONG_PROVIDERS),
         model_names: modelNames,
+        lifecycle: {},
       },
     },
     // 压力数据里的模型不在录制环境的供应商目录中，能力查询照实返回无法解析
