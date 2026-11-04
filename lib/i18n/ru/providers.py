@@ -16,18 +16,20 @@ MESSAGES: dict[str, str] = {
     # 失败文案里目录查不到的供应商（已被删除）的泛称
     "deleted_provider_display_name": "Удалённый провайдер",
     "deleted_agent_provider_display_name": "Удалённый провайдер агентов",
-    # Provider descriptions
-    "provider_desc_gemini-aistudio": "Google AI Studio предоставляет модели Gemini с генерацией изображений, видео и речи — подходит для быстрого прототипирования и личных проектов.",
-    "provider_desc_gemini-vertex": "Корпоративная платформа Google Cloud Vertex AI поддерживает модели Gemini и Imagen с более высокими квотами и генерацией аудио.",
-    "provider_desc_ark": "AI-платформа ByteDance Volcengine Ark поддерживает генерацию видео Seedance и изображений Seedream, а также генерацию аудио и управление seed.",
-    "provider_desc_ark-agent-plan": "Volcengine Ark Agent Plan объединяет Doubao и другие ведущие модели для генерации текста, изображений и видео.",
-    "provider_desc_grok": "Модели xAI Grok поддерживают генерацию видео и изображений.",
-    "provider_desc_openai": "Платформа OpenAI поддерживает текст GPT-5.4 и генерацию изображений GPT Image.",
-    "provider_desc_vidu": "Видеоплатформа Shengshu Vidu поддерживает генерацию видео из текста и из изображения, по первому и последнему кадру и по референсу, а также изображение по референсу. Только изображения и видео.",
-    "provider_desc_dashscope": "Мультимодальная платформа Alibaba Cloud Model Studio (DashScope) поддерживает текст Qwen, изображения Qwen-Image / Wan и видео HappyHorse / Wan (включая видео по референсу).",
-    "provider_desc_minimax": "Мультимодальная платформа MiniMax (Hailuo) с генерацией текста, изображений, видео и речи. По умолчанию подключается к китайскому сайту; для работы из-за рубежа укажите в base_url международный сайт.",
-    "provider_desc_kling": "Платформа генерации видео и изображений Kuaishou Kling. Аутентификация по API-ключу работает со всеми моделями; Access Key + Secret Key (JWT) поддерживает только модели 3.0 и старше. Выберите один способ — если заданы оба, приоритет у API-ключа.",
-    "provider_desc_agnes": "Мультимодальная платформа Agnes (в стиле OpenAI) с аутентификацией по Bearer API-ключу; сейчас поддерживает генерацию изображений, текста и видео.",
+    # Provider descriptions：只写平台是什么，取自 docs/api-docs/providers/<id>.md 记录的来源；
+    # 不写模型版本与生成模态清单，能力标签由模型目录实时得出，写进描述必然过时；
+    # 模型家族名（GPT、Qwen 等）属于平台身份，可以写。
+    "provider_desc_gemini-aistudio": "Веб-среда разработки от Google для прототипирования приложений на генеративных моделях ИИ.",
+    "provider_desc_gemini-vertex": "Сервис машинного обучения Google Cloud, теперь переименованный в Gemini Enterprise Agent Platform.",
+    "provider_desc_ark": "Платформа сервисов больших моделей (MaaS) от Volcengine, облака ByteDance: дообучение, оценка и инференс моделей для бизнеса.",
+    "provider_desc_ark-agent-plan": "Подписочный тариф сервисов моделей Volcengine Ark для частных пользователей с оплатой кредитами.",
+    "provider_desc_grok": "Grok API от SpaceX Super Intelligence (ранее xAI) с генеративными моделями ИИ семейства Grok.",
+    "provider_desc_openai": "API-платформа американской компании OpenAI с генеративными моделями ИИ серии GPT и другими.",
+    "provider_desc_vidu": "API-платформа Vidu компании ShengShu Technology для генерации видео с помощью ИИ.",
+    "provider_desc_dashscope": "Платформа сервисов моделей Alibaba Cloud: Qwen и другие модели с доступом по API, дообучением и развёртыванием.",
+    "provider_desc_minimax": "Открытая платформа шанхайской ИИ-компании MiniMax с её мультимодальными моделями и генерацией видео Hailuo. По умолчанию подключается к китайскому сайту; для работы из-за рубежа укажите в base_url международный сайт.",
+    "provider_desc_kling": "Открытая платформа Kling AI, сервиса генеративного ИИ компании Kuaishou. Аутентификация по API-ключу работает со всеми моделями; Access Key + Secret Key (JWT) поддерживает только модели версии 3.0 и более ранние. Выберите один способ — если заданы оба, приоритет у API-ключа.",
+    "provider_desc_agnes": "Мультимодальная ИИ-платформа Agnes AI с генеративными моделями ИИ через единый API.",
     # Agent preset notes (lib/agent/agent_provider_catalog.py)
     "preset_notes_deepseek": "Официальная конечная точка DeepSeek с совместимостью с Anthropic; нужен ключ с префиксом sk-.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo принимает только известные имена моделей; публичного списка моделей нет.",
