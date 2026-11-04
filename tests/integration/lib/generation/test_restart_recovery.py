@@ -963,7 +963,8 @@ class TestOrphanDispatcherNonBlockingOverride:
         assert old_dispatcher is not None
         assert not old_dispatcher.done()
 
-        # 第 2 次扫描（模拟 lease flap 超阈值后重夺）：应直接覆盖句柄、不阻塞
+        # 第 2 次扫描（模拟 lease flap 超阈值后重夺）：扫到另一进程留下的新孤儿，应直接覆盖句柄、不阻塞
+        queue._orphans = [*queue._orphans, _storyboard_orphan("orphan-y", job_id="job-y")]
         start = asyncio.get_event_loop().time()
         await worker._recovery.handle_orphans()
         elapsed = asyncio.get_event_loop().time() - start
@@ -979,3 +980,56 @@ class TestOrphanDispatcherNonBlockingOverride:
         new_dispatcher = worker._recovery.orphan_dispatcher_task
         assert new_dispatcher is not None
         await asyncio.gather(old_dispatcher, new_dispatcher, return_exceptions=True)
+
+    @pytest.mark.asyncio
+    async def test_re_scan_skips_orphan_handed_to_dispatcher_before_slot_registration(
+        self, monkeypatch, staged_project
+    ):
+        """dispatcher 登记占用前在等 reload 兜底：此时重扫不能把同一孤儿交给第二个 dispatcher。"""
+        queue = FakeWorkerQueue()
+        queue._orphans = [_storyboard_orphan("orphan-x", job_id="job-x")]
+        capacity = capacity_table({"ark": {"image": 0, "video": 0}})
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity,
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+        )
+
+        reload_entered = asyncio.Event()
+        reload_release = asyncio.Event()
+
+        async def _slow_reload() -> None:
+            # 启动期容量表还没从库里加载：首次读到 0，reload 完成后才有视频容量。
+            reload_entered.set()
+            await reload_release.wait()
+            capacity._limits["ark"]["video"] = 1
+
+        worker._recovery._reload_limits = _slow_reload
+
+        resumed: list[str] = []
+
+        async def _resume(task, *, job_id):
+            resumed.append(task["task_id"])
+            return {"job_id": job_id}
+
+        monkeypatch.setattr(stub_executors, "resume", _resume)
+
+        await worker._recovery.handle_orphans()
+        first = worker._recovery.orphan_dispatcher_task
+        assert first is not None
+        await asyncio.wait_for(reload_entered.wait(), timeout=2)
+        # 此刻 orphan-x 已交给 dispatcher，却还没登记进占用台账。
+        assert "orphan-x" not in worker._slots.active_task_ids()
+
+        # 主循环单轮出错后的重扫：库里 orphan-x 仍是 running。
+        await worker._recovery.handle_orphans()
+        assert worker._recovery.orphan_dispatcher_task is first, "不应为同一孤儿再起 dispatcher"
+
+        reload_release.set()
+        await asyncio.wait_for(first, timeout=5)
+        assert resumed == ["orphan-x"]
+        assert queue.failed == []
+
+        # dispatcher 结束后不再视为派发中：之后的扫描照常处理它（这里它已不在孤儿列表里）。
+        assert worker._recovery._dispatching_task_ids == set()

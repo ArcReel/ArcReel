@@ -85,6 +85,10 @@ class RestartRecovery:
         # 「重试下载」的派发是即发即忘的：不持强引用的话，事件循环之外无人引用该 task，
         # 它可能在挂起点被 GC 静默回收。完成即从集合摘除。
         self._retry_dispatch_tasks: set[asyncio.Task] = set()
+        # 已交给 dispatcher、还没以 PENDING 登记进占用台账的任务：dispatcher 登记前可能先等
+        # reload_limits，这段时间任务仍是 running 又不在台账里，重扫要靠这个集合排除，否则同一
+        # provider job 会被第二个 dispatcher 再接续一次。dispatcher 结束时摘除。
+        self._dispatching_task_ids: set[str] = set()
 
     async def wait_dispatchers(self) -> None:
         """shutdown：等 dispatcher 派完最后一批 sub-task（否则 sub-task 可能在 dispatcher 退出后
@@ -150,7 +154,8 @@ class RestartRecovery:
         # - video 任务 → 启动重复 resume 流，同一 provider job 被并发 poll/finalize，
         #   崩溃窗口可能导致 provider 端双重扣费（违反 ADR 0007 红线）
         # active_task_ids 含 pending+inflight 全部占用，DB 扫到的同 id task 视为本进程的活。
-        self_active_task_ids = self._slots.active_task_ids()
+        # 已交给 dispatcher 但尚未登记进台账的任务同样是本进程的活。
+        self_active_task_ids = self._slots.active_task_ids() | self._dispatching_task_ids
 
         resumable_by_provider: dict[str, list[dict[str, Any]]] = {}
 
@@ -284,12 +289,21 @@ class RestartRecovery:
                     "旧 orphan dispatcher 仍在运行，本轮直接覆盖句柄不等待——"
                     "旧 sub-task 由占用台账跟踪，shutdown 时经 _slots.all_active_tasks 兜底"
                 )
-            self.orphan_dispatcher_task = asyncio.create_task(
-                self.dispatch_resumable(resumable_by_provider),
-                name="orphan-dispatcher",
-            )
+            self.orphan_dispatcher_task = self._spawn_dispatcher(resumable_by_provider, name="orphan-dispatcher")
         else:
             logger.info("孤儿扫描完成，无可 resume 任务")
+
+    def _spawn_dispatcher(self, resumable_by_provider: dict[str, list[dict[str, Any]]], *, name: str) -> asyncio.Task:
+        """起后台 dispatcher，并在它登记占用之前就把任务记为「派发中」，供孤儿重扫排除。
+
+        记录在 create_task 之前同步写入、在 dispatcher 结束时（含被取消）由 done 回调摘除；
+        任务登记进台账后两边同时排除，结果不变。
+        """
+        task_ids = {t["task_id"] for tasks in resumable_by_provider.values() for t in tasks}
+        self._dispatching_task_ids |= task_ids
+        dispatcher = asyncio.create_task(self.dispatch_resumable(resumable_by_provider), name=name)
+        dispatcher.add_done_callback(lambda _done: self._dispatching_task_ids.difference_update(task_ids))
+        return dispatcher
 
     async def dispatch_resumable(
         self,
@@ -322,10 +336,7 @@ class RestartRecovery:
         if not isinstance(provider_id, str) or not provider_id:
             raise ValueError("retry-download task has no provider_id")
         task["video_poll_timeout_seconds"] = poll_timeout_seconds
-        dispatch = asyncio.create_task(
-            self.dispatch_resumable({provider_id: [task]}),
-            name=f"retry-download-{task['task_id']}",
-        )
+        dispatch = self._spawn_dispatcher({provider_id: [task]}, name=f"retry-download-{task['task_id']}")
         self._retry_dispatch_tasks.add(dispatch)
         dispatch.add_done_callback(self._retry_dispatch_tasks.discard)
 
