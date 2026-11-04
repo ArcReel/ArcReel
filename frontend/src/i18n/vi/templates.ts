@@ -102,6 +102,7 @@ export default {
   model_lifecycle_discontinued_no_successor: "Đã ngừng hoạt động ({{date}}), không thể tiếp tục tạo. Hãy chọn lại mô hình",
   model_lifecycle_discontinued_undated: "Đã ngừng hoạt động, không thể tiếp tục tạo. Nhà cung cấp khuyên dùng {{successor}}",
   model_lifecycle_discontinued_undated_no_successor: "Đã ngừng hoạt động, không thể tiếp tục tạo. Hãy chọn lại mô hình",
+  model_lifecycle_unavailable: "Không còn khả dụng. Hãy chọn lại mô hình",
   model_lifecycle_switch: "Chuyển sang {{model}}",
   bucket_t2i_label: "Văn bản sang ảnh",
   bucket_i2i_label: "Ảnh sang ảnh",

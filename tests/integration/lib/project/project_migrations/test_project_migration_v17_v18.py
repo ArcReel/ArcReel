@@ -16,8 +16,8 @@ from lib.artifacts.artifact_currency import (
 )
 from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ProjectArtifactManifestAdapter
 from lib.artifacts.artifact_planner import plan_artifact_target_state_by_gap_rule
+from lib.config.model_setting_keys import TEXT_BACKEND_SETTING_KEYS
 from lib.config.resolver import ConfigResolver
-from lib.config.retired_model_ids import TEXT_BACKEND_SETTING_KEYS
 from lib.edit_timeline import EditTimelineService
 from lib.infra.app_data_dir import app_data_dir
 from lib.infra.content_digest import sha256_file

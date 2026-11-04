@@ -70,9 +70,12 @@ export interface MediaCandidates {
 /** 引用位置：`default` 为默认层（文本档位与配音模型也取它），其余为该媒体类型的任务类型桶。 */
 export type ModelReferenceLayer = "default" | GenerationTypeBucket;
 
-/** 引用处的下线提示：即将下线或已下线的供应商模型，连同官方后继与各引用位置的一键切换目标。 */
+/**
+ * 引用处的下线提示：即将下线或已下线的供应商模型，连同官方后继与各引用位置的一键切换目标。
+ * `unavailable`：引用的模型不在供应商清单里，本地也没有它已下线的条目，只提示重新选择。
+ */
 export interface ModelLifecycleNotice {
-  status: "retiring" | "discontinued";
+  status: "retiring" | "discontinued" | "unavailable";
   /** ISO 日期（YYYY-MM-DD）；已下线但没有登记日期时为 null。 */
   shutdown_date: string | null;
   /** 官方后继的「模型厂商/官方模型名」与条目名；没有登记后继时为 null。 */
@@ -92,7 +95,10 @@ export interface ModelCandidatesResponse {
   provider_names: Record<string, string>;
   /** "provider_id/model_id" → 按 Accept-Language 成文的模型名；覆盖全部媒体类型的候选。 */
   model_names: Record<string, string>;
-  /** "provider_id/model_id" → 下线提示；只收即将下线与已下线的模型（含不在候选里的），覆盖全部媒体类型。 */
+  /**
+   * "provider_id/model_id" → 下线提示；收即将下线与已下线的模型（含不在候选里的），以及设置与项目里引用的
+   * 清单之外的模型，覆盖全部媒体类型。
+   */
   lifecycle: Record<string, ModelLifecycleNotice>;
 }
 

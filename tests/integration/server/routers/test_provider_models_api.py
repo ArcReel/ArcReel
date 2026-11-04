@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from arcreel_catalog_core import EntryKey
 from lib.catalog import query as catalog
-from lib.config.retired_model_ids import GLOBAL_MODEL_SETTING_KEYS
+from lib.config.model_setting_keys import GLOBAL_MODEL_SETTING_KEYS
 from lib.config.service import ConfigService
 from lib.db import get_async_session
 from lib.db.repositories.credential_repository import CredentialRepository

@@ -11,6 +11,7 @@ t2i+i2i、i2i-only 两类图片模型，一个 ready 供应商就能把四个桶
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock
 
@@ -18,6 +19,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from arcreel_catalog_core import CatalogData
 from lib.backends.generation_type_buckets import builtin_model_buckets, custom_model_buckets
 from lib.catalog import query as catalog
 from lib.catalog.builtin_models import disabled_builtin_models, disabled_without_state, list_builtin_models
@@ -33,6 +35,7 @@ from server.dependencies import get_config_service
 from server.routers import system_config as system_config_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes
+from tests.fakes import use_project_manager
 
 CANDIDATES_URL = "/api/v1/system/config/model-candidates"
 
@@ -61,10 +64,16 @@ DS_AUDIO = "dashscope/qwen3-tts-flash"
 # ---------------------------------------------------------------------------
 
 
-def _make_mock_svc(ready_providers: list[str], model_states=None) -> ConfigService:
-    """``model_states`` 给出会话工厂时，停用集合按内置供应商模型表计算（含用户手动启用过的状态行）。"""
+def _make_mock_svc(
+    ready_providers: list[str], model_states=None, settings: dict[str, str] | None = None
+) -> ConfigService:
+    """``model_states`` 给出会话工厂时，停用集合按内置供应商模型表计算（含用户手动启用过的状态行）。
+
+    ``settings`` 是全局设置项，引用处的提示按其中的模型设置项补上清单之外的引用。
+    """
     ready = set(ready_providers)
     svc = MagicMock(spec=ConfigService)
+    svc.get_all_settings = AsyncMock(return_value=dict(settings or {}))
 
     async def _get_all_providers_status() -> list[ProviderStatus]:
         disabled: dict[str, frozenset[str]] = {}
@@ -120,8 +129,13 @@ def _make_app(mock_svc: ConfigService, engine, factory) -> FastAPI:
 def make_client(session_factory_and_engine):
     factory, engine = session_factory_and_engine
 
-    def _make(ready_providers: list[str] | None = None, *, with_model_states: bool = False) -> TestClient:
-        svc = _make_mock_svc(ready_providers or [], factory if with_model_states else None)
+    def _make(
+        ready_providers: list[str] | None = None,
+        *,
+        with_model_states: bool = False,
+        settings: dict[str, str] | None = None,
+    ) -> TestClient:
+        svc = _make_mock_svc(ready_providers or [], factory if with_model_states else None, settings)
         return TestClient(_make_app(svc, engine, factory))
 
     return _make
@@ -515,6 +529,98 @@ class TestLifecycleNotices:
         assert notice["status"] == "retiring"
         assert (notice["successor"], notice["successor_name"]) == (None, None)
         assert notice["switch_targets"] == {"default": None}
+
+
+class _Projects:
+    """只实现引用扫描用到的两个方法：项目名 → ``project.json``。"""
+
+    def __init__(self, projects: dict[str, dict]):
+        self._projects = projects
+
+    def list_projects(self) -> list[str]:
+        return list(self._projects)
+
+    def load_project(self, name: str) -> dict:
+        return self._projects[name]
+
+
+def _unlisted(data: CatalogData, option: str) -> CatalogData:
+    """把 ``option`` 移出供应商清单，条目留在目录里：官方数据删除清单项后、本地仍保留条目的情形。"""
+    provider_id, model_id = option.split("/", 1)
+    listing = data.builtin_providers[provider_id]
+    models = tuple(m for m in listing.models if m.api_model_name != model_id)
+    return replace(data, builtin_providers={**data.builtin_providers, provider_id: replace(listing, models=models)})
+
+
+class TestUnlistedReferenceNotices:
+    """设置与项目里引用了清单之外的模型：按被引用的值对应本地保留的条目给提示，对应不上已下线条目的提示不可用。"""
+
+    def test_retained_discontinued_entry_with_successor_gets_the_full_notice(self, make_client, monkeypatch):
+        data = with_entry_changes(
+            factory_snapshot(),
+            "dashscope",
+            DS_I2V_ONLY.split("/", 1)[1],
+            shutdown_date=date(2026, 10, 22),
+            successor=_entry_ref(DS_R2V),
+        )
+        install_catalog(monkeypatch, _unlisted(data, DS_I2V_ONLY))
+        set_catalog_today(monkeypatch, date(2026, 11, 4))
+        with make_client(["dashscope"], settings={"default_video_backend_i2v": DS_I2V_ONLY}) as client:
+            body = client.get(CANDIDATES_URL).json()
+        notice = body["lifecycle"][DS_I2V_ONLY]
+        assert (notice["status"], notice["shutdown_date"]) == ("discontinued", "2026-10-22")
+        assert notice["successor"] == _entry_ref(DS_R2V)
+        assert notice["successor_name"]
+        assert notice["switch_targets"] == {"default": DS_R2V, "i2v": DS_R2V, "r2v": DS_R2V}
+
+    def test_retained_discontinued_entry_without_successor_is_named_discontinued(self, make_client, monkeypatch):
+        data = with_entry_changes(factory_snapshot(), "dashscope", DS_I2V_ONLY.split("/", 1)[1], discontinued=True)
+        install_catalog(monkeypatch, _unlisted(data, DS_I2V_ONLY))
+        use_project_manager(monkeypatch, _Projects({"p1": {"title": "P1", "video_provider_i2v": DS_I2V_ONLY}}))
+        with make_client(["dashscope"]) as client:
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][DS_I2V_ONLY]
+        assert notice == {
+            "status": "discontinued",
+            "shutdown_date": None,
+            "successor": None,
+            "successor_name": None,
+            "switch_targets": {"default": None, "i2v": None, "r2v": None},
+        }
+
+    @pytest.mark.parametrize(
+        ("model_name", "has_entry"),
+        [
+            pytest.param(lambda: "wan-retired-preview", False, id="no-entry"),
+            # 按名字对上的是仍可用的条目（如旧名留作后继条目的别名），模型却不在清单里，同样调不了
+            pytest.param(lambda: catalog.default_model("ark", "video"), True, id="available-entry"),
+        ],
+    )
+    def test_reference_without_a_discontinued_entry_is_unavailable(
+        self, make_client, monkeypatch, model_name, has_entry
+    ):
+        model_id = model_name()
+        assert model_id is not None
+        assert catalog.get_model("dashscope", model_id) is None
+        assert (catalog.referenced_entry("dashscope", model_id, "video") is not None) is has_entry
+        option = f"dashscope/{model_id}"
+        assert catalog.get_model("dashscope", model_id) is None
+        use_project_manager(monkeypatch, _Projects({"p1": {"video_backend": option}}))
+        with make_client(["dashscope"]) as client:
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][option]
+        assert notice == {
+            "status": "unavailable",
+            "shutdown_date": None,
+            "successor": None,
+            "successor_name": None,
+            "switch_targets": {"default": None, "i2v": None, "r2v": None},
+        }
+
+    def test_listed_and_custom_references_get_no_extra_notice(self, make_client, monkeypatch):
+        use_project_manager(monkeypatch, _Projects({"p1": {"video_backend": "custom-9/relay"}}))
+        with make_client(["dashscope"], settings={"default_video_backend": DS_R2V}) as client:
+            lifecycle = client.get(CANDIDATES_URL).json()["lifecycle"]
+        assert DS_R2V not in lifecycle
+        assert "custom-9/relay" not in lifecycle
 
 
 # ---------------------------------------------------------------------------
