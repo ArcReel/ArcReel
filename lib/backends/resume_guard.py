@@ -23,6 +23,28 @@ _PATHS_SEPARATOR = " paths="
 #: 拆分后退役的端点名 → 协议等价的后继端点。后继共用创建任务与轮询接口，只是请求体与计量不同，提交时挂旧端点的
 #: 任务经任一后继都能取回结果。拆分一个端点时在这里登记一行；后继之间互换不在此列，仍按换了端点拒绝。
 RETIRED_ENDPOINT_SUCCESSORS: Mapping[str, frozenset[str]] = {
+    "grok-video": frozenset({"grok-video-classic", "grok-video-mixed"}),
+    "vidu-video": frozenset(
+        {
+            "vidu-video-" + name
+            for name in (
+                "generic",
+                "q3-pro",
+                "q3-turbo",
+                "q3-fast",
+                "q3-reference",
+                "q2",
+                "q2-pro",
+                "q2-fast",
+                "q1",
+                "q1-classic",
+                "2",
+            )
+        }
+    ),
+    "kling-video": frozenset(
+        {"kling-video-pro-silent", "kling-video-pro-audio", "kling-video-audio", "kling-video-silent"}
+    ),
     "ark-seedance": frozenset({"ark-seedance-1", "ark-seedance-2", "ark-seedance-2-5"}),
 }
 

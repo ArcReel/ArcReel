@@ -470,11 +470,11 @@ class TestGrokVideo15Models:
         self, video_output_path: Path, tmp_path: Path
     ):
         """classic 官方拒收首帧与参考图并存：付费调用前拒绝，不两者一并下发。"""
-        from lib.backends.video_backends.grok import GrokVideoBackend
+        from lib.backends.video_backends.grok import GrokClassicVideoBackend
 
         resubmit_unsafe = MagicMock()
         with _grok_sdk() as generate:
-            backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video")
+            backend = GrokClassicVideoBackend(api_key="test-key", model="grok-imagine-video")
             with pytest.raises(VideoCapabilityError) as exc:
                 await backend.generate(
                     VideoGenerationRequest(
@@ -494,10 +494,10 @@ class TestGrokVideo15Models:
 
     async def test_1_5_sends_first_frame_with_reference_images(self, video_output_path: Path, tmp_path: Path):
         """1.5 上首帧加参考图即钉住首帧的参考生视频，两者一并下发。"""
-        from lib.backends.video_backends.grok import GrokVideoBackend
+        from lib.backends.video_backends.grok import GrokMixedVideoBackend
 
         with _grok_sdk() as generate:
-            backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video-1.5")
+            backend = GrokMixedVideoBackend(api_key="test-key", model="grok-imagine-video-1.5")
             await backend.generate(
                 VideoGenerationRequest(
                     prompt="The model from <IMAGE_1> walks in",
@@ -532,3 +532,45 @@ class TestGrokVideo15Models:
         kwargs = generate.call_args[1]
         assert kwargs["resolution"] == "720p"
         assert len(kwargs["reference_image_urls"]) == 1
+
+
+@pytest.mark.parametrize("endpoint", ["grok-video-classic", "grok-video-mixed"])
+async def test_endpoint_request_and_metering_ignore_name(endpoint, tmp_path):
+    from lib.backends.video_backends.grok import GROK_BACKENDS
+
+    request = VideoGenerationRequest(prompt="test", output_path=tmp_path / "out.mp4", duration_seconds=5)
+    for model in ("opaque-id", "grok-imagine-video"):
+        with _grok_sdk() as generate:
+            backend = GROK_BACKENDS[endpoint](api_key="test", model=model)
+            result = await backend.generate(request)
+        sent = generate.await_args.kwargs
+        assert (sent["model"], sent["duration"], sent["generate_audio"]) == (model, 5, True)
+        usage = backend.metered_usage(model, request, result)
+        assert usage.quantities["output_seconds"] == 5
+        assert usage.dimensions["audio"] is True
+        assert result.video_path.read_bytes() == b"fake-video-data"
+
+
+@pytest.mark.parametrize("endpoint", ["grok-video-classic", "grok-video-mixed"])
+async def test_mixed_inputs_follow_endpoint_after_model_rename(endpoint, tmp_path):
+    from lib.backends.video_backends.grok import GROK_BACKENDS
+
+    image = tmp_path / "in.png"
+    image.write_bytes(b"image")
+    request = VideoGenerationRequest(
+        prompt="test", output_path=tmp_path / "out.mp4", resolution="720p", start_image=image, reference_images=[image]
+    )
+    for model in ("opaque-id", "grok-imagine-video-1.5"):
+        with _grok_sdk() as generate:
+            backend = GROK_BACKENDS[endpoint](api_key="test", model=model)
+            if endpoint == "grok-video-classic":
+                with pytest.raises(VideoCapabilityError) as exc:
+                    await backend.generate(request)
+                assert exc.value.code == "video_reference_images_with_frames_unsupported"
+                generate.assert_not_awaited()
+            else:
+                result = await backend.generate(request)
+                sent = generate.await_args.kwargs
+                assert sent["image_url"].startswith("data:image/png;base64,")
+                assert len(sent["reference_image_urls"]) == 1
+                assert result.video_path.read_bytes() == b"fake-video-data"

@@ -881,7 +881,10 @@ def test_builtin_add_rejects_an_endpoint_of_another_provider(models_client: Test
     )
     assert accepted.status_code == 201
     detail = models_client.get("/api/v1/providers/grok/models/grok-imagine-video-2").json()
-    assert (detail["endpoint"], [o["key"] for o in detail["endpoint_options"]]) == ("grok-video", ["grok-video"])
+    assert (detail["endpoint"], [o["key"] for o in detail["endpoint_options"]]) == (
+        "grok-video-classic",
+        ["grok-video-classic", "grok-video-mixed"],
+    )
 
 
 def test_official_builtin_models_have_no_endpoint_setting(models_client: TestClient) -> None:

@@ -52,9 +52,11 @@ class TestDeclarations:
 
     def test_a_default_outside_the_options_is_rejected(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setitem(
-            PROVIDER_ENDPOINTS, ("ark", "video"), ProviderEndpoints("ark", "video", ("ark-seedance-2",), "kling-video")
+            PROVIDER_ENDPOINTS,
+            ("ark", "video"),
+            ProviderEndpoints("ark", "video", ("ark-seedance-2",), "kling-video-pro-silent"),
         )
-        with pytest.raises(ValueError, match="default endpoint 'kling-video'"):
+        with pytest.raises(ValueError, match="default endpoint 'kling-video-pro-silent'"):
             specs._validate_provider_specs()
 
     def test_an_endpoint_of_another_media_type_is_rejected(self, monkeypatch: pytest.MonkeyPatch):
@@ -143,7 +145,11 @@ class TestPrefill:
             ("minimax", "video", "S2V-01", "minimax-s2v-01"),
             ("minimax", "video", "acme-video", "minimax-hailuo-v1"),
             # 名字推出的是别的供应商的端点：落回这个供应商的默认端点
-            ("grok", "video", "grok-imagine-video-2", "grok-video"),
+            ("grok", "video", "grok-imagine-video-2", "grok-video-classic"),
+            ("grok", "video", "grok-imagine-video", "grok-video-classic"),
+            ("vidu", "video", "viduq2", "vidu-video-q2"),
+            ("vidu", "video", "viduq3-pro", "vidu-video-q3-pro"),
+            ("kling", "video", "kling-v2-6", "kling-video-pro-audio"),
             ("ark", "image", "kling-image-o2", "ark-seedream-4"),
             ("ark", "video", "doubao-seedance-2-5-260628", "ark-seedance-2-5"),
             ("ark-agent-plan", "video", "doubao-seedance-2.0-mini", "ark-seedance-2"),

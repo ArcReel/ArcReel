@@ -175,7 +175,7 @@ class TestOptionalDimensionSchema:
         """存量脏行 / 非 API 写入路径的坏值走降级日志，不抛 AttributeError。"""
         with caplog.at_level(logging.WARNING):
             applied = filter_valid_overrides(
-                endpoint="vidu-video",
+                endpoint="vidu-video-q3-turbo",
                 model_id="viduq3",
                 overrides={"max_reference_audio_total_seconds": "15"},
             )
@@ -185,7 +185,7 @@ class TestOptionalDimensionSchema:
     def test_integer_override_is_coerced_to_float_on_merge(self):
         """校验放行整数字面量后，合并须还原成 float，字段不留 int。"""
         caps = synthesize_video_capabilities(
-            endpoint="vidu-video",
+            endpoint="vidu-video-q3-turbo",
             model_id="viduq3",
             overrides={"max_reference_audio_total_seconds": 12},
         )
@@ -205,10 +205,10 @@ class TestSystemCapabilities:
 
     def test_endpoint_with_caps_fn_delegates_to_backend_declaration(self):
         """endpoint 未声明硬上限时走 backend 的 per-model 纯函数，四字段全量取其声明。"""
-        from lib.backends.video_backends.vidu import ViduVideoBackend
+        from lib.backends.video_backends.vidu import ViduQ3TurboVideoBackend
 
-        caps = system_video_capabilities(endpoint="vidu-video", model_id="viduq3")
-        assert caps == ViduVideoBackend.video_capabilities_for_model("viduq3")
+        caps = system_video_capabilities(endpoint="vidu-video-q3-turbo", model_id="viduq3")
+        assert caps == ViduQ3TurboVideoBackend.video_capabilities_for_model("viduq3")
 
     def test_non_video_endpoint_raises(self):
         with pytest.raises(ValueError, match="not video"):
@@ -260,9 +260,9 @@ class TestSynthesize:
         用 viduq3-turbo 而非 viduq3：后者的条目记录不接受尾帧（只做参考生视频），两侧求值本身就是 False，
         验不出"强制关"的效果。
         """
-        assert two_sided_video_capabilities(endpoint="vidu-video", model_id="viduq3-turbo").last_frame is True
+        assert two_sided_video_capabilities(endpoint="vidu-video-q3-turbo", model_id="viduq3-turbo").last_frame is True
         caps = synthesize_video_capabilities(
-            endpoint="vidu-video", model_id="viduq3-turbo", overrides={"last_frame": False}
+            endpoint="vidu-video-q3-turbo", model_id="viduq3-turbo", overrides={"last_frame": False}
         )
         assert caps.last_frame is False
         assert caps.first_frame is True

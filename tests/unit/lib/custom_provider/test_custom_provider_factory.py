@@ -34,14 +34,12 @@ _ENDPOINT_BACKEND_CLASSES = (
     "GeminiImageBackend",
     "GeminiTextBackend",
     "KlingImageBackend",
-    "KlingVideoBackend",
     "MiniMaxImageBackend",
     "OpenAIAudioBackend",
     "OpenAIImageBackend",
     "OpenAITextBackend",
     "OpenAIResponsesTextBackend",
     "OpenAIVideoBackend",
-    "ViduVideoBackend",
 )
 
 
@@ -72,6 +70,16 @@ def _endpoint_backends() -> Generator[list[dict[str, Any]]]:
                     f"lib.custom_provider.endpoints.{mapping_name}",
                     {key: _recorder(backend.__name__) for key, backend in backends.items()},
                 )
+            )
+        from lib.backends.video_backends.kling import KLING_BACKENDS
+        from lib.backends.video_backends.vidu import VIDU_BACKENDS
+
+        for name, backends, label in (
+            ("VIDU_BACKENDS", VIDU_BACKENDS, "ViduVideoBackend"),
+            ("KLING_BACKENDS", KLING_BACKENDS, "KlingVideoBackend"),
+        ):
+            stack.enter_context(
+                patch(f"lib.custom_provider.endpoints.{name}", {key: _recorder(label) for key in backends})
             )
         yield records
 
@@ -249,7 +257,7 @@ class TestEndpointDispatch:
 
     def test_vidu_video(self):
         provider = _make_provider(base_url="https://relay.example.com")
-        result, built = _built(provider, "viduq3-turbo", "vidu-video")
+        result, built = _built(provider, "viduq3-turbo", "vidu-video-q3-turbo")
         assert isinstance(result, CustomVideoBackend)
         # 仅 host → 补全 vidu 协议挂载路径 /ent/v2
         assert built == {
@@ -333,7 +341,7 @@ class TestEndpointDispatch:
 
     def test_kling_video(self):
         provider = _make_provider(base_url="https://relay.example.com/v1")
-        result, built = _built(provider, "kling-v2-5-turbo", "kling-video")
+        result, built = _built(provider, "kling-v2-5-turbo", "kling-video-pro-silent")
         assert isinstance(result, CustomVideoBackend)
         assert result.model == "kling-v2-5-turbo"
         assert built == {
@@ -349,7 +357,7 @@ class TestEndpointDispatch:
 
     def test_kling_video_host_only_mounts_v1(self):
         provider = _make_provider(base_url="relay.example.com")
-        _result, built = _built(provider, "kling-v3", "kling-video")
+        _result, built = _built(provider, "kling-v3", "kling-video-pro-silent")
         # 纯域名（无 scheme）→ 补 https:// 再挂载 /v1
         assert built["kwargs"]["base_url"] == "https://relay.example.com/v1"
 
@@ -390,7 +398,7 @@ class TestUrlNormalization:
 
     def test_vidu_explicit_path_passthrough(self):
         provider = _make_provider(base_url="https://api.vidu.cn/ent/v2")
-        _result, built = _built(provider, "viduq3-turbo", "vidu-video")
+        _result, built = _built(provider, "viduq3-turbo", "vidu-video-q3-turbo")
         assert built["kwargs"]["base_url"] == "https://api.vidu.cn/ent/v2"
 
     def test_ark_host_only_no_scheme(self):
@@ -401,7 +409,7 @@ class TestUrlNormalization:
 
     def test_vidu_host_only_no_scheme(self):
         provider = _make_provider(base_url="relay.example.com")
-        _result, built = _built(provider, "viduq3-turbo", "vidu-video")
+        _result, built = _built(provider, "viduq3-turbo", "vidu-video-q3-turbo")
         assert built["kwargs"]["base_url"] == "https://relay.example.com/ent/v2"
 
     def test_anthropic_messages_strips_pasted_endpoint_suffix(self):
@@ -427,7 +435,7 @@ class TestUrlNormalization:
 
     def test_vidu_empty_base_url_normalizes_to_none(self):
         provider = _make_provider(base_url="")
-        _result, built = _built(provider, "viduq3-turbo", "vidu-video")
+        _result, built = _built(provider, "viduq3-turbo", "vidu-video-q3-turbo")
         assert built["kwargs"]["base_url"] is None
 
 

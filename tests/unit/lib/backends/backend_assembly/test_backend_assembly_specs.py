@@ -370,12 +370,12 @@ class TestKlingSpec:
 
     def test_video_dual_secret_no_api_model_name(self):
         spec = get_provider_spec("kling", "video")
-        assert spec.registry_backend == "kling"
+        assert spec.registry_backend == "kling-video-pro-silent"
         config = self._kling_config(access_key="ak-1", secret_key="sk-1")
         # video backend 不接受 api_model_name：即使 model 是别名也不传该参数
         assert _built(spec, config, "kling-v3") == {
             "media": "video",
-            "backend": "kling",
+            "backend": "kling-video-pro-silent",
             "kwargs": {
                 "auth_mode": "jwt",
                 "access_key": "ak-1",

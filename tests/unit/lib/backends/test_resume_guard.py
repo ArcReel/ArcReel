@@ -11,6 +11,11 @@ _PATHS = {"poll": "/v2/tasks/{{ task_id }}"}
 @pytest.mark.parametrize(
     ("submitted", "current"),
     [
+        ("grok-video", "grok-video-classic"),
+        ("vidu-video", "vidu-video-q3-turbo"),
+        ("kling-video", "kling-video-pro-audio"),
+        (builtin_endpoint_guard("kling-video"), builtin_endpoint_guard("kling-video-audio")),
+        (endpoint_guard("kling-video", _PATHS), endpoint_guard("kling-video-silent", _PATHS)),
         # 升级前经 ark-seedance 提交，模型现在挂它的任一后继
         ("ark-seedance", "ark-seedance-2"),
         ("ark-seedance", "ark-seedance-1"),
@@ -27,6 +32,10 @@ def test_equivalent_protocols_resume(submitted: str | None, current: str) -> Non
 @pytest.mark.parametrize(
     ("submitted", "current"),
     [
+        ("vidu-video", "openai-video"),
+        ("grok-video", "kling-video-audio"),
+        ("kling-video", "kling-video-pro-audio paths={}"),
+        ("kling-video-audio", "kling-video-pro-audio"),
         # 换了协议
         ("ark-seedance", "openai-video"),
         # 后继之间互换仍是换了端点

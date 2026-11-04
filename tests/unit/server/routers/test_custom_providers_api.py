@@ -219,7 +219,17 @@ class TestEndpointCatalog:
             "ark-seedance-2-5",
             "ark-seedream-3",
             "ark-seedream-4",
-            "vidu-video",
+            "vidu-video-q3-turbo",
+            "vidu-video-generic",
+            "vidu-video-q3-pro",
+            "vidu-video-q3-fast",
+            "vidu-video-q3-reference",
+            "vidu-video-q2",
+            "vidu-video-q2-pro",
+            "vidu-video-q2-fast",
+            "vidu-video-q1",
+            "vidu-video-q1-classic",
+            "vidu-video-2",
             "openrouter-video",
             "xai-video",
             "dashscope-qwen-image",
@@ -232,7 +242,10 @@ class TestEndpointCatalog:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-image",
-            "kling-video",
+            "kling-video-pro-silent",
+            "kling-video-pro-audio",
+            "kling-video-audio",
+            "kling-video-silent",
             "gemini-video",
             "openai-tts",
             "dashscope-tts",
@@ -289,7 +302,7 @@ class TestEndpointCatalog:
         resp = custom_providers_client.get("/api/v1/custom-providers/endpoints")
         assert resp.status_code == 200
         by_key = {e["key"]: e for e in resp.json()["endpoints"]}
-        assert by_key["kling-video"]["end_image_capable"] is True
+        assert by_key["kling-video-pro-silent"]["end_image_capable"] is True
         assert by_key["openai-chat"]["end_image_capable"] is False
         assert by_key["openai-images"]["end_image_capable"] is False
         # 与注册表保持同源，不在响应层另立一份判断

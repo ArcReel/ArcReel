@@ -16,10 +16,10 @@ from lib.backends.video_backends.ark import (
     Seedance25VideoBackend,
 )
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-from lib.backends.video_backends.kling import KlingVideoBackend
+from lib.backends.video_backends.kling import KlingAudioVideoBackend, KlingProAudioVideoBackend, KlingVideoBackend
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.openai import OpenAIVideoBackend
-from lib.backends.video_backends.vidu import ViduVideoBackend
+from lib.backends.video_backends.vidu import Vidu2VideoBackend, ViduQ3TurboVideoBackend, ViduVideoBackend
 from lib.billing.catalog_pricing import price_builtin_call
 from lib.billing.metering import Priced, Unpriced, UnpricedReason
 from lib.catalog import query as catalog
@@ -269,8 +269,8 @@ class TestViduMetering:
     def test_audio_only_reported_true_for_q3_models(self) -> None:
         request = _request(duration_seconds=4, resolution="720p", generate_audio=True)
 
-        assert ViduVideoBackend.metered_usage("viduq3-turbo", request).dimensions["audio"] is True
-        assert ViduVideoBackend.metered_usage("vidu2.0", request).dimensions["audio"] is False
+        assert ViduQ3TurboVideoBackend.metered_usage("viduq3-turbo", request).dimensions["audio"] is True
+        assert Vidu2VideoBackend.metered_usage("vidu2.0", request).dimensions["audio"] is False
 
 
 class TestEntryBoundMetering:
@@ -287,10 +287,10 @@ class TestEntryBoundMetering:
         [
             (Seedance2VideoBackend, "doubao-seedance-2-0-260128"),
             (Seedance25VideoBackend, "doubao-seedance-2-5-260628"),
-            (KlingVideoBackend, "kling-v2-6"),
-            (KlingVideoBackend, "kling-v3"),
-            (ViduVideoBackend, "viduq3-turbo"),
-            (ViduVideoBackend, "vidu2.0"),
+            (KlingProAudioVideoBackend, "kling-v2-6"),
+            (KlingAudioVideoBackend, "kling-v3"),
+            (ViduQ3TurboVideoBackend, "viduq3-turbo"),
+            (Vidu2VideoBackend, "vidu2.0"),
             (AgnesVideoBackend, "agnes-video-2.5"),
             (OpenAIVideoBackend, "sora-2-pro"),
             (DashScopeVideoBackend, "wan3.0-video"),
@@ -324,4 +324,5 @@ class TestEntryBoundMetering:
         entry = catalog.find_entry(official, media_type="video")
 
         assert KlingVideoBackend.effective_generate_audio_for_model(self._OPAQUE) is False
-        assert KlingVideoBackend.effective_generate_audio_for_model(self._OPAQUE, entry) is generates_audio
+        backend = KlingAudioVideoBackend if generates_audio else KlingProAudioVideoBackend
+        assert backend.effective_generate_audio_for_model(self._OPAQUE, entry) is generates_audio

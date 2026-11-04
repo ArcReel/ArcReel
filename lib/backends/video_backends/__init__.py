@@ -48,6 +48,11 @@ from lib.backends.video_backends.grok import GrokVideoBackend
 
 register_backend(PROVIDER_GROK, GrokVideoBackend)
 
+from lib.backends.video_backends.grok import GROK_BACKENDS
+
+for _endpoint, _backend in GROK_BACKENDS.items():
+    register_backend(_endpoint, _backend)
+
 # OpenAI Sora
 from lib.backends.video_backends.openai import OpenAIVideoBackend
 
@@ -58,6 +63,11 @@ from lib.backends.providers import PROVIDER_VIDU
 from lib.backends.video_backends.vidu import ViduVideoBackend
 
 register_backend(PROVIDER_VIDU, ViduVideoBackend)
+
+from lib.backends.video_backends.vidu import VIDU_BACKENDS
+
+for _endpoint, _backend in VIDU_BACKENDS.items():
+    register_backend(_endpoint, _backend)
 
 # 阿里百炼 DashScope — HappyHorse / 万相视频
 from lib.backends.providers import PROVIDER_DASHSCOPE
@@ -70,6 +80,11 @@ from lib.backends.providers import PROVIDER_KLING
 from lib.backends.video_backends.kling import KlingVideoBackend
 
 register_backend(PROVIDER_KLING, KlingVideoBackend)
+
+from lib.backends.video_backends.kling import KLING_BACKENDS
+
+for _endpoint, _backend in KLING_BACKENDS.items():
+    register_backend(_endpoint, _backend)
 
 # Agnes — apihub 异步视频端点（裸 base64 + 轮询 + resume）
 from lib.backends.providers import PROVIDER_AGNES
