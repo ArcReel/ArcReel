@@ -1005,7 +1005,7 @@ class TestOrphanDispatcherNonBlockingOverride:
             await reload_release.wait()
             capacity._limits["ark"]["video"] = 1
 
-        worker._recovery._reload_limits = _slow_reload
+        monkeypatch.setattr(worker, "reload_limits", _slow_reload)
 
         resumed: list[str] = []
 
@@ -1031,5 +1031,140 @@ class TestOrphanDispatcherNonBlockingOverride:
         assert resumed == ["orphan-x"]
         assert queue.failed == []
 
-        # dispatcher 结束后不再视为派发中：之后的扫描照常处理它（这里它已不在孤儿列表里）。
-        assert worker._recovery._dispatching_task_ids == set()
+    @pytest.mark.asyncio
+    async def test_re_scan_racing_retry_download_resumes_the_task_once(self, monkeypatch, staged_project):
+        """重扫读配置让出事件循环时「重试下载」先派发了同一任务：重扫不再为它起 dispatcher。"""
+        orphan = _storyboard_orphan("orphan-x", job_id="job-x")
+        queue = FakeWorkerQueue()
+        queue._orphans = [orphan]
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"ark": {"image": 0, "video": 1}}),
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+        )
+
+        resumed: list[str] = []
+
+        async def _resume(task, *, job_id):
+            resumed.append(task["task_id"])
+            return {"job_id": job_id}
+
+        monkeypatch.setattr(stub_executors, "resume", _resume)
+
+        async def _poll_timeout_while_retry_dispatches() -> int:
+            # 重扫已拍下排除快照、正在读配置；路由此刻把同一任务翻回 running 并派发。
+            await worker.retry_artifact_download(dict(orphan), poll_timeout_seconds=60)
+            return 60
+
+        monkeypatch.setattr(
+            "lib.generation.restart_recovery.read_video_poll_timeout_seconds", _poll_timeout_while_retry_dispatches
+        )
+
+        await worker._recovery.handle_orphans()
+        await worker._recovery.wait_dispatchers()
+
+        assert resumed == ["orphan-x"]
+
+    @pytest.mark.asyncio
+    async def test_retry_download_redispatches_task_whose_resume_ended_while_dispatcher_runs(
+        self, monkeypatch, staged_project
+    ):
+        """dispatcher 还在接续别的任务时，已结束续跑的任务可以被「重试下载」立即重新派发。"""
+        queue = FakeWorkerQueue()
+        orphan_done = _storyboard_orphan("orphan-done", job_id="job-done")
+        queue._orphans = [orphan_done, _storyboard_orphan("orphan-slow", job_id="job-slow")]
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"ark": {"image": 0, "video": 2}}),
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+        )
+
+        resumed: list[str] = []
+        done_finished = asyncio.Event()
+        slow_release = asyncio.Event()
+
+        async def _resume(task, *, job_id):
+            resumed.append(task["task_id"])
+            if task["task_id"] == "orphan-slow":
+                await slow_release.wait()
+            else:
+                done_finished.set()
+            return {"job_id": job_id}
+
+        monkeypatch.setattr(stub_executors, "resume", _resume)
+
+        await worker._recovery.handle_orphans()
+        dispatcher = worker._recovery.orphan_dispatcher_task
+        assert dispatcher is not None
+        await asyncio.wait_for(done_finished.wait(), timeout=2)
+        await asyncio.wait_for(_active_task_named(worker._slots, "resume-video-orphan-done"), timeout=2)
+        assert not dispatcher.done()
+
+        # orphan-done 的续跑已结束（例如落了 artifact_download_failed），用户点「重试下载」。
+        await worker.retry_artifact_download(dict(orphan_done), poll_timeout_seconds=60)
+        slow_release.set()
+        await worker._recovery.wait_dispatchers()
+        await asyncio.wait_for(dispatcher, timeout=5)
+
+        assert sorted(resumed) == ["orphan-done", "orphan-done", "orphan-slow"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("status_after_owner", "expected_resumes"),
+        [
+            # 旧 dispatcher 落下下载失败、还没放开归属时用户点了重试：放开后任务仍 running，补派发一次。
+            ("running", 2),
+            # 任务翻回 running 后被孤儿重扫接走并接续到终态：放开后不再派发。
+            ("succeeded", 1),
+        ],
+    )
+    async def test_retry_download_while_task_owned_waits_for_release_then_checks_status(
+        self, monkeypatch, staged_project, status_after_owner, expected_resumes
+    ):
+        """「重试下载」撞上已有归属：不丢这次已受理的重试，等归属放开后按库里的状态决定是否派发。"""
+
+        class _StatusQueue(FakeWorkerQueue):
+            def __init__(self):
+                super().__init__()
+                self.status = "running"
+
+            async def get_task(self, task_id):
+                return {"task_id": task_id, "status": self.status}
+
+        orphan = _storyboard_orphan("orphan-x", job_id="job-x")
+        queue = _StatusQueue()
+        queue._orphans = [orphan]
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"ark": {"image": 0, "video": 1}}),
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+        )
+
+        resumed: list[str] = []
+        owner_in_resume = asyncio.Event()
+        owner_release = asyncio.Event()
+
+        async def _resume(task, *, job_id):
+            resumed.append(task["task_id"])
+            if len(resumed) == 1:
+                owner_in_resume.set()
+                await owner_release.wait()
+            return {"job_id": job_id}
+
+        monkeypatch.setattr(stub_executors, "resume", _resume)
+
+        await worker._recovery.handle_orphans()
+        await asyncio.wait_for(owner_in_resume.wait(), timeout=2)
+
+        await worker.retry_artifact_download(dict(orphan), poll_timeout_seconds=60)
+        assert resumed == ["orphan-x"], "归属未放开前不应派发第二个续跑"
+
+        queue.status = status_after_owner
+        owner_release.set()
+        await worker._recovery.wait_dispatchers()
+        await asyncio.gather(*worker._slots.all_active_tasks())
+
+        assert resumed == ["orphan-x"] * expected_resumes
