@@ -648,3 +648,65 @@ async def test_seedance_job_rejected_after_switching_protocol(chain_project: Pat
     assert row.status == "failed"
     assert row.error_message is not None
     assert "resume_endpoint_changed" in row.error_message
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ["kling-video-pro-silent", "kling-video-pro-audio", "kling-video-audio", "kling-video-silent"],
+)
+async def test_kling_job_submitted_before_split_resumes(chain_project: Path, session_factory, endpoint: str):
+    """旧可灵任务可经协议等价后继取回结果，零次重新提交。"""
+    model = "kling-v2-6"
+    provider_id = await _seed_relay_model(session_factory, endpoint=endpoint, model_id=model)
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-kling-legacy",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-kling-legacy", provider_id=provider_id, endpoint_guard="kling-video", model_id=model
+        ),
+    )
+    with capture_http() as router:
+        submit = router.post("https://ark-relay.test/v1/videos/text2video")
+        poll = router.get("https://ark-relay.test/v1/videos/text2video/job-old").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "task_status": "succeed",
+                        "task_result": {"videos": [{"url": "https://cdn.kling.test/old.mp4"}]},
+                    },
+                },
+            )
+        )
+        download = router.get("https://cdn.kling.test/old.mp4").mock(
+            return_value=httpx.Response(200, content=b"resumed-kling")
+        )
+        await _run_orphan_recovery(session_factory)
+
+    assert submit.call_count == 0
+    assert (poll.call_count, download.call_count) == (1, 1)
+    row = await _load_task_row(session_factory, "T-kling-legacy")
+    assert row.status == "succeeded", row.error_message
+    paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
+    assert [path.read_bytes() for path in paid_files] == [b"resumed-kling"]
+
+
+async def test_old_kling_job_rejects_a_different_protocol(chain_project: Path, session_factory):
+    provider_id = await _seed_relay_model(session_factory, endpoint="openai-video", model_id="kling-v2-6")
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-kling-switched",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-kling-switched", provider_id=provider_id, endpoint_guard="kling-video", model_id="kling-v2-6"
+        ),
+    )
+    with capture_http() as router:
+        outbound = router.route(host="ark-relay.test")
+        await _run_orphan_recovery(session_factory)
+    assert outbound.call_count == 0
+    row = await _load_task_row(session_factory, "T-kling-switched")
+    assert row.status == "failed"
+    assert "resume_endpoint_changed" in (row.error_message or "")

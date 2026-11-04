@@ -167,10 +167,10 @@ async def test_builtin_user_added_kling_id_takes_the_entry_audio_pricing_paramet
 
 @pytest.mark.parametrize("model", [OPAQUE, "kling-v2-6"])
 async def test_custom_kling_id_bound_to_v2_6_meters_720p_as_silent(db_factory, model: str):
-    """自定义可灵端点上绑定 v2-6 的不透明 ID：720P 档实际发 ``sound=off``，结算计量按无声上报，与官方 ID 一致。"""
+    """自定义可灵端点上绑定 v2-6 的不透明 ID：720P 档请求档位收窄为无声，结算计量按无声上报，与官方 ID 一致。"""
     provider_id = await _custom_provider(
         db_factory,
-        "kling-video",
+        "kling-video-pro-audio",
         [{"model_id": model, "is_default": True, "entry_binding": "kuaishou/kling-v2-6" if model == OPAQUE else None}],
     )
     resolver = ConfigResolver(db_factory)

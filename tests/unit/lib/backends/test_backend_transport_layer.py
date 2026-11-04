@@ -122,13 +122,13 @@ _CALLS: dict[str, Call] = {
     "ark-seedance-2": lambda layer, tmp_path: Seedance2VideoBackend(
         api_key="k", model="doubao-seedance-2-0-260128", base_url=f"{BASE}/api/v3", transport_layer=layer
     ).generate(_video(tmp_path)),
-    "vidu-video": lambda layer, tmp_path: ViduVideoBackend(
+    "vidu-video-q3-turbo": lambda layer, tmp_path: ViduVideoBackend(
         api_key="k", base_url=f"{BASE}/ent/v2", transport_layer=layer
     ).generate(_video(tmp_path)),
     "dashscope-async-video": lambda layer, tmp_path: DashScopeVideoBackend(
         api_key="k", base_url=BASE, transport_layer=layer
     ).generate(_video(tmp_path)),
-    "kling-video": lambda layer, tmp_path: KlingVideoBackend(
+    "kling-video-pro-silent": lambda layer, tmp_path: KlingVideoBackend(
         auth_mode="bearer", api_key="k", base_url=f"{BASE}/v1", transport_layer=layer
     ).generate(_video(tmp_path)),
 }

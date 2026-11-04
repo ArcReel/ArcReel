@@ -27,9 +27,10 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationRequest,
 )
 from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
+from lib.backends.backend_assembly.specs import official_model_endpoint
 from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import PROVIDER_KLING
-from lib.backends.video_backends.kling import KlingVideoBackend
+from lib.backends.video_backends.kling import KLING_BACKENDS, KlingVideoBackend
 from lib.backends.video_backends.registry import effective_generate_audio_for_model
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request
@@ -74,11 +75,15 @@ def _query(status: str, url: str = "", status_msg: str = "") -> dict:
 
 
 def _jwt_backend(model: str | None = None) -> KlingVideoBackend:
-    return KlingVideoBackend(auth_mode="jwt", access_key="ak-1", secret_key=_SECRET, model=model)
+    return KLING_BACKENDS[official_model_endpoint("kling", "video", model or "kling-v2-5-turbo")](
+        auth_mode="jwt", access_key="ak-1", secret_key=_SECRET, model=model
+    )
 
 
 def _bearer_backend(model: str | None = None) -> KlingVideoBackend:
-    return KlingVideoBackend(auth_mode="bearer", api_key="static-key", model=model)
+    return KLING_BACKENDS[official_model_endpoint("kling", "video", model or "kling-v2-5-turbo")](
+        auth_mode="bearer", api_key="static-key", model=model
+    )
 
 
 def _effective(model: str, service_tier: str = "std") -> VideoCapabilities:
@@ -250,7 +255,7 @@ class TestAudioGating:
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
             _request(tmp_path, resolution="720p", service_tier="std", generate_audio=True)
         )
-        assert payload["sound"] == "off"
+        assert "sound" not in payload
 
     def test_1080p_resolves_pro_mode_and_enables_v2_6_audio(self, tmp_path):
         # 选 1080p 即 pro 档，不依赖 service_tier（生产路径从不写入它）
@@ -277,7 +282,7 @@ class TestAudioGating:
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
             _request(tmp_path, resolution="4k", service_tier="pro", generate_audio=True)
         )
-        assert payload["sound"] == "off"
+        assert "sound" not in payload
 
     def test_v3_audio_enabled_without_tier_constraint(self, tmp_path):
         # v3 系官方未声明分辨率/档位约束：请求要人声即开启，不按未记载的限制降级
@@ -344,7 +349,7 @@ class TestMultiImageSubpath:
         展示层（设置页音频开关置灰）与入队预检读的就是这一份；两者若各写一遍，界面会继续
         放行一个执行期必然被丢弃的开关——用户开了音频却拿到无声成片。
         """
-        caps = KlingVideoBackend.video_capabilities_for_model("kling-v3-omni")
+        caps = KLING_BACKENDS["kling-video-audio"].video_capabilities_for_model("kling-v3-omni")
         assert caps.audio_track_for_route("i2v") is VideoAudioMode.CONTROLLABLE
         assert caps.audio_track_for_route("r2v") is VideoAudioMode.ALWAYS_OFF
 

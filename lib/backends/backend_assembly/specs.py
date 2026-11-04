@@ -210,6 +210,58 @@ def _seedance_video_endpoint(provider_id: str, model_id: str | None) -> str:
     return "ark-seedance-1"
 
 
+# 官方模型选择与添加时预填的名字识别；运行中的通道只读取所选端点。
+_VIDU_PROFILES = {
+    "viduq3-pro": "q3-pro",
+    "viduq3-turbo": "q3-turbo",
+    "viduq3-pro-fast": "q3-fast",
+    "viduq3": "q3-reference",
+    "viduq3-mix": "q3-reference",
+    "viduq2": "q2",
+    "viduq2-pro": "q2-pro",
+    "viduq2-pro-fast": "q2-fast",
+    "viduq2-turbo": "q2-fast",
+    "viduq1": "q1",
+    "viduq1-classic": "q1-classic",
+    "vidu2.0": "2",
+}
+_KLING_PROFILES = {
+    "kling-v2-5-turbo": "pro-silent",
+    "kling-v2-6": "pro-audio",
+    "kling-v3": "audio",
+    "kling-v3-omni": "audio",
+    "kling-video-o1": "silent",
+}
+_GROK_ENDPOINTS = ("grok-video-classic", "grok-video-mixed")
+_VIDU_ENDPOINTS = (
+    "vidu-video-generic",
+    "vidu-video-q3-pro",
+    "vidu-video-q3-turbo",
+    "vidu-video-q3-fast",
+    "vidu-video-q3-reference",
+    "vidu-video-q2",
+    "vidu-video-q2-pro",
+    "vidu-video-q2-fast",
+    "vidu-video-q1",
+    "vidu-video-q1-classic",
+    "vidu-video-2",
+)
+_KLING_ENDPOINTS = ("kling-video-pro-silent", "kling-video-pro-audio", "kling-video-audio", "kling-video-silent")
+
+
+def request_profile_endpoint_for_name(provider_id: str, name: str) -> str | None:
+    """升级前请求形态的名字识别，仅用于端点选择；迁移冻结了同样的规则。"""
+    if provider_id == "grok":
+        return "grok-video-classic" if name == "grok-imagine-video" else None
+    if provider_id == "vidu":
+        profile = _VIDU_PROFILES.get(name)
+        return f"vidu-video-{profile}" if profile else None
+    if provider_id == "kling":
+        profile = _KLING_PROFILES.get(name.replace(":", "/").rsplit("/", 1)[-1].strip().lower())
+        return f"kling-video-{profile}" if profile else None
+    return None
+
+
 def builtin_declarative_video_diagnostics(
     provider_id: str, model_id: str, config: Mapping[str, str]
 ) -> tuple[Mapping[str, Any], str, str] | None:
@@ -332,7 +384,7 @@ def _gemini_spec(provider_id: str, media_type: str, *, backend_type: str) -> Pro
 _KLING_REGISTRY_BACKEND = "kling"
 
 
-def _build_kling(config: LoadedConfig, model_id: str | None, *, media_type: str) -> Any:
+def _build_kling(config: LoadedConfig, model_id: str | None, *, media_type: str, endpoint: str | None = None) -> Any:
     """kling 通用构造：按凭证形态分派 auth_mode（api_key 优先于双 secret）；image 侧叠加 api_model_name 注入。"""
     if kling_auth_mode(config.credentials) == "bearer":
         kwargs: dict[str, Any] = {
@@ -355,7 +407,7 @@ def _build_kling(config: LoadedConfig, model_id: str | None, *, media_type: str)
     base_url = _resolve_base_url(config)
     if base_url:
         kwargs["base_url"] = base_url
-    return _media_create_backend(media_type)(_KLING_REGISTRY_BACKEND, **kwargs)
+    return _media_create_backend(media_type)(endpoint or _KLING_REGISTRY_BACKEND, **kwargs)
 
 
 def _kling_spec(media_type: str) -> ProviderSpec:
@@ -532,7 +584,7 @@ PROVIDER_ONLY_ENDPOINTS: Mapping[str, str] = {
     "vidu-image": "image",
     "agnes-image-pixels": "image",
     "agnes-image-tier": "image",
-    "grok-video": "video",
+    **dict.fromkeys(_GROK_ENDPOINTS, "video"),
     "agnes-video": "video",
 }
 
@@ -542,9 +594,7 @@ _SIMPLE_MEDIA_ENDPOINTS: Mapping[tuple[str, str], str] = {
     ("openai", "image"): "openai-images",
     ("vidu", "image"): "vidu-image",
     ("minimax", "image"): "minimax-image",
-    ("grok", "video"): "grok-video",
     ("openai", "video"): "openai-video",
-    ("vidu", "video"): "vidu-video",
     ("agnes", "video"): "agnes-video",
     ("dashscope", "audio"): "dashscope-tts",
     ("minimax", "audio"): "minimax-tts",
@@ -582,7 +632,22 @@ _specs += [
     for provider_id, backend_type in _GEMINI_BACKEND_TYPES.items()
     for media_type in ("image", "video", "audio")
 ]
-_specs += [_kling_spec(media_type) for media_type in ("image", "video")]
+_specs += [_kling_spec("image")]
+_specs += [
+    ProviderSpec(
+        provider_id=provider,
+        media_type="video",
+        registry_backend=endpoint,
+        build_backend=(
+            partial(_build_kling, media_type="video", endpoint=endpoint)
+            if provider == "kling"
+            else partial(_build_simple, media_type="video", registry_backend=endpoint)
+        ),
+        endpoint=endpoint,
+    )
+    for provider, endpoints in (("grok", _GROK_ENDPOINTS), ("vidu", _VIDU_ENDPOINTS), ("kling", _KLING_ENDPOINTS))
+    for endpoint in endpoints
+]
 # 方舟两个 provider_id 都可以挂 Seedance 三个端点；视频 lane 多报一项实际使用的推理凭证，见 _build_ark_video。
 _specs += [
     ProviderSpec(
@@ -648,6 +713,9 @@ _MULTI_ENDPOINT_DEFAULTS: Mapping[tuple[str, str], str] = {
     ("dashscope", "image"): "dashscope-qwen-image",
     ("agnes", "image"): "agnes-image-tier",
     ("minimax", "video"): "minimax-hailuo-v1",
+    ("grok", "video"): "grok-video-classic",
+    ("vidu", "video"): "vidu-video-q3-turbo",
+    ("kling", "video"): "kling-video-pro-silent",
     # 方舟的默认视频模型是 Seedance 2.0 系列
     ("ark", "video"): "ark-seedance-2",
     ("ark-agent-plan", "video"): "ark-seedance-2",
@@ -755,8 +823,7 @@ def image_endpoint_for_name(provider_id: str, model_id: str) -> str:
 
 
 def official_model_endpoint(provider_id: str, media_type: str, model_id: str | None) -> str:
-    """官方收录的模型挂接的端点，暂时在代码里决定：MiniMax 视频按 API 模型名选，方舟视频按名字选 Seedance 代际，
-    图片按尺寸约定选端点，其余取默认端点（#3647 改读官方数据后删除名字规则）。
+    """官方收录的模型挂接的端点，暂时按升级前的名字规则决定。
 
     没有记下端点的用户添加模型同样落到这里，与它们记下端点之前的通道一致。
     """
@@ -767,6 +834,14 @@ def official_model_endpoint(provider_id: str, media_type: str, model_id: str | N
         return _seedance_video_endpoint(provider_id, model_id)
     if media_type == "image" and provider_id in _IMAGE_ENDPOINTS and model_id:
         return image_endpoint_for_name(provider_id, model_id)
+    if media_type == "video" and provider_id in ("grok", "vidu", "kling") and model_id:
+        entry = catalog.provider_model_entry(provider_id, model_id, "video")
+        names = (entry.name, *entry.aliases) if entry is not None else (model_id,)
+        for name in names:
+            endpoint = request_profile_endpoint_for_name(provider_id, name)
+            if endpoint is not None:
+                return endpoint
+        return {"grok": "grok-video-mixed", "vidu": "vidu-video-generic", "kling": "kling-video-silent"}[provider_id]
     return declared.default
 
 
@@ -795,6 +870,14 @@ def infer_builtin_endpoint(provider_id: str, media_type: str, model_id: str) -> 
     from lib.custom_provider.endpoints import infer_endpoint
 
     declared = get_provider_endpoints(provider_id, media_type)
+    if media_type == "video" and provider_id == "grok":
+        entry = catalog.find_entry(model_id, media_type="video")
+        names = (entry.name, *entry.aliases) if entry is not None else (model_id,)
+        for name in names:
+            endpoint = request_profile_endpoint_for_name(provider_id, name)
+            if endpoint is not None:
+                return endpoint
+        return declared.default
     discovery_format = "google" if provider_id in _GEMINI_BACKEND_TYPES else "openai"
     inferred = infer_endpoint(model_id, discovery_format, media_type)
     return inferred if inferred in declared.endpoints else declared.default

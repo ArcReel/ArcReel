@@ -86,10 +86,10 @@ def test_custom_video_quote_carries_overridden_capabilities():
     request = VideoGenerationRequest(
         prompt="p", output_path=Path("o.mp4"), duration_seconds=5, generate_audio=False, service_tier="pro"
     )
-    spec = get_endpoint_spec("kling-video")
-    plain = CustomPriceSource(CustomModelPricing(endpoint="kling-video"), spec)
+    spec = get_endpoint_spec("kling-video-pro-silent")
+    plain = CustomPriceSource(CustomModelPricing(endpoint="kling-video-pro-silent"), spec)
     overridden = CustomPriceSource(
-        CustomModelPricing(endpoint="kling-video", capability_overrides={"audio_track": "always_on"}), spec
+        CustomModelPricing(endpoint="kling-video-pro-silent", capability_overrides={"audio_track": "always_on"}), spec
     )
 
     assert plain.video_usage("kling-v3", request).dimensions["audio"] is False

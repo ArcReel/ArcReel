@@ -48,9 +48,9 @@ from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBacke
 from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
 from lib.backends.video_backends.gemini import GeminiVideoBackend
-from lib.backends.video_backends.kling import KlingVideoBackend
+from lib.backends.video_backends.kling import KLING_BACKENDS
 from lib.backends.video_backends.openai import OpenAIVideoBackend
-from lib.backends.video_backends.vidu import ViduVideoBackend
+from lib.backends.video_backends.vidu import VIDU_BACKENDS
 from lib.config.url_utils import (
     ANTHROPIC_MESSAGES_PATH,
     ensure_google_base_url,
@@ -695,10 +695,14 @@ def _build_ark_seedream(
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_vidu_video(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomVideoBackend:
+def _build_vidu_video(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES, *, endpoint: str
+) -> CustomVideoBackend:
     base_url = _ensure_url_path_suffix(provider.base_url, "/ent/v2")
     layer = path_override_layer(_VIDU_VIDEO_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
-    delegate = ViduVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer)
+    delegate = VIDU_BACKENDS[endpoint](
+        api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer
+    )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -771,11 +775,11 @@ def _build_kling_image(
 
 
 def _build_kling_video(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES, *, endpoint: str
 ) -> CustomVideoBackend:
     # 中转站「原样代理可灵」：bearer 模式旁路 JWT 管理器，用静态 api_key 直发可灵原生异步视频端点。
     base_url = _ensure_url_path_suffix(provider.base_url, "/v1")
-    delegate = KlingVideoBackend(
+    delegate = KLING_BACKENDS[endpoint](
         auth_mode="bearer",
         api_key=provider.api_key,
         base_url=base_url,
@@ -954,19 +958,22 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         )
         for key, backend_class in SEEDREAM_BACKENDS.items()
     },
-    "vidu-video": EndpointSpec(
-        key="vidu-video",
-        media_type="video",
-        family="vidu",
-        display_name_key="endpoint_vidu_video_display",
-        request_method="POST",
-        request_path_template="/ent/v2/img2video",
-        build_backend=_build_vidu_video,
-        requests=_VIDU_VIDEO_REQUESTS,
-        metering_backend=ViduVideoBackend,
-        video_caps_for_model=ViduVideoBackend.video_capabilities_for_model,
-        end_image_capable=True,
-    ),
+    **{
+        key: EndpointSpec(
+            key=key,
+            media_type="video",
+            family="vidu",
+            display_name_key="endpoint_" + key.replace("-", "_") + "_display",
+            request_method="POST",
+            request_path_template="/ent/v2/img2video",
+            build_backend=partial(_build_vidu_video, endpoint=key),
+            requests=_VIDU_VIDEO_REQUESTS,
+            metering_backend=backend,
+            video_caps_for_model=backend.video_capabilities_for_model,
+            end_image_capable=True,
+        )
+        for key, backend in VIDU_BACKENDS.items()
+    },
     **{
         key: EndpointSpec(
             key=key,
@@ -1077,22 +1084,22 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         requests=_KLING_IMAGE_REQUESTS,
         metering_backend=KlingImageBackend,
     ),
-    "kling-video": EndpointSpec(
-        key="kling-video",
-        media_type="video",
-        family="kling",
-        display_name_key="endpoint_kling_video_display",
-        request_method="POST",
-        # 无首帧走 text2video、有首帧走 image2video（含可选尾帧）、有多图主体走 multi-image2video（R2V）
-        request_path_template="/v1/videos/{text2video,image2video,multi-image2video}",
-        build_backend=_build_kling_video,
-        requests=_KLING_VIDEO_REQUESTS,
-        metering_backend=KlingVideoBackend,
-        # 参考图上限随 model 异质（v3-omni / video-o1 多图主体 R2V max=4，其余首尾帧无参考为 0）→ 不在
-        # endpoint 维度声明 int cap，按 model 读 backend 纯 caps 函数。
-        video_caps_for_model=KlingVideoBackend.video_capabilities_for_model,
-        end_image_capable=True,
-    ),
+    **{
+        key: EndpointSpec(
+            key=key,
+            media_type="video",
+            family="kling",
+            display_name_key="endpoint_" + key.replace("-", "_") + "_display",
+            request_method="POST",
+            request_path_template="/v1/videos/{text2video,image2video,multi-image2video}",
+            build_backend=partial(_build_kling_video, endpoint=key),
+            requests=_KLING_VIDEO_REQUESTS,
+            metering_backend=backend,
+            video_caps_for_model=backend.video_capabilities_for_model,
+            end_image_capable=True,
+        )
+        for key, backend in KLING_BACKENDS.items()
+    },
 }
 
 
@@ -1546,12 +1553,13 @@ _MINIMAX_S2V_MODELS = frozenset({"s2v-01", "minimax-s2v-01"})
 #: 只收一个名字可能落在多种媒体类型上的厂商（两栖模型、名字不带媒体语义的型号），其余厂商的名字规则
 #: 本身已经给出唯一的媒体类型。
 _FAMILY_ENDPOINTS: tuple[tuple[str, Mapping[str, str]], ...] = (
-    ("kling", {"image": "kling-image", "video": "kling-video"}),
+    ("kling", {"image": "kling-image", "video": "kling-video-pro-silent"}),
     ("gemini", {"text": "gemini-generate", "image": "gemini-image", "audio": "gemini-tts"}),
     # Seedance 的代际按名字再细分，见 _seedance_endpoint
     ("seedance", {"video": "ark-seedance-1"}),
     ("seedream", {"image": "ark-seedream-4"}),
-    ("viduq3", {"video": "vidu-video"}),
+    ("viduq", {"video": "vidu-video-q3-turbo"}),
+    ("vidu2", {"video": "vidu-video-2"}),
     ("hailuo", {"video": "minimax-hailuo-v1"}),
 )
 
@@ -1562,6 +1570,22 @@ _DEFAULT_ENDPOINTS: Mapping[str, tuple[str, str]] = {
     "video": ("gemini-video", "openai-video"),
     "audio": ("gemini-tts", "openai-tts"),
 }
+
+
+def _request_profile_endpoint(provider: str, model_id: str) -> str:
+    from lib.backends.backend_assembly.specs import request_profile_endpoint_for_name
+    from lib.catalog.query import find_entry
+
+    entry = find_entry(model_id, media_type="video")
+    names = (entry.name, *entry.aliases) if entry is not None else (model_id,)
+    for name in names:
+        endpoint = request_profile_endpoint_for_name(provider, name)
+        if endpoint is not None:
+            return endpoint
+    return {
+        "vidu": "vidu-video-generic",
+        "kling": "kling-video-silent",
+    }[provider]
 
 
 def _seedance_endpoint(model_id: str) -> str:
@@ -1589,6 +1613,8 @@ def infer_endpoint(model_id: str, discovery_format: str, media_type: str | None 
                 from lib.backends.backend_assembly.specs import image_endpoint_for_name
 
                 return image_endpoint_for_name("ark", model_id)
+            if media_type == "video" and ("kling" in token or "vidu" in token):
+                return _request_profile_endpoint("kling" if "kling" in token else "vidu", model_id)
             return endpoints[media_type]
     google_default, other_default = _DEFAULT_ENDPOINTS[media_type]
     return google_default if discovery_format == "google" else other_default
@@ -1720,8 +1746,8 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     # 默认归视频、图像手动选；不分 discovery_format（可灵端点各自唯一）。
     if "kling" in lowered:
         if "video" in lowered:
-            return "kling-video"
-        return "kling-image" if is_image else "kling-video"
+            return _request_profile_endpoint("kling", model_id)
+        return "kling-image" if is_image else _request_profile_endpoint("kling", model_id)
 
     # wan2.x-image / wan3.0-video-image 含 "wan" 会被 _VIDEO_PATTERN 误判为视频；显式排除让它落到
     # 图像家族推断。复用上面的 wan_image_variant（排除 image-to-video 续接别名后的图像判定）。
@@ -1735,7 +1761,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
         if "seedance" in lowered:
             return _seedance_endpoint(model_id)
         if "viduq3" in lowered:
-            return "vidu-video"
+            return _request_profile_endpoint("vidu", model_id)
         # Veo 的 OpenAI 兼容层沿用 /v1/videos，只有 google 发现协议才是原生 predictLongRunning
         if "veo" in lowered and discovery_format == "google":
             return "gemini-video"

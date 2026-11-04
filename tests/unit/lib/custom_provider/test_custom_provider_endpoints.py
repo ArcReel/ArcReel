@@ -71,7 +71,17 @@ class TestRegistry:
             "ark-seedance-2-5",
             "ark-seedream-3",
             "ark-seedream-4",
-            "vidu-video",
+            "vidu-video-q3-turbo",
+            "vidu-video-generic",
+            "vidu-video-q3-pro",
+            "vidu-video-q3-fast",
+            "vidu-video-q3-reference",
+            "vidu-video-q2",
+            "vidu-video-q2-pro",
+            "vidu-video-q2-fast",
+            "vidu-video-q1",
+            "vidu-video-q1-classic",
+            "vidu-video-2",
             "openrouter-video",
             "xai-video",
             "dashscope-qwen-image",
@@ -84,7 +94,10 @@ class TestRegistry:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-image",
-            "kling-video",
+            "kling-video-pro-silent",
+            "kling-video-pro-audio",
+            "kling-video-audio",
+            "kling-video-silent",
             "gemini-video",
             "openai-tts",
             "dashscope-tts",
@@ -167,13 +180,13 @@ class TestRegistry:
             "ark-seedance-1",
             "ark-seedance-2",
             "ark-seedance-2-5",
-            "vidu-video",
+            "vidu-video-q3-turbo",
             "dashscope-async-video",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
             "minimax-h3",
-            "kling-video",
+            "kling-video-pro-silent",
             "gemini-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
@@ -193,13 +206,13 @@ class TestRegistry:
             "ark-seedance-1",
             "ark-seedance-2",
             "ark-seedance-2-5",
-            "vidu-video",
+            "vidu-video-q3-turbo",
             "dashscope-async-video",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
             "minimax-h3",
-            "kling-video",
+            "kling-video-pro-silent",
             "gemini-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
@@ -233,14 +246,14 @@ class TestRegistry:
         保守关尾帧；各型号接不接受参考图由条目决定，resolver 据此两侧求值而无需构造 backend / api_key。"""
         from lib.custom_provider.capabilities import two_sided_video_capabilities
 
-        caps_fn = ENDPOINT_REGISTRY["kling-video"].video_caps_for_model
+        caps_fn = ENDPOINT_REGISTRY["kling-video-pro-silent"].video_caps_for_model
         assert caps_fn is not None
         for model_id in ("kling-v3-omni", "kling-v2-5-turbo", "kling-v4", "vendor/some-unknown-model"):
             assert caps_fn(model_id, None).max_reference_images == 4
         assert caps_fn("kling-v2-5-turbo", None).last_frame is False
 
         def effective(model_id: str):
-            return two_sided_video_capabilities(endpoint="kling-video", model_id=model_id)
+            return two_sided_video_capabilities(endpoint="kling-video-pro-silent", model_id=model_id)
 
         assert effective("kling-v3-omni").max_reference_images == 4
         assert effective("kling-video-o1").max_reference_images == 4
@@ -335,7 +348,17 @@ class TestRegistry:
             "ark-seedance-1",
             "ark-seedance-2",
             "ark-seedance-2-5",
-            "vidu-video",
+            "vidu-video-q3-turbo",
+            "vidu-video-generic",
+            "vidu-video-q3-pro",
+            "vidu-video-q3-fast",
+            "vidu-video-q3-reference",
+            "vidu-video-q2",
+            "vidu-video-q2-pro",
+            "vidu-video-q2-fast",
+            "vidu-video-q1",
+            "vidu-video-q1-classic",
+            "vidu-video-2",
             "openrouter-video",
             "xai-video",
             "dashscope-async-video",
@@ -343,7 +366,10 @@ class TestRegistry:
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
             "minimax-h3",
-            "kling-video",
+            "kling-video-pro-silent",
+            "kling-video-pro-audio",
+            "kling-video-audio",
+            "kling-video-silent",
             "gemini-video",
         }
 
@@ -452,12 +478,12 @@ class TestInferEndpoint:
             ("seedance-1.0", "openai", "ark-seedance-1"),
             ("doubao-seedance-2-0", "openai", "ark-seedance-2"),
             ("dreamina-seedance-2.5-260628", "openai", "ark-seedance-2-5"),
-            ("viduq3", "openai", "vidu-video"),
-            ("viduq3-mix", "openai", "vidu-video"),
-            ("viduq3-pro", "openai", "vidu-video"),
-            ("viduq3-turbo", "openai", "vidu-video"),
-            ("viduq3-i2v", "openai", "vidu-video"),
-            ("proxy/viduq3-turbo", "openai", "vidu-video"),
+            ("viduq3", "openai", "vidu-video-q3-reference"),
+            ("viduq3-mix", "openai", "vidu-video-q3-reference"),
+            ("viduq3-pro", "openai", "vidu-video-q3-pro"),
+            ("viduq3-turbo", "openai", "vidu-video-q3-turbo"),
+            ("viduq3-i2v", "openai", "vidu-video-generic"),
+            ("proxy/viduq3-turbo", "openai", "vidu-video-q3-turbo"),
             # ── 阿里百炼 wan2.x / wan3.0 → dashscope-async-video（image 变体不受影响）──
             ("wan2.7-i2v", "openai", "dashscope-async-video"),
             ("wan2.7-t2v", "openai", "dashscope-async-video"),
@@ -560,22 +586,22 @@ class TestInferEndpoint:
             ("minimax/image-01", "openai", "minimax-image"),
             ("S2V-01", "google", "minimax-s2v-01"),  # minimax 路由不分 discovery_format
             # ── Kling 原生中转二级路由（视频 family 含 kling，须收敛到 kling-video 而非 openai-video）──
-            ("kling-v2-5-turbo", "openai", "kling-video"),
-            ("kling-v2", "openai", "kling-video"),  # 前 kling endpoint 时代默认 openai-video
-            ("kling-v3", "openai", "kling-video"),
-            ("kling-v2-6", "openai", "kling-video"),
-            ("proxy/kling-v2-5-turbo", "openai", "kling-video"),
-            ("KLING-V3", "openai", "kling-video"),  # 大小写不敏感
-            ("kling-v3-omni", "openai", "kling-video"),  # 图像/视频同名歧义 → 默认归视频
+            ("kling-v2-5-turbo", "openai", "kling-video-pro-silent"),
+            ("kling-v2", "openai", "kling-video-silent"),  # 前 kling endpoint 时代默认 openai-video
+            ("kling-v3", "openai", "kling-video-audio"),
+            ("kling-v2-6", "openai", "kling-video-pro-audio"),
+            ("proxy/kling-v2-5-turbo", "openai", "kling-video-pro-silent"),
+            ("KLING-V3", "openai", "kling-video-audio"),  # 大小写不敏感
+            ("kling-v3-omni", "openai", "kling-video-audio"),  # 图像/视频同名歧义 → 默认归视频
             # 含 image 语义的可灵图像 → kling-image（先于通用图像家族，不被推到 openai-images）
             ("kling-image-o1", "openai", "kling-image"),
             ("kling-v3-omni-image", "openai", "kling-image"),
             ("proxy/kling-image-o1", "openai", "kling-image"),
             ("kling-image-o1", "google", "kling-image"),  # kling 路由不分 discovery_format
             # image-to-video 含 image 语义但本质是视频 → video 优先于 image，归 kling-video
-            ("kling-image2video", "openai", "kling-video"),
-            ("kling-img2video", "openai", "kling-video"),
-            ("proxy/kling-image2video", "openai", "kling-video"),
+            ("kling-image2video", "openai", "kling-video-silent"),
+            ("kling-img2video", "openai", "kling-video-silent"),
+            ("proxy/kling-image2video", "openai", "kling-video-silent"),
             # 方舟 Seedream 没有 /images/edits，带参考图也走 /images/generations；不分 discovery_format
             ("seedream-3.0", "openai", "ark-seedream-3"),
             ("doubao-seedream-5-0-260128", "openai", "ark-seedream-4"),

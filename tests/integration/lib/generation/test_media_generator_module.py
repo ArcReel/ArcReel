@@ -2228,8 +2228,8 @@ class TestEntryBoundVideoRequests:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "kuaishou/kling-v2-6"), ("kling-v2-6", None)])
     async def test_kling_720p_audio_follows_the_bound_entry(self, tmp_path, model, binding):
-        """可灵 v2-6 有声只支持 1080P：绑定 v2-6 的不透明 ID 在 720p 档同样发 ``sound=off``。"""
-        gen = self._generator(tmp_path, _custom_video_backend("kling-video", model, binding), "custom-9")
+        """可灵 v2-6 有声只支持 1080P：绑定 v2-6 的不透明 ID 在 720p 档同样不发送有声音轨。"""
+        gen = self._generator(tmp_path, _custom_video_backend("kling-video-pro-audio", model, binding), "custom-9")
 
         with capture_http() as router:
             submit = router.post(url__startswith="https://relay.test/v1/videos/").mock(
@@ -2242,7 +2242,7 @@ class TestEntryBoundVideoRequests:
 
         body = request_json(only_request(submit))
         assert body["model_name"] == model
-        assert body["sound"] == "off"
+        assert "sound" not in body
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "agnes/agnes-video-2.5"), ("agnes-video-2.5", None)])
