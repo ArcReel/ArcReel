@@ -2318,8 +2318,8 @@ class TestEntryBoundVideoRequests:
         assert f'name="model"\r\n\r\n{model}'.encode() in request.content
         assert b"1080x1920" in request.content
 
-    def test_gemini_vertex_bound_entry_keeps_the_audio_switch(self):
-        """Vertex 下绑定可控音轨条目的不透明 ID 与官方型号同为可控，未绑定的仍按恒有声保守声明。"""
+    def test_gemini_vertex_endpoint_keeps_the_audio_switch_with_or_without_a_bound_entry(self):
+        """Vertex 端点声明音轨可控，绑定条目、官方型号与未收录的模型按同一规则求值。"""
         from lib.catalog import query as catalog
         from lib.config.resolver import builtin_video_audio_track
 
@@ -2333,16 +2333,16 @@ class TestEntryBoundVideoRequests:
         assert (
             builtin_video_audio_track("gemini-vertex", "veo-3.1-generate-001", generation_type="i2v") == "controllable"
         )
-        assert builtin_video_audio_track("gemini-vertex", "veo-unbound-relay", generation_type="i2v") == "always_on"
+        assert builtin_video_audio_track("gemini-vertex", "veo-unbound-relay", generation_type="i2v") == "controllable"
 
     @pytest.mark.parametrize("model", [_OPAQUE, "veo-3.1-generate-001"])
-    def test_gemini_audio_uses_explicit_binding_before_api_name(self, model):
-        """显式绑定 preview 条目时，API 名恰好与 Vertex 型号相同也不能重新打开音轨开关。"""
+    def test_gemini_aistudio_endpoint_keeps_audio_on_even_with_a_vertex_entry(self, model):
+        """AI Studio 端点声明恒有声，绑定 Vertex 条目或使用其 API 型号名都不会改变音轨形态。"""
         from lib.catalog import query as catalog
         from lib.config.resolver import builtin_video_audio_track
 
         catalog.install_user_added_models(
-            [catalog.UserAddedModel("gemini-aistudio", model, "video", entry_binding="google/veo-3.1-generate-preview")]
+            [catalog.UserAddedModel("gemini-aistudio", model, "video", entry_binding="google/veo-3.1-generate-001")]
         )
 
         assert builtin_video_audio_track("gemini-aistudio", model, generation_type="i2v") == "always_on"

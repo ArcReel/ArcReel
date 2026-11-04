@@ -126,7 +126,7 @@ export function ProviderModelSelect({
   const { t } = useTranslation("dashboard");
   const [query, setQuery] = useState("");
 
-  const showSearch = searchable && options.length >= searchThreshold;
+  const showSearch = searchable && options.length + (unavailable?.length ?? 0) >= searchThreshold;
   // 搜索框隐藏时不让残留的查询继续过滤，否则用户会看到一个被「隐形」过滤的列表。
   const activeQuery = showSearch ? query.trim().toLowerCase() : "";
 

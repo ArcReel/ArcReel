@@ -399,4 +399,21 @@ describe("ProviderModelSelect – unavailable options", () => {
     expect(visible).toHaveLength(1);
     expect(visible[0]).toHaveTextContent(/Ark · seedance.*不接受首帧/);
   });
+
+  it("counts the unavailable options toward the search threshold", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderModelSelect
+        value=""
+        options={["gemini-aistudio/veo-3.1-generate-001"]}
+        providerNames={PROVIDER_NAMES}
+        onChange={() => {}}
+        searchThreshold={2}
+        unavailable={[{ value: "ark/seedance", reason: "不接受首帧" }]}
+        unavailableLabel="不能用于图生视频"
+      />,
+    );
+    await open(user);
+    expect(screen.getByPlaceholderText(/搜索模型或供应商/)).toBeInTheDocument();
+  });
 });

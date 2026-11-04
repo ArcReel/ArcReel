@@ -261,7 +261,7 @@ async def update_builtin_model(
 
     官方收录的模型只能启用、停用，其余设置由官方维护；用户添加的模型另可修改模型 ID、调用端点（须是这个供应商在
     该媒体类型下的内置调用端点）、供应商模型倍率与能力覆盖。
-    ``capability_overrides`` 不传时不改，传 ``None`` 时清除；值须已经过写入校验
+    ``capability_overrides`` 不传时不改（换了调用端点时清除），传 ``None`` 时清除；值须已经过写入校验
     （``lib.custom_provider.capability_view.check_user_added_overrides``）。``entry_binding`` 同理：传
     「模型厂商/官方模型名」关联到目录里的条目，传 ``None`` 解除，改回按名字对应；条目是否存在由调用方核对。
     """
@@ -298,7 +298,13 @@ async def update_builtin_model(
             raise BuiltinModelError("builtin_model_duplicate", model=target)
         row.model_id = target
     if endpoint is not None:
-        row.endpoint = _checked_endpoint(provider_id, row.media_type or "", endpoint, model_id=target)
+        checked = _checked_endpoint(provider_id, row.media_type or "", endpoint, model_id=target)
+        # 能力覆盖是按端点校验后保存的：换了端点又没有一并提交覆盖时清除，不让旧端点下的覆盖套到新端点上。
+        if capability_overrides is _UNCHANGED and checked != builtin_endpoints.builtin_model_endpoint(
+            provider_id, row.media_type or "", model_id
+        ):
+            capability_overrides = None
+        row.endpoint = checked
     if enabled is not None:
         row.enabled = enabled
     if multiplier is not None:

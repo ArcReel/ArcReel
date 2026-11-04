@@ -54,14 +54,15 @@ if TYPE_CHECKING:
 
 rate_limiter = get_shared_rate_limiter()
 
-_CacheKey = tuple[str, str, str | None, str | None]
+_CacheKey = tuple[str, str, str | None, str | None, str | None]
 
 
 class _BackendCache:
-    """Backend 实例缓存：按 (media_type, provider_name, model, 任务类型桶) 复用实例，避免每次任务重建 API 客户端。
+    """Backend 实例缓存：按 (media_type, provider_name, model, 任务类型桶, 内置调用端点) 复用实例，避免每次任务重建 API 客户端。
 
     桶进 key 是因为它参与构造：自定义供应商的默认模型按桶分槽，同一 (media_type, provider,
-    model=None) 在 t2i 与 i2i 上装载出的是两个不同模型的 backend。
+    model=None) 在 t2i 与 i2i 上装载出的是两个不同模型的 backend。内置供应商的模型挂接的端点同样参与构造，进 key 后
+    换了端点（设置页修改、官方目录同步收录）不会取到按旧端点构造的实例。
 
     缓存查询/构造/写回/失效在此单点实现，两条并发纪律藏在实现内、不扩大接口：
 
@@ -125,14 +126,17 @@ async def _get_or_create_backend(
     generation_type: str | None = None,
     *,
     submitted_job: bool = False,
-) -> Any:
-    """组 key + 提供 factory closure，缓存纪律统一委托 :class:`_BackendCache`。
+) -> tuple[Any, str | None]:
+    """组 key + 提供 factory closure，缓存纪律统一委托 :class:`_BackendCache`；返回 backend 与构造它的内置调用端点。
 
     查缓存之前先定下这次调用的模型并按今天的生命周期检查（``callable_model_key``，内置与自定义供应商都查）：
     缓存的实例可能构造于关停日期之前，跨过关停日期后不能再经缓存调用已下线的模型，也不能沿用已下线的默认模型。
 
     ``submitted_job`` 为真（续跑已提交给厂商的任务，见 :class:`VideoLaneRequest`）时查缓存前与构造时都不拦已下线的
     模型。缓存键不含它：续跑写入的实例与新调用共用缓存，新调用取缓存前照样经 ``callable_model_key`` 检查。
+
+    内置供应商的模型在这里只读一次挂接的调用端点：按它构造、按它分缓存键，视频的续跑守卫也取它
+    （:func:`_video_endpoint_guard`）。之后的 await 期间用户改了端点，守卫仍与实际提交任务的实例一致。自定义供应商为 None。
     """
     effective_model = await callable_model_key(
         provider_id=provider_name,
@@ -141,6 +145,12 @@ async def _get_or_create_backend(
         resolver=resolver,
         generation_type=generation_type,
         submitted_job=submitted_job,
+    )
+
+    endpoint = (
+        None
+        if is_custom_provider(provider_name)
+        else builtin_model_endpoint(provider_name, media_type, effective_model)
     )
 
     async def _factory() -> Any:
@@ -152,9 +162,13 @@ async def _get_or_create_backend(
             rate_limiter=rate_limiter,
             generation_type=generation_type,
             submitted_job=submitted_job,
+            builtin_endpoint=endpoint,
         )
 
-    return await _backend_cache.get_or_create((media_type, provider_name, effective_model, generation_type), _factory)
+    backend = await _backend_cache.get_or_create(
+        (media_type, provider_name, effective_model, generation_type, endpoint), _factory
+    )
+    return backend, endpoint
 
 
 async def _get_or_create_video_backend(
@@ -164,17 +178,18 @@ async def _get_or_create_video_backend(
     *,
     default_video_model: str | None = None,
     submitted_job: bool = False,
-):
-    """获取或创建 VideoBackend 实例（带缓存）。
+) -> tuple[Any, str | None]:
+    """获取或创建 VideoBackend 实例（带缓存），连同它提交任务时冻结的续跑守卫（:func:`_video_endpoint_guard`）。
 
     provider_name 可以是旧格式（gemini/seedance/grok）或新格式（gemini-aistudio/gemini-vertex）。
     通过 resolver 按需加载供应商配置。
     default_video_model: 全局默认视频模型，当 provider_settings 中无 model 时作为 fallback。
     submitted_job: 续跑已提交给厂商的任务，见 :class:`VideoLaneRequest`。
     """
-    return await _get_or_create_backend(
+    backend, endpoint = await _get_or_create_backend(
         "video", provider_name, provider_settings, resolver, default_video_model, submitted_job=submitted_job
     )
+    return backend, _video_endpoint_guard(backend, endpoint)
 
 
 async def _get_or_create_image_backend(
@@ -190,9 +205,10 @@ async def _get_or_create_image_backend(
     generation_type 是本次调用所属的任务类型桶：自定义供应商的默认模型按桶分槽，桶随构造一路
     传到 ``load_custom_backend``，也进缓存 key（t2i 与 i2i 不互相命中）。
     """
-    return await _get_or_create_backend(
+    backend, _ = await _get_or_create_backend(
         "image", provider_name, provider_settings, resolver, default_image_model, generation_type
     )
+    return backend
 
 
 async def _get_or_create_audio_backend(
@@ -203,7 +219,8 @@ async def _get_or_create_audio_backend(
     default_audio_model: str | None = None,
 ):
     """获取或创建 AudioBackend 实例（带缓存）。audio 无媒体特例：自定义 + 简单族统一经构造缝。"""
-    return await _get_or_create_backend("audio", provider_name, provider_settings, resolver, default_audio_model)
+    backend, _ = await _get_or_create_backend("audio", provider_name, provider_settings, resolver, default_audio_model)
+    return backend
 
 
 async def _audio_backend_for(provider_id: str, model_id: str, resolver: ConfigResolver):
@@ -378,14 +395,14 @@ class GenerationContext:
         return self.audio_lane
 
 
-def _video_endpoint_guard(provider_id: str, model_id: str, backend: object) -> str | None:
-    """提交时冻结、续跑时比对的协议标识（见 lib.backends.resume_guard）。
+def _video_endpoint_guard(backend: object, builtin_endpoint: str | None) -> str | None:
+    """提交时冻结、续跑时比对的协议标识（见 lib.backends.resume_guard），取自构造这个 backend 所用的端点。
 
-    内置供应商取模型挂接的内置调用端点；自定义供应商取包装层给出的端点键与路径覆盖。显式按类型分流而非 getattr
+    内置供应商取构造时挂接的内置调用端点；自定义供应商取包装层给出的端点键与路径覆盖。显式按类型分流而非 getattr
     探测：属性一旦改名，探测式取值会静默失效且无任何信号。
     """
-    if not is_custom_provider(provider_id):
-        return builtin_endpoint_guard(builtin_model_endpoint(provider_id, "video", model_id))
+    if builtin_endpoint is not None:
+        return builtin_endpoint_guard(builtin_endpoint)
     return backend.endpoint_guard if isinstance(backend, CustomVideoBackend) else None
 
 
@@ -450,7 +467,7 @@ async def resolve_generation_context(
             resolved = await r.resolve_video_backend(
                 project, payload, generation_type=generation_type, submitted_job=video.submitted_job
             )
-            video_backend = await _get_or_create_video_backend(
+            video_backend, endpoint_guard = await _get_or_create_video_backend(
                 resolved.provider_id,
                 {},
                 r,
@@ -485,7 +502,7 @@ async def resolve_generation_context(
                 resolution=resolution,
                 request_facts=request_facts,
                 requested_generate_audio_fallback=requested_generate_audio_fallback,
-                endpoint=_video_endpoint_guard(resolved.provider_id, actual_model, video_backend),
+                endpoint=endpoint_guard,
             )
 
         if audio is not None:

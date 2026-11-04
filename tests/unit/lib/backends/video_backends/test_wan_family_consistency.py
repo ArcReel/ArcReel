@@ -333,16 +333,15 @@ def test_wan_substring_s2v_excluded_from_minimax_routing_even_without_family_mat
 
 
 @pytest.mark.parametrize(
-    ("model_id", "expected_profile"),
+    ("model_id", "expected_endpoint"),
     [
-        ("proxy/happyhorse-1.0-r2v", "happyhorse-1.0-r2v"),
-        ("happyhorse-1.0-r2v-0715", "happyhorse-1.0-r2v"),
-        ("myhappyhorse-1.0-r2v", None),  # 标识符边界拒绝：非 happyhorse 家族
+        ("proxy/happyhorse-1.0-r2v", "dashscope-reference-video"),
+        ("happyhorse-1.0-r2v-0715", "dashscope-reference-video"),
+        ("myhappyhorse-1.0-r2v", "openai-chat"),  # 标识符边界拒绝：非 happyhorse 家族
     ],
 )
-def test_happyhorse_boundary_and_decoration(model_id: str, expected_profile: str | None) -> None:
-    if expected_profile and expected_profile.startswith("wan"):
-        assert _profile_key_for_model(model_id) == expected_profile
+def test_happyhorse_boundary_and_decoration(model_id: str, expected_endpoint: str) -> None:
+    assert infer_endpoint(model_id, "openai") == expected_endpoint
 
 
 @pytest.mark.parametrize(
@@ -381,8 +380,7 @@ def test_excluded_from_native_route_agrees_with_default_profile(model_id: str) -
     「不落原生路由却仍解析出请求形态档」的互斥组合——`_profile_for_model` 的子串容忍匹配若不
     检查 has_known_modality，会在装饰后缀里找到共存的已知 token（如 "wan2.7-i2v-s2v" 里的
     "i2v"）而误判出该已实现模态的请求形态档。"""
-    routed_native = infer_endpoint(model_id, "openai") == "dashscope-video"
-    assert routed_native is False
+    assert not infer_endpoint(model_id, "openai").startswith("dashscope-")
     assert _profile_key_for_model(model_id) is None
 
 
