@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import cast
 
+from .endpoints import BUILTIN_ENDPOINTS, is_app_version, provider_endpoint_options
 from .model import (
     AudioFacts,
     BuiltinProviderListing,
@@ -46,7 +47,6 @@ from .vocabulary import (
 
 #: 数据集版本是 UTC 时间戳，定长，字符串顺序即时间顺序。
 DATASET_VERSION_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
-_APP_VERSION = re.compile(r"\d+(\.\d+){0,2}")
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _CONTEXT_TIER = "context_tier"
 
@@ -119,7 +119,9 @@ _PRICE_FIELDS = frozenset({"currency", "meters"})
 _METER_FIELDS = frozenset({"meter", "dims", "rows", "defaults", "free_allowance", "cjk_double"})
 _ROW_FIELDS = frozenset({"when", "price"})
 _LISTING_FIELDS = frozenset({"models", "defaults"})
-_PROVIDER_MODEL_FIELDS = frozenset({"api_model_name", "entry", "media_type", "multiplier", "min_app_version"})
+_PROVIDER_MODEL_FIELDS = frozenset(
+    {"api_model_name", "entry", "media_type", "multiplier", "min_app_version", "endpoint"}
+)
 
 
 class CatalogReader:
@@ -565,7 +567,7 @@ class CatalogReader:
         if data.get("multiplier") is not None:
             multiplier = self.number(data["multiplier"], _at(path, "multiplier"))
         min_app_version = self.optional_text(data, "min_app_version", path)
-        if min_app_version and not _APP_VERSION.fullmatch(min_app_version):
+        if min_app_version and not is_app_version(min_app_version):
             self.flag(_at(path, "min_app_version"), "invalid_app_version", "应为形如 0.34.0 的应用版本")
         return BuiltinProviderModel(
             api_model_name=api_model_name,
@@ -573,6 +575,7 @@ class CatalogReader:
             media_type=media_type,
             multiplier=multiplier,
             min_app_version=min_app_version,
+            endpoint=self.optional_text(data, "endpoint", path),
         )
 
     # ---- 跨条目的构建侧检查 ----
@@ -617,6 +620,7 @@ class CatalogReader:
                 if entry is None:
                     unresolved.add(model.api_model_name)
                     continue
+                self.check_endpoint(provider_id, model, entry, model_path)
                 slot = (model.api_model_name, entry.media_type)
                 if slot in listed:
                     self.flag(model_path, "duplicate_provider_model", "同一供应商下 API 模型名与媒体类型重复")
@@ -635,6 +639,23 @@ class CatalogReader:
                     self.flag(default_path, "default_model_discontinued", "默认模型已下线")
                 elif default_entry.shutdown_date is not None:
                     self.flag(default_path, "default_model_retiring", "默认模型带关停日期")
+
+    def check_endpoint(self, provider_id: str, model: BuiltinProviderModel, entry: CatalogEntry, path: str) -> None:
+        """端点声明在端点清单里，媒体类型与所引用的条目一致，且是该供应商这一媒体类型的可选端点。"""
+        if model.endpoint is None:
+            return
+        path = _at(path, "endpoint")
+        declared = BUILTIN_ENDPOINTS.get(model.endpoint)
+        if declared is None:
+            self.flag(path, "unknown_endpoint", "端点清单里没有这个调用端点")
+        elif declared.media_type != entry.media_type:
+            self.flag(
+                path, "endpoint_media_type_mismatch", f"这是 {declared.media_type} 端点，条目是 {entry.media_type}"
+            )
+        else:
+            options = provider_endpoint_options(provider_id, entry.media_type)
+            if options is None or model.endpoint not in options.endpoints:
+                self.flag(path, "endpoint_not_selectable", "这个调用端点不在该供应商这一媒体类型的可选端点里")
 
     def listed_entry(self, data: CatalogData, model: BuiltinProviderModel, path: str) -> CatalogEntry | None:
         if model.media_type is not None and model.media_type not in MEDIA_TYPES:
