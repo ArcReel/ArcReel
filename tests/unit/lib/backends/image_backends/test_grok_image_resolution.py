@@ -1,4 +1,4 @@
-"""测试 GrokImageBackend 对 image_size 的新逻辑：None 不传，非 None 直接透传。"""
+"""测试 GrokImageBackend 对 image_size 的新逻辑：None 不传，非 None 转小写下发。"""
 
 from unittest.mock import MagicMock
 
@@ -40,7 +40,7 @@ async def test_image_size_none_not_in_kwargs(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_image_size_passed_through_as_is(tmp_path):
+async def test_image_size_lowercased_for_sdk(tmp_path):
     backend = _make_backend()
     captured: dict = {}
 
@@ -58,5 +58,5 @@ async def test_image_size_passed_through_as_is(tmp_path):
     with pytest.raises(RuntimeError):
         await backend.generate(req)
 
-    # 直接透传标准 token（不再经过 _map_image_size_to_resolution 小写映射）
-    assert captured["resolution"] == "2K"
+    # 目录取值 "2K" 下发前转成 xai-sdk 接受的小写 "2k"
+    assert captured["resolution"] == "2k"

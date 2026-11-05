@@ -109,7 +109,8 @@ class GrokImageBackend:
             "aspect_ratio": _validate_aspect_ratio(request.aspect_ratio),
         }
         if request.image_size is not None:
-            generate_kwargs["resolution"] = request.image_size
+            # xai-sdk 的 convert_image_resolution_to_pb 只接受小写 "1k"/"2k"，目录取值为 "1K"/"2K"
+            generate_kwargs["resolution"] = request.image_size.lower()
 
         # I2I：将所有参考图转为 base64 data URI 列表
         reference_count = 0
@@ -146,6 +147,6 @@ class GrokImageBackend:
             usage=per_image_usage(
                 output_images=1,
                 input_images=reference_count,
-                dimensions={"resolution": generate_kwargs["resolution"]} if "resolution" in generate_kwargs else None,
+                dimensions={"resolution": request.image_size} if request.image_size is not None else None,
             ),
         )
