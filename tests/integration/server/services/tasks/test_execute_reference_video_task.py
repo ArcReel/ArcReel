@@ -984,7 +984,7 @@ async def test_execute_reference_video_task_reports_reference_image_limit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """参考图超出型号上限：截断到上限张，并按 count / provider / model / max_count 报出一条超限 warning。"""
+    """参考图上限为 1：截断到 1 张，并给出带供应商与模型的单张参考图提示。"""
     proj_dir = write_project(tmp_path)
     project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
 
@@ -1029,11 +1029,11 @@ async def test_execute_reference_video_task_reports_reference_image_limit(
 
     assert len(captured["reference_images"]) == 1
     assert {
-        "key": "ref_too_many_images",
-        "params": {"count": 2, "provider": "custom-7", "model": "shared-model", "max_count": 1},
+        "key": "ref_single_ref_only",
+        "params": {"provider": "custom-7", "model": "shared-model"},
     } in result["warnings"]
     # warning 带上供应商：另一个供应商下同一上游模型 ID 名称不同时，界面仍能查到这一个模型名
-    (warning,) = [warning for warning in result["warnings"] if warning["key"] == "ref_too_many_images"]
+    (warning,) = [warning for warning in result["warnings"] if warning["key"] == "ref_single_ref_only"]
     models = {("custom-7", "shared-model"): "甲网关模型", ("custom-8", "shared-model"): "乙网关模型"}
     for locale in SUPPORTED_LOCALES:
         names = make_display_names(locale, providers={"custom-7": "我的网关"}, models=models)

@@ -158,7 +158,12 @@ def _mutate(path: str, value: Any) -> Callable[[dict[str, Any]], None]:
         ),
         pytest.param(
             lambda data: data["builtin_providers"]["kling"]["models"].append(
-                {"api_model_name": "kling-v3-omni", "entry": "kuaishou/kling-v3-omni", "media_type": "video"}
+                {
+                    "api_model_name": "kling-v3-omni",
+                    "entry": "kuaishou/kling-v3-omni",
+                    "media_type": "video",
+                    "endpoint": "kling-video-audio",
+                }
             ),
             ("builtin_providers.kling.models[2]", "duplicate_provider_model"),
             id="同一供应商下 API 模型名与媒体类型重复",
@@ -263,3 +268,10 @@ def test_entry_with_lifecycle_and_valid_successor_passes():
     data["entries"][0].update(successor="google/gemini-3.5-pro")
 
     assert check_catalog(data) == []
+
+
+def test_published_provider_model_requires_an_endpoint():
+    data = catalog()
+    data["builtin_providers"]["kling"]["models"][1].pop("endpoint")
+
+    assert ("builtin_providers.kling.models[1].endpoint", "missing_endpoint") in _codes(data)

@@ -23,7 +23,7 @@ def test_matching_pair_loads():
 
 
 def test_endpoint_declarations_survive_publishing():
-    """带与不带端点声明的供应商模型写成发布文件再读回，端点声明保持原样。"""
+    """供应商模型写成发布文件再读回，端点声明保持原样。"""
     data = catalog()
     data["builtin_providers"]["kling"]["models"][0]["endpoint"] = "kling-video-audio"
     manifest, content = _files(data)
@@ -32,7 +32,7 @@ def test_endpoint_declarations_survive_publishing():
 
     assert check_catalog_files(manifest, content) == []
     assert [model.endpoint for model in providers["kling"].models] == ["kling-video-audio", "kling-image"]
-    assert providers["gemini-aistudio"].models[0].endpoint is None
+    assert providers["gemini-aistudio"].models[0].endpoint == "gemini-generate"
 
 
 def test_data_file_not_matching_manifest_hash_is_rejected():

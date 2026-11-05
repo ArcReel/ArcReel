@@ -192,8 +192,8 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
     }
 )
 
-#: 实例开始读取端点声明的应用版本。在此之前的实例按 API 模型名选端点；为 None 表示还没有发布这样的版本。
-ENDPOINT_DECLARATIONS_SINCE: str | None = None
+#: 实例开始读取端点声明的应用版本。在此之前的实例按 API 模型名选端点。
+ENDPOINT_DECLARATIONS_SINCE: str | None = "0.35.1"
 
 _APP_VERSION = re.compile(r"\d+(\.\d+){0,2}")
 
@@ -203,7 +203,10 @@ def is_app_version(value: str) -> bool:
     return _APP_VERSION.fullmatch(value) is not None
 
 
-def _version_key(value: str) -> tuple[int, int, int]:
+def app_version_key(value: str) -> tuple[int, int, int]:
+    """应用版本的数字比较键；省略的次版本、补丁号按 0 计，格式不合法时抛 ``ValueError``。"""
+    if not is_app_version(value):
+        raise ValueError(f"invalid application version: {value!r}")
     major, minor, patch = (*map(int, value.split(".")), 0, 0)[:3]
     return major, minor, patch
 
@@ -213,16 +216,24 @@ def provider_endpoint_options(provider_id: str, media_type: str) -> ProviderEndp
     return BUILTIN_PROVIDER_ENDPOINTS.get(provider_id, {}).get(media_type)
 
 
-def endpoint_version_floor(provider_id: str, media_type: str, endpoint: str) -> str | None:
+def endpoint_version_floor(
+    provider_id: str, media_type: str, endpoint: str, *, include_declaration_version: bool = True
+) -> str | None:
     """挂接这个端点的官方收录供应商模型由端点决定的最低应用版本；没有下限时为 None。
 
     取两项中较高的那个：端点的起始版本；该供应商在这个媒体类型下有多个可选端点时，实例开始读取端点声明的版本。
     后者与模型是否挂默认端点无关：读取端点声明之前的实例按名字选端点，新模型可能被路由到别的端点。手写的最低应用版本
-    与清单首次发布时已有模型的豁免由目录构建处理。
+    由目录构建处理。已逐条核验的首发模型传 ``include_declaration_version=False`` 豁免声明读取版本，
+    仍计入端点起始版本。
     """
     declared = BUILTIN_ENDPOINTS.get(endpoint)
     options = provider_endpoint_options(provider_id, media_type)
     floors = [declared.since] if declared is not None and declared.since is not None else []
-    if options is not None and len(options.endpoints) > 1 and ENDPOINT_DECLARATIONS_SINCE is not None:
+    if (
+        include_declaration_version
+        and options is not None
+        and len(options.endpoints) > 1
+        and ENDPOINT_DECLARATIONS_SINCE is not None
+    ):
         floors.append(ENDPOINT_DECLARATIONS_SINCE)
-    return max(floors, key=_version_key, default=None)
+    return max(floors, key=app_version_key, default=None)

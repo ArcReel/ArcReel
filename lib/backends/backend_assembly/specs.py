@@ -155,24 +155,6 @@ def _simple_spec(provider_id: str, media_type: str, endpoint: str, *, extra_keys
     )
 
 
-def _minimax_video_endpoint(model_id: str | None) -> str:
-    """官方收录的 MiniMax 视频模型按 API 模型名选声明式端点。一份定义一种请求形状 + 一组能力，故 Fast 与 2.3 分居两键。
-
-    只给官方收录的模型和没有记下端点的模型用（见 :func:`official_model_endpoint`）；用户添加的模型添加时按
-    :func:`lib.custom_provider.endpoints.infer_endpoint` 预填，两边对 Fast 与 S2V 的名字宽度不同。alembic
-    ``8c2b1e7d4a90`` 与 ``c4e8a1f7b3d2`` 各冻结了一份本规则：Fast 只接受图生视频，定义把首帧声明为必需输入，
-    ``text_to_video`` 才据此推导为 False。
-    """
-    model = (model_id or "").lower()
-    if model_id == "S2V-01":
-        return "minimax-s2v-01"
-    if "minimax-h3" in model:
-        return "minimax-h3"
-    if "hailuo" in model and "fast" in model:
-        return "minimax-hailuo-v1-fast"
-    return "minimax-hailuo-v1"
-
-
 #: Seedance 各代的内置调用端点，按声明顺序；registry 名就是端点名（``lib.backends.video_backends.ark.SEEDANCE_BACKENDS``）。
 _SEEDANCE_ENDPOINTS = ("ark-seedance-1", "ark-seedance-2", "ark-seedance-2-5")
 
@@ -181,8 +163,8 @@ def seedance_endpoint_for_name(name: str) -> str | None:
     """名字里写明的 Seedance 代际对应的端点；名字不带 2.0 / 2.5 时为 ``None``。
 
     用 ``in`` 子串兼容多套前缀命名（doubao- 火山国内站 / dreamina- BytePlus 国际站），版本号收窄到已登记的代际：同代的
-    未知后缀（fast、mini、日期快照）落同一端点。只给按名字选端点的两处用：官方收录模型的选择
-    （:func:`_seedance_video_endpoint`）与添加模型时的预填（``lib.custom_provider.endpoints.infer_endpoint``）。
+    未知后缀（fast、mini、日期快照）落同一端点。只用于添加模型时的预填
+    （``lib.custom_provider.endpoints.infer_endpoint``）。
     alembic ``e5b1c9a3d7f2`` 冻结了一份同样的规则回填已有模型。
     """
     lowered = name.lower()
@@ -193,23 +175,7 @@ def seedance_endpoint_for_name(name: str) -> str | None:
     return None
 
 
-def _seedance_video_endpoint(provider_id: str, model_id: str | None) -> str:
-    """官方收录的方舟视频模型按名字选 Seedance 端点。
-
-    名字先取模型对应条目的官方模型名与模型别名，再取 API 模型名，第一个写明代际的名字决定端点；都没写明时取 1.x 端点。
-    """
-    if not model_id:
-        return get_provider_endpoints(provider_id, "video").default
-    entry = catalog.provider_model_entry(provider_id, model_id, "video")
-    names = (entry.name, *entry.aliases) if entry is not None else ()
-    for name in (*names, model_id):
-        endpoint = seedance_endpoint_for_name(name)
-        if endpoint is not None:
-            return endpoint
-    return "ark-seedance-1"
-
-
-# 官方模型选择与添加时预填的名字识别；运行中的通道只读取所选端点。
+# 添加模型时按名字预填；运行中的通道只读取所选端点。
 _VIDU_PROFILES = {
     "viduq3-pro": "q3-pro",
     "viduq3-turbo": "q3-turbo",
@@ -249,7 +215,7 @@ _KLING_ENDPOINTS = ("kling-video-pro-silent", "kling-video-pro-audio", "kling-vi
 
 
 def request_profile_endpoint_for_name(provider_id: str, name: str) -> str | None:
-    """按名字识别 Grok、Vidu、可灵视频的请求端点，只用于选定端点与添加时预填；迁移冻结了同一规则。"""
+    """按名字识别 Grok、Vidu、可灵视频的请求端点，只用于添加时预填；迁移冻结了同一规则。"""
     if provider_id == "grok":
         return "grok-video-classic" if name == "grok-imagine-video" else None
     if provider_id == "vidu":
@@ -844,7 +810,7 @@ def get_provider_spec(provider_id: str, media_type: str, endpoint: str | None = 
 
 
 def image_endpoint_for_name(provider_id: str, model_id: str) -> str:
-    """图片端点的名字规则，仅用于官方收录选择与新增模型预填。"""
+    """图片端点的名字规则，仅用于新增模型预填。"""
     lowered = model_id.lower()
     if provider_id in ("ark", "ark-agent-plan"):
         return "ark-seedream-3" if "seedream-3" in lowered else "ark-seedream-4"
@@ -888,53 +854,13 @@ def agnes_video_endpoint_for_name(name: str) -> str | None:
     return None
 
 
-def official_model_endpoint(provider_id: str, media_type: str, model_id: str | None) -> str:
-    """官方收录模型按名字选择请求端点的过渡入口；没有多种请求契约的供应商取默认端点。
-
-    没有记下端点的用户添加模型同样落到这里，与它们记下端点之前的通道一致。
-    """
-    declared = get_provider_endpoints(provider_id, media_type)
-    if (provider_id, media_type) == ("minimax", "video"):
-        return _minimax_video_endpoint(model_id)
-    if media_type == "video" and provider_id in ("ark", "ark-agent-plan"):
-        return _seedance_video_endpoint(provider_id, model_id)
-    if media_type == "image" and provider_id in _IMAGE_ENDPOINTS and model_id:
-        return image_endpoint_for_name(provider_id, model_id)
-    if media_type == "video" and provider_id in ("grok", "vidu", "kling") and model_id:
-        entry = catalog.provider_model_entry(provider_id, model_id, "video")
-        names = (entry.name, *entry.aliases) if entry is not None else (model_id,)
-        for name in names:
-            endpoint = request_profile_endpoint_for_name(provider_id, name)
-            if endpoint is not None:
-                return endpoint
-        return {"grok": "grok-video-mixed", "vidu": "vidu-video-generic", "kling": "kling-video-silent"}[provider_id]
-
-    if media_type == "video" and provider_id in ("agnes", "dashscope"):
-        entry = catalog.provider_model_entry(provider_id, model_id, "video") if model_id else None
-        names = (entry.name, *entry.aliases) if entry is not None else (model_id or "",)
-        if provider_id == "agnes":
-            return next(
-                (endpoint for name in names if (endpoint := agnes_video_endpoint_for_name(name))), "agnes-video-2"
-            )
-        for name in names:
-            endpoint = dashscope_video_endpoint_for_name(name)
-            if endpoint != "dashscope-video":
-                return endpoint
-        return "dashscope-video"
-    return declared.default
-
-
 def builtin_model_endpoint(provider_id: str, media_type: str, model_id: str | None) -> str:
-    """内置供应商的供应商模型挂接的内置调用端点。
+    """官方模型读取目录声明，用户添加的模型读取保存的选择；未声明时取供应商默认端点。
 
-    用户添加的模型取它记下的端点；记下的端点不在可选端点里（端点日后撤下）或没有记下时，与官方收录的模型同一规则
-    （:func:`official_model_endpoint`）。没有这个媒体类型的调用通道时抛 ``ValueError``。
+    声明的端点不在该供应商这一媒体类型的可选端点里时抛 ``ValueError``，避免用其他请求结构调用。
     """
-    declared = get_provider_endpoints(provider_id, media_type)
-    chosen = catalog.user_added_endpoint(provider_id, model_id, media_type) if model_id else None
-    if chosen is not None and chosen in declared.endpoints:
-        return chosen
-    return official_model_endpoint(provider_id, media_type, model_id)
+    chosen = catalog.provider_model_endpoint(provider_id, model_id, media_type) if model_id else None
+    return get_provider_spec(provider_id, media_type, chosen).endpoint
 
 
 def builtin_model_spec(provider_id: str, media_type: str, model_id: str | None) -> ProviderSpec:

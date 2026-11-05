@@ -214,7 +214,7 @@ class UserAddedModel:
     ``fallback_durations`` 是对应不上条目的视频模型在运行时回落的可选时长（按名字推断的时长预设），由装入方给出。
     ``capability_overrides`` 是用户的能力覆盖（docs/adr/0104），装入方已按媒体类型滤掉不合法的键值：模型事实维度
     在这里整维替换目录信息，通道事实维度经 :func:`user_added_capability_overrides` 交给调用通道一侧合并。
-    ``endpoint`` 是用户为它选的内置调用端点，``None`` 表示没有记下（装配按官方收录模型的规则选端点）。
+    ``endpoint`` 是用户为它选的内置调用端点，``None`` 表示没有记下（装配取供应商在这个媒体类型下的默认端点）。
     """
 
     provider_id: str
@@ -281,6 +281,7 @@ def _official_models(data: CatalogData, provider_id: str, current_version: str) 
             model.multiplier,
             model.api_model_name,
             official=True,
+            endpoint=model.endpoint,
         )
     return models
 
@@ -588,7 +589,7 @@ def provider_models(provider_id: str) -> list[ProviderModelView]:
             base_model=indexed.base_model or indexed.model,
             capability_overrides=indexed.capability_overrides,
             lifecycle=entry_lifecycle(indexed.entry),
-            endpoint=indexed.endpoint,
+            endpoint=indexed.endpoint if not indexed.official else None,
         )
         for key, indexed in _indexed_models(provider_id).items()
     ]
@@ -604,10 +605,10 @@ def user_added_capability_overrides(provider_id: str, model_id: str) -> Mapping[
     return indexed.capability_overrides if indexed is not None else {}
 
 
-def user_added_endpoint(provider_id: str, model_id: str, media_type: str) -> str | None:
-    """内置供应商下用户添加的模型记下的调用端点；官方收录的模型、不在目录中或不是这一媒体类型的模型为 ``None``。"""
+def provider_model_endpoint(provider_id: str, model_id: str, media_type: str) -> str | None:
+    """内置供应商模型声明或用户选择的调用端点；没有声明、不在目录中或不是这一媒体类型时为 ``None``。"""
     indexed = _indexed_model(provider_id, model_id, media_type)
-    return indexed.endpoint if indexed is not None and not indexed.official else None
+    return indexed.endpoint if indexed is not None else None
 
 
 def default_model(provider_id: str, media_type: str) -> str | None:

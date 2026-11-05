@@ -150,12 +150,20 @@ async def test_builtin_user_added_seedance_id_is_quoted_and_metered_like_the_off
 async def test_builtin_user_added_kling_id_takes_the_entry_audio_pricing_parameter(
     db_factory, official: str, generates_audio: bool
 ):
-    """内置可灵下用户添加的不透明 ID：默认执行档的音频计价参数按绑定的条目取得，与官方模型一致。
+    """内置可灵下用户添加的不透明 ID：选择与官方模型相同的端点、绑定相同的条目后，默认执行档的音频计价参数一致。
 
     v3 有声不受分辨率约束，默认档按有声计价；v2-6 有声只支持 1080P，没有档位上下文时保守按无声计价。
     """
     catalog.install_user_added_models(
-        [catalog.UserAddedModel("kling", OPAQUE, "video", entry_binding=f"kuaishou/{official}")]
+        [
+            catalog.UserAddedModel(
+                "kling",
+                OPAQUE,
+                "video",
+                entry_binding=f"kuaishou/{official}",
+                endpoint=catalog.provider_model_endpoint("kling", official, "video"),
+            )
+        ]
     )
     resolver = ConfigResolver(db_factory)
 

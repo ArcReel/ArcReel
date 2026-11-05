@@ -78,6 +78,7 @@ class TestProperties:
         assert b.capabilities == {
             TextCapability.TEXT_GENERATION,
             TextCapability.VISION,
+            TextCapability.STRUCTURED_OUTPUT,
         }
 
     def test_no_api_key_raises(self):

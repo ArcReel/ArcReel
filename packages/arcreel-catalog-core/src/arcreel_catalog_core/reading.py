@@ -642,9 +642,10 @@ class CatalogReader:
 
     def check_endpoint(self, provider_id: str, model: BuiltinProviderModel, entry: CatalogEntry, path: str) -> None:
         """端点声明在端点清单里，媒体类型与所引用的条目一致，且是该供应商这一媒体类型的可选端点。"""
-        if model.endpoint is None:
-            return
         path = _at(path, "endpoint")
+        if model.endpoint is None:
+            self.flag(path, "missing_endpoint", "发布的供应商模型必须声明调用端点")
+            return
         declared = BUILTIN_ENDPOINTS.get(model.endpoint)
         if declared is None:
             self.flag(path, "unknown_endpoint", "端点清单里没有这个调用端点")

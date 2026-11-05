@@ -1,4 +1,4 @@
-"""构造一份合法的目录数据，覆盖四种媒体类型、两栖模型、价目表的各种形状，以及带与不带端点声明的供应商模型。
+"""构造一份合法的目录数据，覆盖四种媒体类型、两栖模型、价目表的各种形状，以及显式声明调用端点的供应商模型。
 
 每次调用返回新的副本，用例在副本上改出要验证的情形。
 """
@@ -114,12 +114,23 @@ def catalog() -> dict[str, Any]:
         "entries": [text_entry(), video_entry(), amphibious_image_entry(), audio_entry()],
         "builtin_providers": {
             "gemini-aistudio": {
-                "models": [{"api_model_name": "gemini-3.1-pro", "entry": "google/gemini-3.1-pro"}],
+                "models": [
+                    {
+                        "api_model_name": "gemini-3.1-pro",
+                        "entry": "google/gemini-3.1-pro",
+                        "endpoint": "gemini-generate",
+                    }
+                ],
                 "defaults": {"text": "gemini-3.1-pro"},
             },
             "kling": {
                 "models": [
-                    {"api_model_name": "kling-v3-omni", "entry": "kuaishou/kling-v3-omni", "media_type": "video"},
+                    {
+                        "api_model_name": "kling-v3-omni",
+                        "entry": "kuaishou/kling-v3-omni",
+                        "media_type": "video",
+                        "endpoint": "kling-video-audio",
+                    },
                     {
                         "api_model_name": "kling-v3-omni",
                         "entry": "kuaishou/kling-v3-omni",
@@ -132,7 +143,13 @@ def catalog() -> dict[str, Any]:
                 "defaults": {"video": "kling-v3-omni", "image": "kling-v3-omni"},
             },
             "dashscope": {
-                "models": [{"api_model_name": "qwen3-tts-flash", "entry": "alibaba/qwen3-tts-flash"}],
+                "models": [
+                    {
+                        "api_model_name": "qwen3-tts-flash",
+                        "entry": "alibaba/qwen3-tts-flash",
+                        "endpoint": "dashscope-tts",
+                    }
+                ],
                 "defaults": {"audio": "qwen3-tts-flash"},
             },
         },

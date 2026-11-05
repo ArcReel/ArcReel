@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-11-03T12:42:27Z",
+  "dataset_version": "2026-11-04T23:26:27Z",
   "entries": [
     {
       "maker": "agnes",
@@ -87,6 +87,7 @@
       "name": "agnes-2.5-pro",
       "media_type": "text",
       "display_name": "Agnes 2.5 Pro",
+      "release_date": "2026-08-01",
       "facts": {
         "structured_output": true,
         "max_output_tokens": 65536
@@ -177,7 +178,6 @@
       "name": "agnes-image-2.1-flash",
       "media_type": "image",
       "display_name": "Agnes Image 2.1 Flash",
-      "discontinued": true,
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -363,6 +363,17 @@
             "defaults": {
               "resolution": "720p"
             }
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.005
+              }
+            ],
+            "free_allowance": 5
           }
         ]
       }
@@ -473,6 +484,7 @@
       "name": "happyhorse-1.0-i2v",
       "media_type": "video",
       "display_name": "HappyHorse 1.0 图生视频",
+      "release_date": "2026-04-22",
       "facts": {
         "durations": [
           3,
@@ -533,6 +545,7 @@
       "name": "happyhorse-1.0-r2v",
       "media_type": "video",
       "display_name": "HappyHorse 1.0 参考生视频",
+      "release_date": "2026-04-26",
       "facts": {
         "durations": [
           3,
@@ -593,6 +606,7 @@
       "name": "happyhorse-1.0-t2v",
       "media_type": "video",
       "display_name": "HappyHorse 1.0 文生视频",
+      "release_date": "2026-04-21",
       "facts": {
         "durations": [
           3,
@@ -653,6 +667,7 @@
       "name": "happyhorse-1.1-i2v",
       "media_type": "video",
       "display_name": "HappyHorse 1.1 图生视频",
+      "release_date": "2026-06-16",
       "facts": {
         "durations": [
           3,
@@ -720,6 +735,7 @@
       "name": "happyhorse-1.1-r2v",
       "media_type": "video",
       "display_name": "HappyHorse 1.1 参考生视频",
+      "release_date": "2026-06-16",
       "facts": {
         "durations": [
           3,
@@ -787,6 +803,7 @@
       "name": "happyhorse-1.1-t2v",
       "media_type": "video",
       "display_name": "HappyHorse 1.1 文生视频",
+      "release_date": "2026-06-16",
       "facts": {
         "durations": [
           3,
@@ -856,6 +873,8 @@
       "display_name": "QVQ Max",
       "discontinued": true,
       "context_length": 131072,
+      "release_date": "2025-03-25",
+      "shutdown_date": "2026-10-10",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -892,6 +911,7 @@
       "media_type": "text",
       "display_name": "Qwen Flash",
       "context_length": 1000000,
+      "release_date": "2025-07-28",
       "facts": {
         "image_input": false,
         "structured_output": true,
@@ -903,6 +923,7 @@
       "name": "qwen-image-2.0",
       "media_type": "image",
       "display_name": "Qwen Image 2.0",
+      "release_date": "2026-03-03",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -966,9 +987,56 @@
     },
     {
       "maker": "alibaba",
+      "name": "qwen-image-3.0",
+      "media_type": "image",
+      "display_name": "Qwen Image 3.0",
+      "release_date": "2026-08-04",
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "resolutions": [
+          "2048*2048",
+          "2688*1536",
+          "1536*2688",
+          "2368*1728",
+          "1728*2368"
+        ],
+        "max_reference_images": 3
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.18
+              }
+            ]
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.02
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "alibaba",
       "name": "qwen-image-edit-max",
       "media_type": "image",
       "display_name": "Qwen Image Edit Max",
+      "discontinued": true,
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen-image-3.0",
       "facts": {
         "image_to_image": true,
         "resolutions": [
@@ -1001,6 +1069,9 @@
       "name": "qwen-image-edit-plus",
       "media_type": "image",
       "display_name": "Qwen Image Edit Plus",
+      "discontinued": true,
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen-image-3.0",
       "facts": {
         "image_to_image": true,
         "resolutions": [
@@ -1033,6 +1104,7 @@
       "name": "qwen-long",
       "media_type": "text",
       "display_name": "Qwen Long",
+      "release_date": "2025-01-25",
       "facts": {
         "max_output_tokens": 8192
       },
@@ -1069,6 +1141,9 @@
       "display_name": "Qwen Math Plus",
       "discontinued": true,
       "context_length": 4096,
+      "release_date": "2024-08-16",
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.7-plus",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1082,6 +1157,8 @@
       "display_name": "Qwen Math Turbo",
       "discontinued": true,
       "context_length": 4096,
+      "release_date": "2024-09-19",
+      "shutdown_date": "2026-10-10",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1094,6 +1171,7 @@
       "media_type": "text",
       "display_name": "Qwen Max",
       "context_length": 131072,
+      "release_date": "2024-04-03",
       "facts": {
         "image_input": false,
         "structured_output": true,
@@ -1119,6 +1197,7 @@
       "display_name": "Qwen-MT Turbo",
       "discontinued": true,
       "context_length": 16384,
+      "shutdown_date": "2026-10-10",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1130,6 +1209,7 @@
       "name": "qwen-plus",
       "media_type": "text",
       "display_name": "Qwen Plus",
+      "release_date": "2024-01-25",
       "facts": {
         "structured_output": true,
         "max_output_tokens": 32768
@@ -1263,6 +1343,8 @@
       "display_name": "Qwen Turbo",
       "discontinued": true,
       "context_length": 1000000,
+      "release_date": "2024-11-01",
+      "shutdown_date": "2026-10-10",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1276,6 +1358,8 @@
       "display_name": "Qwen-VL Max",
       "discontinued": true,
       "context_length": 131072,
+      "release_date": "2024-04-08",
+      "shutdown_date": "2026-10-10",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -1288,6 +1372,7 @@
       "media_type": "text",
       "display_name": "Qwen-VL OCR",
       "context_length": 34096,
+      "release_date": "2024-10-28",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -1301,6 +1386,8 @@
       "display_name": "Qwen-VL Plus",
       "discontinued": true,
       "context_length": 131072,
+      "release_date": "2024-01-25",
+      "shutdown_date": "2026-10-10",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -1314,6 +1401,8 @@
       "display_name": "Qwen3 14B",
       "discontinued": true,
       "context_length": 131072,
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.6-flash",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1327,6 +1416,8 @@
       "display_name": "Qwen3 235B-A22B",
       "discontinued": true,
       "context_length": 131072,
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.7-plus",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1343,6 +1434,8 @@
       ],
       "discontinued": true,
       "context_length": 131072,
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.7-plus",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1356,6 +1449,8 @@
       "display_name": "Qwen3 8B",
       "discontinued": true,
       "context_length": 131072,
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.6-flash",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1369,6 +1464,8 @@
       "display_name": "Qwen3-Coder 30B-A3B Instruct",
       "discontinued": true,
       "context_length": 262144,
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.7-plus",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1382,6 +1479,8 @@
       "display_name": "Qwen3-Coder 480B-A35B Instruct",
       "discontinued": true,
       "context_length": 262144,
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.7-plus",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1394,6 +1493,7 @@
       "media_type": "text",
       "display_name": "Qwen3 Coder Flash",
       "context_length": 1000000,
+      "release_date": "2025-07-28",
       "facts": {
         "image_input": false,
         "structured_output": true,
@@ -1407,6 +1507,9 @@
       "display_name": "Qwen3 Coder Plus",
       "discontinued": true,
       "context_length": 1048576,
+      "release_date": "2025-07-23",
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.7-plus",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1418,6 +1521,10 @@
       "name": "qwen3-max",
       "media_type": "text",
       "display_name": "Qwen3 Max",
+      "discontinued": true,
+      "release_date": "2026-01-23",
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.7-max",
       "facts": {
         "structured_output": true,
         "max_output_tokens": 32768
@@ -1458,6 +1565,8 @@
       ],
       "discontinued": true,
       "context_length": 131072,
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.7-plus",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1471,6 +1580,8 @@
       "display_name": "Qwen3-Next 80B-A3B (Thinking)",
       "discontinued": true,
       "context_length": 131072,
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.7-plus",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1507,6 +1618,8 @@
       "display_name": "Qwen3-VL 235B-A22B",
       "discontinued": true,
       "context_length": 131072,
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.7-plus",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -1520,6 +1633,8 @@
       "display_name": "Qwen3-VL 30B-A3B",
       "discontinued": true,
       "context_length": 131072,
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.7-plus",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -1532,6 +1647,7 @@
       "media_type": "text",
       "display_name": "Qwen3-VL Plus",
       "context_length": 262144,
+      "release_date": "2025-09-23",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -1547,6 +1663,9 @@
         "qwen35-397b-a17b"
       ],
       "context_length": 262144,
+      "release_date": "2026-02-16",
+      "shutdown_date": "2027-01-19",
+      "successor": "alibaba/qwen3.8-flash",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -1559,6 +1678,7 @@
       "media_type": "text",
       "display_name": "Qwen3.5 Flash",
       "context_length": 1000000,
+      "release_date": "2026-02-23",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -1571,6 +1691,9 @@
       "media_type": "text",
       "display_name": "Qwen3.5 Plus",
       "context_length": 1000000,
+      "release_date": "2026-02-16",
+      "shutdown_date": "2027-01-19",
+      "successor": "alibaba/qwen3.8-flash",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -1582,6 +1705,7 @@
       "name": "qwen3.6-flash",
       "media_type": "text",
       "display_name": "Qwen3.6 Flash",
+      "release_date": "2026-04-27",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -1680,6 +1804,9 @@
       "display_name": "Qwen3.6 Max Preview",
       "discontinued": true,
       "context_length": 245800,
+      "release_date": "2026-04-20",
+      "shutdown_date": "2026-10-10",
+      "successor": "alibaba/qwen3.7-max",
       "facts": {
         "image_input": false,
         "structured_output": true,
@@ -1694,6 +1821,7 @@
       "aliases": [
         "qwen-3.6-plus"
       ],
+      "release_date": "2026-04-02",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -1791,6 +1919,7 @@
       "media_type": "text",
       "display_name": "Qwen3.7 Flash",
       "context_length": 1000000,
+      "release_date": "2026-07-15",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -1805,6 +1934,7 @@
       "aliases": [
         "qwen-3-7-max"
       ],
+      "release_date": "2026-05-21",
       "facts": {
         "structured_output": true,
         "max_output_tokens": 131072
@@ -1864,10 +1994,76 @@
         "qwen-3-7-plus"
       ],
       "context_length": 1000000,
+      "release_date": "2026-06-01",
       "facts": {
         "image_input": true,
         "structured_output": true,
-        "max_output_tokens": 64000
+        "max_output_tokens": 131072
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.0
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 6.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.4
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 1.2
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 8.0
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 24.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -1879,10 +2075,36 @@
         "qwen-3-8-flash"
       ],
       "context_length": 1000000,
+      "release_date": "2026-08-26",
       "facts": {
         "image_input": true,
         "structured_output": true,
         "max_output_tokens": 131072
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.8
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.7
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -1891,6 +2113,7 @@
       "media_type": "text",
       "display_name": "Qwen3.8 Max",
       "context_length": 1000000,
+      "release_date": "2026-08-03",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -1903,6 +2126,7 @@
       "media_type": "text",
       "display_name": "Qwen3.8 Omni Flash",
       "context_length": 1000000,
+      "release_date": "2026-09-17",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -1916,6 +2140,8 @@
       "display_name": "QwQ Plus",
       "discontinued": true,
       "context_length": 131072,
+      "release_date": "2025-03-05",
+      "shutdown_date": "2026-10-10",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -1939,6 +2165,7 @@
       "name": "wan2.7-i2v",
       "media_type": "video",
       "display_name": "万相 2.7 图生视频",
+      "release_date": "2026-04-03",
       "facts": {
         "durations": [
           2,
@@ -2000,6 +2227,7 @@
       "name": "wan2.7-image",
       "media_type": "image",
       "display_name": "万相 2.7 图像",
+      "release_date": "2026-04-01",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -2030,6 +2258,7 @@
       "name": "wan2.7-image-pro",
       "media_type": "image",
       "display_name": "万相 2.7 图像 Pro",
+      "release_date": "2026-04-01",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -2061,6 +2290,7 @@
       "name": "wan2.7-r2v",
       "media_type": "video",
       "display_name": "万相 2.7 参考生视频",
+      "release_date": "2026-04-03",
       "facts": {
         "durations": [
           2,
@@ -2123,6 +2353,7 @@
       "name": "wan2.7-t2v",
       "media_type": "video",
       "display_name": "万相 2.7 文生视频",
+      "release_date": "2026-04-03",
       "facts": {
         "durations": [
           2,
@@ -2184,6 +2415,7 @@
       "name": "wan3.0-video",
       "media_type": "video",
       "display_name": "万相 3.0 视频",
+      "release_date": "2026-08-06",
       "facts": {
         "durations": [
           2,
@@ -2265,17 +2497,104 @@
       }
     },
     {
+      "maker": "alibaba",
+      "name": "wan3.0-video-prime",
+      "media_type": "video",
+      "display_name": "万相 3.0 视频 Prime",
+      "release_date": "2026-08-20",
+      "facts": {
+        "durations": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "resolutions": [
+          "480p",
+          "720p",
+          "1080p"
+        ],
+        "max_reference_images": 10,
+        "text_to_video": true,
+        "first_frame": true,
+        "last_frame": true,
+        "reference_audio": true,
+        "max_reference_audio_count": 5,
+        "max_reference_audio_total_seconds": 15.0
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "480p"
+                },
+                "price": 0.45
+              },
+              {
+                "when": {
+                  "resolution": "720p"
+                },
+                "price": 0.9
+              },
+              {
+                "when": {
+                  "resolution": "1080p"
+                },
+                "price": 1.8
+              }
+            ],
+            "defaults": {
+              "resolution": "720p"
+            }
+          }
+        ]
+      }
+    },
+    {
       "maker": "anthropic",
       "name": "claude-fable-5",
       "media_type": "text",
       "display_name": "Claude Fable 5",
       "aliases": [
-        "anthropic-claude-fable-5",
-        "eu.anthropic.claude-fable-5",
         "global.anthropic.claude-fable-5",
-        "us.anthropic.claude-fable-5"
+        "us.anthropic.claude-fable-5",
+        "eu.anthropic.claude-fable-5",
+        "anthropic.claude-fable-5"
       ],
       "context_length": 1000000,
+      "release_date": "2026-06-07",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -2343,11 +2662,12 @@
       "media_type": "text",
       "display_name": "Claude Fable 5.1",
       "aliases": [
-        "anthropic-claude-fable-5.1",
-        "global.anthropic.claude-fable-5-1",
-        "us.anthropic.claude-fable-5-1"
+        "anthropic.claude-fable-5-1",
+        "us.anthropic.claude-fable-5-1",
+        "global.anthropic.claude-fable-5-1"
       ],
       "context_length": 1000000,
+      "release_date": "2026-09-01",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -2416,10 +2736,11 @@
       "display_name": "Claude Haiku 4.5",
       "aliases": [
         "claude-haiku-4-5-20251001",
-        "databricks-claude-haiku-4-5",
-        "anthropic-claude-haiku-4.5"
+        "anthropic-claude-haiku-4.5",
+        "databricks-claude-haiku-4-5"
       ],
       "context_length": 200000,
+      "release_date": "2025-10-15",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -2487,14 +2808,15 @@
       "media_type": "text",
       "display_name": "Claude Haiku 5.5",
       "aliases": [
-        "jp.anthropic.claude-haiku-5-5",
-        "au.anthropic.claude-haiku-5-5",
-        "global.anthropic.claude-haiku-5-5",
-        "us.anthropic.claude-haiku-5-5",
         "eu.anthropic.claude-haiku-5-5",
-        "anthropic.claude-haiku-5-5"
+        "global.anthropic.claude-haiku-5-5",
+        "anthropic.claude-haiku-5-5",
+        "us.anthropic.claude-haiku-5-5",
+        "au.anthropic.claude-haiku-5-5",
+        "jp.anthropic.claude-haiku-5-5"
       ],
       "context_length": 1000000,
+      "release_date": "2026-10-07",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -2613,11 +2935,12 @@
       "display_name": "Claude Opus 4.5",
       "aliases": [
         "claude-opus-4-5-20251101",
-        "claude-opus4-5",
+        "anthropic-claude-opus-4.5",
         "databricks-claude-opus-4-5",
-        "anthropic-claude-opus-4.5"
+        "claude-opus4-5"
       ],
       "context_length": 200000,
+      "release_date": "2025-11-24",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -2685,11 +3008,12 @@
       "media_type": "text",
       "display_name": "Claude Opus 4.6",
       "aliases": [
-        "claude-opus4-6",
+        "anthropic-claude-opus-4.6",
         "databricks-claude-opus-4-6",
-        "anthropic-claude-opus-4.6"
+        "claude-opus4-6"
       ],
       "context_length": 1000000,
+      "release_date": "2026-02-04",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -2757,16 +3081,17 @@
       "media_type": "text",
       "display_name": "Claude Opus 4.7",
       "aliases": [
-        "claude-opus4-7",
-        "databricks-claude-opus-4-7",
-        "anthropic-claude-opus-4.7",
-        "eu.anthropic.claude-opus-4-7",
-        "au.anthropic.claude-opus-4-7",
         "us.anthropic.claude-opus-4-7",
+        "au.anthropic.claude-opus-4-7",
+        "eu.anthropic.claude-opus-4-7",
+        "global.anthropic.claude-opus-4-7",
+        "anthropic.claude-opus-4-7",
         "jp.anthropic.claude-opus-4-7",
-        "global.anthropic.claude-opus-4-7"
+        "databricks-claude-opus-4-7",
+        "claude-opus4-7"
       ],
       "context_length": 1000000,
+      "release_date": "2026-04-14",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -2834,15 +3159,16 @@
       "media_type": "text",
       "display_name": "Claude Opus 4.8",
       "aliases": [
-        "claude-opus4-8",
-        "anthropic-claude-opus-4.8",
-        "jp.anthropic.claude-opus-4-8",
-        "global.anthropic.claude-opus-4-8",
         "us.anthropic.claude-opus-4-8",
+        "eu.anthropic.claude-opus-4-8",
+        "global.anthropic.claude-opus-4-8",
+        "jp.anthropic.claude-opus-4-8",
+        "anthropic.claude-opus-4-8",
         "au.anthropic.claude-opus-4-8",
-        "eu.anthropic.claude-opus-4-8"
+        "claude-opus4-8"
       ],
       "context_length": 1000000,
+      "release_date": "2026-05-28",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -2910,15 +3236,16 @@
       "media_type": "text",
       "display_name": "Claude Opus 5",
       "aliases": [
-        "anthropic-claude-opus-5",
-        "global.anthropic.claude-opus-5",
-        "eu.anthropic.claude-opus-5",
-        "in.anthropic.claude-opus-5",
+        "jp.anthropic.claude-opus-5",
         "au.anthropic.claude-opus-5",
-        "us.anthropic.claude-opus-5",
-        "jp.anthropic.claude-opus-5"
+        "eu.anthropic.claude-opus-5",
+        "anthropic.claude-opus-5",
+        "in.anthropic.claude-opus-5",
+        "global.anthropic.claude-opus-5",
+        "us.anthropic.claude-opus-5"
       ],
       "context_length": 1000000,
+      "release_date": "2026-07-24",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -2986,14 +3313,15 @@
       "media_type": "text",
       "display_name": "Claude Opus 5.5",
       "aliases": [
-        "anthropic-claude-opus-5.5",
         "eu.anthropic.claude-opus-5-5",
-        "us.anthropic.claude-opus-5-5",
+        "anthropic.claude-opus-5-5",
         "jp.anthropic.claude-opus-5-5",
-        "au.anthropic.claude-opus-5-5",
-        "global.anthropic.claude-opus-5-5"
+        "us.anthropic.claude-opus-5-5",
+        "global.anthropic.claude-opus-5-5",
+        "au.anthropic.claude-opus-5-5"
       ],
       "context_length": 1000000,
+      "release_date": "2026-09-22",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -3065,6 +3393,9 @@
         "databricks-claude-sonnet-4-5"
       ],
       "context_length": 200000,
+      "release_date": "2025-09-29",
+      "shutdown_date": "2026-11-30",
+      "successor": "anthropic/claude-sonnet-5-5",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -3132,15 +3463,16 @@
       "media_type": "text",
       "display_name": "Claude Sonnet 4.6",
       "aliases": [
-        "databricks-claude-sonnet-4-6",
-        "us.anthropic.claude-sonnet-4-6",
-        "jp.anthropic.claude-sonnet-4-6",
-        "au.anthropic.claude-sonnet-4-6",
+        "global.anthropic.claude-sonnet-4-6",
         "anthropic.claude-sonnet-4-6",
+        "au.anthropic.claude-sonnet-4-6",
+        "jp.anthropic.claude-sonnet-4-6",
+        "us.anthropic.claude-sonnet-4-6",
         "eu.anthropic.claude-sonnet-4-6",
-        "global.anthropic.claude-sonnet-4-6"
+        "databricks-claude-sonnet-4-6"
       ],
       "context_length": 1000000,
+      "release_date": "2026-02-17",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -3208,15 +3540,16 @@
       "media_type": "text",
       "display_name": "Claude Sonnet 5",
       "aliases": [
-        "jp.anthropic.claude-sonnet-5",
-        "eu.anthropic.claude-sonnet-5",
         "global.anthropic.claude-sonnet-5",
-        "in.anthropic.claude-sonnet-5",
+        "au.anthropic.claude-sonnet-5",
         "us.anthropic.claude-sonnet-5",
-        "anthropic.claude-sonnet-5",
-        "au.anthropic.claude-sonnet-5"
+        "eu.anthropic.claude-sonnet-5",
+        "in.anthropic.claude-sonnet-5",
+        "jp.anthropic.claude-sonnet-5",
+        "anthropic.claude-sonnet-5"
       ],
       "context_length": 1000000,
+      "release_date": "2026-06-29",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -3284,13 +3617,14 @@
       "media_type": "text",
       "display_name": "Claude Sonnet 5.5",
       "aliases": [
-        "anthropic-claude-sonnet-5.5",
-        "global.anthropic.claude-sonnet-5-5",
         "us.anthropic.claude-sonnet-5-5",
         "au.anthropic.claude-sonnet-5-5",
-        "eu.anthropic.claude-sonnet-5-5"
+        "global.anthropic.claude-sonnet-5-5",
+        "eu.anthropic.claude-sonnet-5-5",
+        "anthropic.claude-sonnet-5-5"
       ],
       "context_length": 1000000,
+      "release_date": "2026-09-28",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -3359,6 +3693,9 @@
       "display_name": "Seed 1.6",
       "discontinued": true,
       "context_length": 256000,
+      "release_date": "2025-10-15",
+      "shutdown_date": "2026-09-21",
+      "successor": "bytedance/doubao-seed-2.0-lite",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -3455,6 +3792,9 @@
       "display_name": "Seed 1.6 Flash",
       "discontinued": true,
       "context_length": 256000,
+      "release_date": "2025-08-28",
+      "shutdown_date": "2026-09-21",
+      "successor": "bytedance/doubao-seed-2.0-mini",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -3551,6 +3891,9 @@
       "display_name": "Seed 1.6 Vision",
       "discontinued": true,
       "context_length": 256000,
+      "release_date": "2025-08-15",
+      "shutdown_date": "2026-09-21",
+      "successor": "bytedance/doubao-seed-2.0-lite",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -3649,6 +3992,9 @@
         "doubao-seed-1-8-251228"
       ],
       "discontinued": true,
+      "release_date": "2025-12-18",
+      "shutdown_date": "2026-09-21",
+      "successor": "bytedance/doubao-seed-2.0-lite",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -3685,8 +4031,10 @@
       "name": "doubao-seed-2-0-code-preview-260215",
       "media_type": "text",
       "display_name": "Seed 2.0 Code",
-      "discontinued": true,
       "context_length": 262144,
+      "release_date": "2026-02-14",
+      "shutdown_date": "2026-11-24",
+      "successor": "bytedance/doubao-seed-evolving",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -3737,13 +4085,13 @@
                 "when": {
                   "context_tier": 32000
                 },
-                "price": 4.8
+                "price": 0.96
               },
               {
                 "when": {
                   "context_tier": 128000
                 },
-                "price": 9.6
+                "price": 1.92
               }
             ]
           },
@@ -3778,13 +4126,14 @@
     },
     {
       "maker": "bytedance",
-      "name": "doubao-seed-2-0-lite-260428",
+      "name": "doubao-seed-2-0-lite-260215",
       "media_type": "text",
-      "display_name": "Seed 2.0 Lite",
-      "context_length": 256000,
+      "display_name": "豆包 Seed 2.0 Lite 260215",
+      "discontinued": true,
+      "shutdown_date": "2026-10-22",
+      "successor": "bytedance/doubao-seed-2.1-lite",
       "facts": {
         "image_input": true,
-        "structured_output": true,
         "max_output_tokens": 131072
       },
       "price": {
@@ -3832,13 +4181,13 @@
                 "when": {
                   "context_tier": 32000
                 },
-                "price": 0.9
+                "price": 0.18
               },
               {
                 "when": {
                   "context_tier": 128000
                 },
-                "price": 1.8
+                "price": 0.36
               }
             ]
           },
@@ -3873,10 +4222,107 @@
     },
     {
       "maker": "bytedance",
+      "name": "doubao-seed-2-0-mini-260215",
+      "media_type": "text",
+      "display_name": "豆包 Seed 2.0 Mini 260215",
+      "discontinued": true,
+      "shutdown_date": "2026-10-22",
+      "successor": "bytedance/doubao-seed-2.0-mini",
+      "facts": {
+        "image_input": true,
+        "max_output_tokens": 131072
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.4
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 0.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.04
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.08
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 0.16
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.0
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 4.0
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 8.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "bytedance",
       "name": "doubao-seed-2-1-pro-260628",
       "media_type": "text",
       "display_name": "Seed 2.1 Pro",
       "context_length": 256000,
+      "release_date": "2026-06-23",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -3924,6 +4370,7 @@
       "media_type": "text",
       "display_name": "Seed 2.1 Turbo",
       "context_length": 256000,
+      "release_date": "2026-06-23",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -3970,6 +4417,8 @@
       "name": "doubao-seed-2.0-code",
       "media_type": "text",
       "display_name": "豆包 Seed 2.0 Code",
+      "shutdown_date": "2026-11-24",
+      "successor": "bytedance/doubao-seed-evolving",
       "facts": {
         "max_output_tokens": 131072
       },
@@ -4063,10 +4512,13 @@
       "media_type": "text",
       "display_name": "豆包 Seed 2.0 Lite",
       "aliases": [
-        "doubao-seed-2-0-lite-260215"
+        "doubao-seed-2-0-lite-260428"
       ],
+      "context_length": 262144,
+      "release_date": "2026-02-14",
       "facts": {
         "image_input": true,
+        "structured_output": true,
         "max_output_tokens": 131072
       },
       "price": {
@@ -4159,9 +4611,9 @@
       "media_type": "text",
       "display_name": "豆包 Seed 2.0 Mini",
       "aliases": [
-        "doubao-seed-2-0-mini-260215",
         "doubao-seed-2-0-mini-260428"
       ],
+      "release_date": "2026-02-14",
       "facts": {
         "image_input": true,
         "max_output_tokens": 131072
@@ -4258,6 +4710,9 @@
       "aliases": [
         "doubao-seed-2-0-pro-260215"
       ],
+      "release_date": "2026-02-14",
+      "shutdown_date": "2026-11-24",
+      "successor": "bytedance/doubao-seed-2.1-lite",
       "facts": {
         "image_input": true,
         "max_output_tokens": 131072
@@ -4354,8 +4809,10 @@
       "aliases": [
         "doubao-seed-2-1-lite-260915"
       ],
+      "context_length": 1048576,
       "facts": {
         "image_input": true,
+        "structured_output": true,
         "max_output_tokens": 262144
       },
       "price": {
@@ -4396,10 +4853,62 @@
     },
     {
       "maker": "bytedance",
+      "name": "doubao-seed-2.1-pro",
+      "media_type": "text",
+      "display_name": "豆包 Seed 2.1 Pro",
+      "aliases": [
+        "doubao-seed-2-1-pro-260915"
+      ],
+      "release_date": "2026-09-15",
+      "context_length": 1048576,
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 262144
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.2
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 30.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "bytedance",
       "name": "doubao-seed-character-260628",
       "media_type": "text",
       "display_name": "Seed Character",
       "context_length": 256000,
+      "release_date": "2026-06-23",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -4475,12 +4984,13 @@
       "maker": "bytedance",
       "name": "doubao-seed-evolving",
       "media_type": "text",
-      "display_name": "Seed Evolving",
-      "context_length": 256000,
+      "display_name": "豆包 Seed Evolving",
+      "context_length": 1048576,
+      "release_date": "2026-06-23",
       "facts": {
         "image_input": true,
         "structured_output": true,
-        "max_output_tokens": 256000
+        "max_output_tokens": 262144
       },
       "price": {
         "currency": "CNY",
@@ -4527,6 +5037,8 @@
         "doubao-seedance-1-5-pro-251215"
       ],
       "discontinued": true,
+      "shutdown_date": "2026-09-21",
+      "successor": "bytedance/doubao-seedance-2.0-mini",
       "facts": {
         "durations": [
           4,
@@ -4604,6 +5116,7 @@
       "aliases": [
         "doubao-seedance-2-0-260128"
       ],
+      "release_date": "2026-02-12",
       "facts": {
         "durations": [
           4,
@@ -4992,6 +5505,7 @@
       "aliases": [
         "doubao-seedream-4-0-250828"
       ],
+      "shutdown_date": "2026-11-24",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -5021,6 +5535,8 @@
       "aliases": [
         "doubao-seedream-4-5-251128"
       ],
+      "shutdown_date": "2026-11-24",
+      "successor": "bytedance/doubao-seedream-5-0-pro",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -5044,6 +5560,35 @@
     },
     {
       "maker": "bytedance",
+      "name": "doubao-seedream-5-0-flash",
+      "media_type": "image",
+      "display_name": "Seedream 5.0 Flash",
+      "aliases": [
+        "doubao-seedream-5-0-flash-260915"
+      ],
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "max_reference_images": 10
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.12
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "bytedance",
       "name": "doubao-seedream-5-0-lite",
       "media_type": "image",
       "display_name": "Seedream 5.0 Lite",
@@ -5051,6 +5596,9 @@
         "doubao-seedream-5-0-lite-260128",
         "doubao-seedream-5-0-260128"
       ],
+      "release_date": "2026-02-13",
+      "shutdown_date": "2026-11-24",
+      "successor": "bytedance/doubao-seedream-5-0-pro",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -5073,15 +5621,107 @@
       }
     },
     {
+      "maker": "bytedance",
+      "name": "doubao-seedream-5-0-pro",
+      "media_type": "image",
+      "display_name": "Seedream 5.0 Pro",
+      "aliases": [
+        "doubao-seedream-5-0-pro-260628"
+      ],
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "max_reference_images": 10
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.6
+              }
+            ]
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.02
+              }
+            ],
+            "free_allowance": 1
+          }
+        ]
+      }
+    },
+    {
+      "maker": "deepseek",
+      "name": "deepseek-flash",
+      "media_type": "text",
+      "display_name": "DeepSeek V4.1 Flash",
+      "aliases": [
+        "deepseek-v4.1-flash"
+      ],
+      "context_length": 1048576,
+      "release_date": "2026-09-10",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 393216
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.04
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 8.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "maker": "deepseek",
       "name": "deepseek-v4-flash",
       "media_type": "text",
       "display_name": "DeepSeek V4 Flash",
       "aliases": [
-        "deepseek-flash",
         "alicloud-deepseek-v4-flash",
         "deep-deepseek-v4-flash"
       ],
+      "release_date": "2026-04-24",
+      "successor": "deepseek/deepseek-flash",
       "facts": {
         "max_output_tokens": 393216
       },
@@ -5128,6 +5768,9 @@
       "display_name": "DeepSeek V4 Flash Vision Exp",
       "discontinued": true,
       "context_length": 1048576,
+      "release_date": "2026-08-21",
+      "shutdown_date": "2026-09-10",
+      "successor": "deepseek/deepseek-flash",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -5143,6 +5786,7 @@
         "deep-deepseek-v4-pro",
         "alicloud-deepseek-v4-pro"
       ],
+      "release_date": "2026-04-24",
       "facts": {
         "max_output_tokens": 393216
       },
@@ -5184,83 +5828,6 @@
     },
     {
       "maker": "google",
-      "name": "gemini-2.5-computer-use-preview-10-2025",
-      "media_type": "text",
-      "display_name": "Gemini 2.5 Computer Use Preview 10-2025",
-      "context_length": 128000,
-      "facts": {
-        "image_input": true,
-        "structured_output": false,
-        "max_output_tokens": 64000
-      },
-      "price": {
-        "currency": "USD",
-        "meters": [
-          {
-            "meter": "uncached_input_tokens",
-            "dims": [
-              "context_tier"
-            ],
-            "rows": [
-              {
-                "when": {
-                  "context_tier": 0
-                },
-                "price": 1.25
-              },
-              {
-                "when": {
-                  "context_tier": 200000
-                },
-                "price": 2.5
-              }
-            ]
-          },
-          {
-            "meter": "cache_read_tokens",
-            "dims": [
-              "context_tier"
-            ],
-            "rows": [
-              {
-                "when": {
-                  "context_tier": 0
-                },
-                "price": 1.25
-              },
-              {
-                "when": {
-                  "context_tier": 200000
-                },
-                "price": 2.5
-              }
-            ]
-          },
-          {
-            "meter": "output_tokens",
-            "dims": [
-              "context_tier"
-            ],
-            "rows": [
-              {
-                "when": {
-                  "context_tier": 0
-                },
-                "price": 10.0
-              },
-              {
-                "when": {
-                  "context_tier": 200000
-                },
-                "price": 15.0
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "maker": "google",
       "name": "gemini-2.5-flash",
       "media_type": "text",
       "display_name": "Gemini 2.5 Flash",
@@ -5268,6 +5835,9 @@
         "databricks-gemini-2-5-flash"
       ],
       "context_length": 1048576,
+      "release_date": "2025-06-17",
+      "shutdown_date": "2026-12-01",
+      "successor": "google/gemini-3.5-flash-lite",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -5325,6 +5895,7 @@
       "media_type": "text",
       "display_name": "Gemini 2.5 Flash-Lite",
       "context_length": 1048576,
+      "release_date": "2025-06-17",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -5385,6 +5956,9 @@
         "databricks-gemini-2-5-pro"
       ],
       "context_length": 1048576,
+      "release_date": "2025-06-17",
+      "shutdown_date": "2026-12-01",
+      "successor": "google/gemini-3.8-flash",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -5462,6 +6036,7 @@
       "media_type": "text",
       "display_name": "Gemini 3 Flash Preview",
       "context_length": 1048576,
+      "release_date": "2025-12-17",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -5518,9 +6093,7 @@
       "name": "gemini-3-pro-image",
       "media_type": "image",
       "display_name": "Gemini 3 Pro Image",
-      "aliases": [
-        "gemini-3-pro-image-preview"
-      ],
+      "release_date": "2026-05-28",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -5571,9 +6144,8 @@
       "name": "gemini-3.1-flash-image",
       "media_type": "image",
       "display_name": "Gemini 3.1 Flash Image",
-      "aliases": [
-        "gemini-3.1-flash-image-preview"
-      ],
+      "release_date": "2026-05-28",
+      "successor": "google/gemini-nano-banana-2.1",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -5631,64 +6203,7 @@
       "media_type": "text",
       "display_name": "Gemini 3.1 Flash Lite",
       "context_length": 1048576,
-      "facts": {
-        "image_input": true,
-        "structured_output": true,
-        "max_output_tokens": 65536
-      },
-      "price": {
-        "currency": "USD",
-        "meters": [
-          {
-            "meter": "uncached_input_tokens",
-            "dims": [],
-            "rows": [
-              {
-                "when": {},
-                "price": 0.25
-              }
-            ]
-          },
-          {
-            "meter": "cache_read_tokens",
-            "dims": [],
-            "rows": [
-              {
-                "when": {},
-                "price": 0.025
-              }
-            ]
-          },
-          {
-            "meter": "output_tokens",
-            "dims": [],
-            "rows": [
-              {
-                "when": {},
-                "price": 1.5
-              }
-            ]
-          },
-          {
-            "meter": "audio_input_tokens",
-            "dims": [],
-            "rows": [
-              {
-                "when": {},
-                "price": 0.5
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "maker": "google",
-      "name": "gemini-3.1-flash-lite-preview",
-      "media_type": "text",
-      "display_name": "Gemini 3.1 Flash Lite Preview",
-      "discontinued": true,
-      "context_length": 1048576,
+      "release_date": "2026-05-07",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -5746,6 +6261,7 @@
       "media_type": "text",
       "display_name": "Gemini 3.1 Pro Preview",
       "context_length": 1048576,
+      "release_date": "2026-02-19",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -5823,6 +6339,7 @@
       "media_type": "text",
       "display_name": "Gemini 3.1 Pro Preview Custom Tools",
       "context_length": 1048576,
+      "release_date": "2026-02-19",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -5903,6 +6420,7 @@
         "databricks-gemini-3-5-flash"
       ],
       "context_length": 1048576,
+      "release_date": "2026-05-19",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -5960,6 +6478,7 @@
       "media_type": "text",
       "display_name": "Gemini 3.5 Flash Lite",
       "context_length": 1048576,
+      "release_date": "2026-07-21",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -6007,6 +6526,7 @@
       "media_type": "text",
       "display_name": "Gemini 3.6 Flash",
       "context_length": 1048576,
+      "release_date": "2026-07-21",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -6064,6 +6584,9 @@
       "media_type": "text",
       "display_name": "Gemini 3.7 Flash",
       "context_length": 1048576,
+      "release_date": "2026-08-13",
+      "shutdown_date": "2027-01-28",
+      "successor": "google/gemini-3.8-flash",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -6121,6 +6644,7 @@
       "media_type": "text",
       "display_name": "Gemini 3.8 Flash",
       "context_length": 1048576,
+      "release_date": "2026-09-02",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -6177,6 +6701,7 @@
       "name": "gemini-3.8-flash-lite-tts",
       "media_type": "audio",
       "display_name": "Gemini 3.8 Flash-Lite TTS",
+      "release_date": "2026-09-22",
       "facts": {},
       "price": {
         "currency": "USD",
@@ -6209,6 +6734,7 @@
       "name": "gemini-3.8-flash-tts",
       "media_type": "audio",
       "display_name": "Gemini 3.8 Flash TTS",
+      "release_date": "2026-09-22",
       "facts": {},
       "price": {
         "currency": "USD",
@@ -6242,6 +6768,7 @@
       "media_type": "text",
       "display_name": "Gemini 4 Argon",
       "context_length": 1048576,
+      "release_date": "2026-10-13",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -6299,6 +6826,7 @@
       "media_type": "text",
       "display_name": "Gemini Flash Latest",
       "context_length": 1048576,
+      "release_date": "2026-08-13",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -6356,6 +6884,7 @@
       "media_type": "text",
       "display_name": "Gemini Flash-Lite Latest",
       "context_length": 1048576,
+      "release_date": "2026-07-21",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -6399,10 +6928,91 @@
     },
     {
       "maker": "google",
+      "name": "gemini-nano-banana-2.1",
+      "media_type": "image",
+      "display_name": "Gemini Nano Banana 2.1",
+      "release_date": "2026-10-06",
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "resolutions": [
+          "1K",
+          "2K",
+          "4K"
+        ],
+        "max_reference_images": 14
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "1K"
+                },
+                "price": 0.0336
+              },
+              {
+                "when": {
+                  "resolution": "2K"
+                },
+                "price": 0.0504
+              },
+              {
+                "when": {
+                  "resolution": "4K"
+                },
+                "price": 0.113
+              }
+            ],
+            "defaults": {
+              "resolution": "1K"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "maker": "google",
+      "name": "gemini-omni-1.1-flash",
+      "media_type": "video",
+      "display_name": "Gemini Omni Flash",
+      "release_date": "2026-08-27",
+      "facts": {
+        "durations": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "resolutions": [
+          "360p",
+          "720p",
+          "1080p",
+          "4k"
+        ],
+        "text_to_video": true,
+        "first_frame": true,
+        "last_frame": true,
+        "reference_audio": false
+      }
+    },
+    {
+      "maker": "google",
       "name": "gemini-pro-latest",
       "media_type": "text",
       "display_name": "Gemini Pro Latest",
       "context_length": 1048576,
+      "release_date": "2026-02-19",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -6483,6 +7093,7 @@
         "google-gemma-4-26b-a4b-it"
       ],
       "context_length": 262144,
+      "release_date": "2026-04-02",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -6498,6 +7109,7 @@
         "google-gemma-4-31b-it"
       ],
       "context_length": 262144,
+      "release_date": "2026-04-02",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -6509,6 +7121,7 @@
       "name": "veo-3.1-fast-generate-001",
       "media_type": "video",
       "display_name": "Veo 3.1 Fast",
+      "release_date": "2025-11-17",
       "facts": {
         "durations": [
           4,
@@ -6587,6 +7200,9 @@
       "name": "veo-3.1-fast-generate-preview",
       "media_type": "video",
       "display_name": "Veo 3.1 Fast",
+      "discontinued": true,
+      "shutdown_date": "2026-10-22",
+      "successor": "google/gemini-omni-1.1-flash",
       "facts": {
         "durations": [
           4,
@@ -6683,6 +7299,7 @@
       "name": "veo-3.1-generate-001",
       "media_type": "video",
       "display_name": "Veo 3.1",
+      "release_date": "2025-11-17",
       "facts": {
         "durations": [
           4,
@@ -6779,6 +7396,9 @@
       "name": "veo-3.1-generate-preview",
       "media_type": "video",
       "display_name": "Veo 3.1",
+      "discontinued": true,
+      "shutdown_date": "2026-10-22",
+      "successor": "google/gemini-omni-1.1-flash",
       "facts": {
         "durations": [
           4,
@@ -6875,6 +7495,9 @@
       "name": "veo-3.1-lite-generate-preview",
       "media_type": "video",
       "display_name": "Veo 3.1 Lite",
+      "discontinued": true,
+      "shutdown_date": "2026-10-22",
+      "successor": "google/gemini-omni-1.1-flash",
       "facts": {
         "durations": [
           4,
@@ -6983,6 +7606,7 @@
       "name": "kling-v2-5-turbo",
       "media_type": "video",
       "display_name": "可灵 2.5 Turbo",
+      "release_date": "2025-10-20",
       "facts": {
         "durations": [
           5,
@@ -7032,6 +7656,7 @@
       "name": "kling-v2-6",
       "media_type": "video",
       "display_name": "可灵 v2.6",
+      "release_date": "2025-12-15",
       "facts": {
         "durations": [
           5,
@@ -7091,6 +7716,7 @@
       "name": "kling-v3",
       "media_type": "video",
       "display_name": "可灵 v3",
+      "release_date": "2026-02-25",
       "facts": {
         "durations": [
           3,
@@ -7176,6 +7802,7 @@
       "name": "kling-v3-omni",
       "media_type": "image",
       "display_name": "可灵 V3-Omni（图像）",
+      "release_date": "2026-02-25",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -7226,6 +7853,7 @@
       "name": "kling-v3-omni",
       "media_type": "video",
       "display_name": "可灵 v3 Omni",
+      "release_date": "2026-02-25",
       "facts": {
         "durations": [
           3,
@@ -7399,6 +8027,7 @@
       "name": "MiniMax-H3",
       "media_type": "video",
       "display_name": "MiniMax H3",
+      "release_date": "2026-07-31",
       "facts": {
         "durations": [
           4,
@@ -7451,6 +8080,211 @@
             "defaults": {
               "resolution": "768p"
             }
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.2
+              }
+            ],
+            "free_allowance": 5
+          }
+        ]
+      }
+    },
+    {
+      "maker": "minimax",
+      "name": "MiniMax-H3-Highspeed",
+      "media_type": "video",
+      "display_name": "MiniMax H3 Highspeed",
+      "facts": {
+        "durations": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "resolutions": [
+          "768p"
+        ],
+        "max_reference_images": 9,
+        "text_to_video": true,
+        "first_frame": true,
+        "last_frame": true,
+        "reference_audio": true,
+        "max_reference_audio_count": 3,
+        "max_reference_audio_total_seconds": 15.0
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "768p"
+                },
+                "price": 0.4
+              }
+            ],
+            "defaults": {
+              "resolution": "768p"
+            }
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.2
+              }
+            ],
+            "free_allowance": 5
+          }
+        ]
+      }
+    },
+    {
+      "maker": "minimax",
+      "name": "MiniMax-H3-Lite",
+      "media_type": "video",
+      "display_name": "MiniMax H3 Lite",
+      "facts": {
+        "durations": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "resolutions": [
+          "768p"
+        ],
+        "max_reference_images": 9,
+        "text_to_video": true,
+        "first_frame": true,
+        "last_frame": true,
+        "reference_audio": true,
+        "max_reference_audio_count": 3,
+        "max_reference_audio_total_seconds": 15.0
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "768p"
+                },
+                "price": 0.26
+              }
+            ],
+            "defaults": {
+              "resolution": "768p"
+            }
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.13
+              }
+            ],
+            "free_allowance": 5
+          }
+        ]
+      }
+    },
+    {
+      "maker": "minimax",
+      "name": "MiniMax-H3-Max",
+      "media_type": "video",
+      "display_name": "MiniMax H3 Max",
+      "facts": {
+        "durations": [
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "resolutions": [
+          "768p"
+        ],
+        "max_reference_images": 9,
+        "text_to_video": true,
+        "first_frame": true,
+        "last_frame": true,
+        "reference_audio": true,
+        "max_reference_audio_count": 3,
+        "max_reference_audio_total_seconds": 15.0
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "768p"
+                },
+                "price": 0.5
+              }
+            ],
+            "defaults": {
+              "resolution": "768p"
+            }
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ],
+            "free_allowance": 2
           }
         ]
       }
@@ -7460,6 +8294,7 @@
       "name": "MiniMax-Hailuo-2.3",
       "media_type": "video",
       "display_name": "MiniMax Hailuo 2.3",
+      "release_date": "2025-10-28",
       "facts": {
         "durations": [
           6,
@@ -7527,6 +8362,7 @@
       "name": "MiniMax-Hailuo-2.3-Fast",
       "media_type": "video",
       "display_name": "MiniMax Hailuo 2.3 Fast",
+      "release_date": "2025-10-28",
       "facts": {
         "durations": [
           6,
@@ -7599,6 +8435,7 @@
       ],
       "discontinued": true,
       "context_length": 204800,
+      "release_date": "2025-10-27",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -7658,8 +8495,8 @@
       "aliases": [
         "minimax.minimax-m2.1"
       ],
-      "discontinued": true,
       "context_length": 204800,
+      "release_date": "2025-12-22",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -7716,7 +8553,9 @@
       "name": "MiniMax-M2.1-highspeed",
       "media_type": "text",
       "display_name": "MiniMax-M2.1-highspeed",
+      "discontinued": true,
       "context_length": 204800,
+      "release_date": "2025-12-22",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -7774,11 +8613,11 @@
       "media_type": "text",
       "display_name": "MiniMax-M2.5",
       "aliases": [
-        "minimax-m25",
-        "minimax.minimax-m2.5"
+        "minimax.minimax-m2.5",
+        "minimax-m25"
       ],
-      "discontinued": true,
       "context_length": 204800,
+      "release_date": "2026-02-12",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -7835,8 +8674,9 @@
       "name": "MiniMax-M2.5-highspeed",
       "media_type": "text",
       "display_name": "MiniMax-M2.5-highspeed",
-      "discontinued": true,
       "context_length": 204800,
+      "release_date": "2026-02-13",
+      "shutdown_date": "2026-11-18",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -7897,6 +8737,7 @@
         "coding-minimax-m2.7",
         "minimax-m27"
       ],
+      "release_date": "2026-03-18",
       "facts": {
         "structured_output": true,
         "max_output_tokens": 204800
@@ -7955,8 +8796,9 @@
       "aliases": [
         "coding-minimax-m2.7-highspeed"
       ],
-      "discontinued": true,
       "context_length": 204800,
+      "release_date": "2026-03-18",
+      "shutdown_date": "2026-11-18",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -8013,6 +8855,7 @@
       "name": "MiniMax-M3",
       "media_type": "text",
       "display_name": "MiniMax M3",
+      "release_date": "2026-06-01",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8090,10 +8933,46 @@
       "media_type": "text",
       "display_name": "MiniMax-M3.1-Flash",
       "context_length": 1000000,
+      "release_date": "2026-10-19",
       "facts": {
         "image_input": true,
         "structured_output": false,
         "max_output_tokens": 524288
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.1
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 4.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -8175,6 +9054,7 @@
       "name": "speech-2.8-hd",
       "media_type": "audio",
       "display_name": "MiniMax Speech 2.8 HD",
+      "release_date": "2026-01-23",
       "facts": {},
       "price": {
         "currency": "CNY",
@@ -8198,6 +9078,7 @@
       "name": "speech-2.8-turbo",
       "media_type": "audio",
       "display_name": "MiniMax Speech 2.8 Turbo",
+      "release_date": "2026-01-23",
       "facts": {},
       "price": {
         "currency": "CNY",
@@ -8224,6 +9105,7 @@
       "aliases": [
         "Kimi-K2_6"
       ],
+      "release_date": "2026-04-20",
       "facts": {
         "max_output_tokens": 32768
       },
@@ -8272,6 +9154,7 @@
         "databricks-kimi-k2-7-code"
       ],
       "context_length": 262144,
+      "release_date": "2026-06-12",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8319,6 +9202,7 @@
       "media_type": "text",
       "display_name": "Kimi K2.7 Code HighSpeed",
       "context_length": 262144,
+      "release_date": "2026-06-12",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8367,11 +9251,12 @@
       "display_name": "Kimi K3",
       "aliases": [
         "morph-kimik3",
-        "umans-kimi-k3",
         "global.moonshotai.kimi-k3",
-        "us.moonshotai.kimi-k3"
+        "us.moonshotai.kimi-k3",
+        "umans-kimi-k3"
       ],
       "context_length": 1048576,
+      "release_date": "2026-07-16",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8429,6 +9314,7 @@
       "media_type": "text",
       "display_name": "Kimi K3.1 Pro",
       "context_length": 1048576,
+      "release_date": "2026-10-23",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8441,6 +9327,7 @@
       "media_type": "text",
       "display_name": "Kimi K3.1 Pro Highspeed",
       "context_length": 1048576,
+      "release_date": "2026-10-23",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8454,6 +9341,9 @@
       "display_name": "GPT-3.5-turbo",
       "discontinued": true,
       "context_length": 16385,
+      "release_date": "2023-03-01",
+      "shutdown_date": "2026-10-23",
+      "successor": "openai/gpt-5.6-terra",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -8502,6 +9392,9 @@
       "display_name": "GPT-4",
       "discontinued": true,
       "context_length": 8192,
+      "release_date": "2023-11-06",
+      "shutdown_date": "2026-10-23",
+      "successor": "openai/gpt-5.6-sol",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -8550,6 +9443,9 @@
       "display_name": "GPT-4 Turbo",
       "discontinued": true,
       "context_length": 128000,
+      "release_date": "2023-11-06",
+      "shutdown_date": "2026-10-23",
+      "successor": "openai/gpt-5.6-sol",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -8600,6 +9496,9 @@
         "openai-gpt-4.1"
       ],
       "context_length": 1047576,
+      "release_date": "2025-04-14",
+      "shutdown_date": "2027-01-14",
+      "successor": "openai/gpt-6-luna",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8647,6 +9546,9 @@
       "media_type": "text",
       "display_name": "GPT-4.1 mini",
       "context_length": 1047576,
+      "release_date": "2025-04-14",
+      "shutdown_date": "2027-01-14",
+      "successor": "openai/gpt-6-luna",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8695,6 +9597,9 @@
       "display_name": "GPT-4.1 nano",
       "discontinued": true,
       "context_length": 1047576,
+      "release_date": "2025-04-14",
+      "shutdown_date": "2026-10-23",
+      "successor": "openai/gpt-5.6-luna",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8747,6 +9652,9 @@
         "openai-gpt-4o"
       ],
       "context_length": 128000,
+      "release_date": "2024-05-13",
+      "shutdown_date": "2027-01-14",
+      "successor": "openai/gpt-6-luna",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8795,6 +9703,9 @@
       "display_name": "GPT-4o (2024-05-13)",
       "discontinued": true,
       "context_length": 128000,
+      "release_date": "2024-05-13",
+      "shutdown_date": "2026-10-23",
+      "successor": "openai/gpt-5.6-sol",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8845,6 +9756,9 @@
         "openai-gpt-4o-mini"
       ],
       "context_length": 128000,
+      "release_date": "2024-07-18",
+      "shutdown_date": "2027-01-14",
+      "successor": "openai/gpt-6-luna",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8892,10 +9806,13 @@
       "media_type": "text",
       "display_name": "GPT-5",
       "aliases": [
-        "databricks-gpt-5",
-        "openai-gpt-5"
+        "openai-gpt-5",
+        "databricks-gpt-5"
       ],
       "context_length": 400000,
+      "release_date": "2025-08-07",
+      "shutdown_date": "2026-12-11",
+      "successor": "openai/gpt-5.6-sol",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8943,11 +9860,14 @@
       "media_type": "text",
       "display_name": "GPT-5 Mini",
       "aliases": [
-        "duo-chat-gpt-5-mini",
+        "openai-gpt-5-mini",
         "databricks-gpt-5-mini",
-        "openai-gpt-5-mini"
+        "duo-chat-gpt-5-mini"
       ],
       "context_length": 400000,
+      "release_date": "2025-08-07",
+      "shutdown_date": "2026-12-11",
+      "successor": "openai/gpt-5.6-terra",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -8995,10 +9915,13 @@
       "media_type": "text",
       "display_name": "GPT-5 Nano",
       "aliases": [
-        "databricks-gpt-5-nano",
-        "openai-gpt-5-nano"
+        "openai-gpt-5-nano",
+        "databricks-gpt-5-nano"
       ],
       "context_length": 400000,
+      "release_date": "2025-08-07",
+      "shutdown_date": "2026-12-11",
+      "successor": "openai/gpt-5.6-luna",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -9046,6 +9969,9 @@
       "media_type": "text",
       "display_name": "GPT-5 Pro",
       "context_length": 400000,
+      "release_date": "2025-10-06",
+      "shutdown_date": "2026-12-11",
+      "successor": "openai/gpt-5.6-sol",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -9093,11 +10019,14 @@
       "media_type": "text",
       "display_name": "GPT-5.1",
       "aliases": [
-        "duo-chat-gpt-5-1",
         "databricks-gpt-5-1",
-        "openai-gpt-5.1"
+        "openai-gpt-5.1",
+        "duo-chat-gpt-5-1"
       ],
       "context_length": 400000,
+      "release_date": "2025-11-13",
+      "shutdown_date": "2027-04-01",
+      "successor": "openai/gpt-6-sol",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -9145,12 +10074,13 @@
       "media_type": "text",
       "display_name": "GPT-5.2",
       "aliases": [
-        "duo-chat-gpt-5-2",
-        "databricks-gpt-5-2",
         "openai-gpt-5.2",
-        "openai-gpt-52"
+        "databricks-gpt-5-2",
+        "openai-gpt-52",
+        "duo-chat-gpt-5-2"
       ],
       "context_length": 400000,
+      "release_date": "2025-12-11",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -9201,6 +10131,7 @@
         "openai-gpt-5.2-pro"
       ],
       "context_length": 400000,
+      "release_date": "2025-12-11",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -9248,10 +10179,13 @@
       "media_type": "text",
       "display_name": "GPT-5.3-Codex",
       "aliases": [
-        "duo-chat-gpt-5-3-codex",
+        "openai-gpt-5.3-codex",
         "openai-gpt-53-codex",
-        "openai-gpt-5.3-codex"
+        "duo-chat-gpt-5-3-codex"
       ],
+      "release_date": "2026-02-05",
+      "shutdown_date": "2027-04-01",
+      "successor": "openai/gpt-6-sol",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -9338,6 +10272,7 @@
       "media_type": "text",
       "display_name": "GPT-5.3 Codex Spark",
       "context_length": 128000,
+      "release_date": "2026-02-05",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -9385,11 +10320,12 @@
       "media_type": "text",
       "display_name": "GPT-5.4",
       "aliases": [
-        "duo-chat-gpt-5-4",
+        "openai.gpt-5.4",
         "databricks-gpt-5-4",
-        "openai-gpt-5.4",
-        "openai-gpt-54"
+        "openai-gpt-54",
+        "duo-chat-gpt-5-4"
       ],
+      "release_date": "2026-03-05",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -9548,11 +10484,12 @@
       "media_type": "text",
       "display_name": "GPT-5.4 Mini",
       "aliases": [
-        "duo-chat-gpt-5-4-mini",
+        "openai-gpt-5.4-mini",
         "databricks-gpt-5-4-mini",
         "openai-gpt-54-mini",
-        "openai-gpt-5.4-mini"
+        "duo-chat-gpt-5-4-mini"
       ],
+      "release_date": "2026-03-17",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -9657,10 +10594,13 @@
       "media_type": "text",
       "display_name": "GPT-5.4 Nano",
       "aliases": [
-        "duo-chat-gpt-5-4-nano",
+        "openai-gpt-5.4-nano",
         "databricks-gpt-5-4-nano",
-        "openai-gpt-5.4-nano"
+        "duo-chat-gpt-5-4-nano"
       ],
+      "release_date": "2026-03-17",
+      "shutdown_date": "2027-04-01",
+      "successor": "openai/gpt-6-luna",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -9747,10 +10687,11 @@
       "media_type": "text",
       "display_name": "GPT-5.4 Pro",
       "aliases": [
-        "openai-gpt-54-pro",
-        "openai-gpt-5.4-pro"
+        "openai-gpt-5.4-pro",
+        "openai-gpt-54-pro"
       ],
       "context_length": 1050000,
+      "release_date": "2026-03-05",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -9828,12 +10769,13 @@
       "media_type": "text",
       "display_name": "GPT-5.5",
       "aliases": [
-        "duo-chat-gpt-5-5",
+        "openai.gpt-5.5",
         "databricks-gpt-5-5",
-        "openai-gpt-5.5",
         "openai-gpt-55",
+        "duo-chat-gpt-5-5",
         "xpersona-gpt-5.5"
       ],
+      "release_date": "2026-04-23",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -9994,6 +10936,7 @@
       "aliases": [
         "openai-gpt-55-pro"
       ],
+      "release_date": "2026-04-23",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -10110,6 +11053,7 @@
       "media_type": "text",
       "display_name": "GPT-5.6",
       "context_length": 1050000,
+      "release_date": "2026-07-09",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -10207,15 +11151,16 @@
       "media_type": "text",
       "display_name": "GPT-5.6 Luna",
       "aliases": [
-        "duo-chat-gpt-5-6-luna",
-        "databricks-gpt-5-6-luna",
-        "openai-gpt-5.6-luna",
-        "openai-gpt-56-luna",
         "us.openai.gpt-5.6-luna",
         "global.openai.gpt-5.6-luna",
-        "in.openai.gpt-5.6-luna"
+        "in.openai.gpt-5.6-luna",
+        "openai.gpt-5.6-luna",
+        "databricks-gpt-5-6-luna",
+        "openai-gpt-56-luna",
+        "duo-chat-gpt-5-6-luna"
       ],
       "context_length": 1050000,
+      "release_date": "2026-07-09",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -10313,14 +11258,15 @@
       "media_type": "text",
       "display_name": "GPT-5.6 Sol",
       "aliases": [
-        "duo-chat-gpt-5-6-sol",
-        "databricks-gpt-5-6-sol",
-        "openai-gpt-5.6-sol",
-        "openai-gpt-56-sol",
+        "openai.gpt-5.6-sol",
         "global.openai.gpt-5.6-sol",
-        "us.openai.gpt-5.6-sol"
+        "us.openai.gpt-5.6-sol",
+        "databricks-gpt-5-6-sol",
+        "openai-gpt-56-sol",
+        "duo-chat-gpt-5-6-sol"
       ],
       "context_length": 1050000,
+      "release_date": "2026-07-09",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -10418,15 +11364,16 @@
       "media_type": "text",
       "display_name": "GPT-5.6 Terra",
       "aliases": [
-        "duo-chat-gpt-5-6-terra",
-        "databricks-gpt-5-6-terra",
-        "openai-gpt-5.6-terra",
-        "openai-gpt-56-terra",
+        "global.openai.gpt-5.6-terra",
         "us.openai.gpt-5.6-terra",
+        "openai.gpt-5.6-terra",
         "in.openai.gpt-5.6-terra",
-        "global.openai.gpt-5.6-terra"
+        "databricks-gpt-5-6-terra",
+        "openai-gpt-56-terra",
+        "duo-chat-gpt-5-6-terra"
       ],
       "context_length": 1050000,
+      "release_date": "2026-07-09",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -10524,12 +11471,13 @@
       "media_type": "text",
       "display_name": "GPT-6 Astra",
       "aliases": [
-        "duo-chat-gpt-6-astra",
-        "openai-gpt-6-astra",
         "us.openai.gpt-6-astra",
-        "global.openai.gpt-6-astra"
+        "global.openai.gpt-6-astra",
+        "openai.gpt-6-astra",
+        "duo-chat-gpt-6-astra"
       ],
       "context_length": 1050000,
+      "release_date": "2026-09-04",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -10627,12 +11575,13 @@
       "media_type": "text",
       "display_name": "GPT-6 Luna",
       "aliases": [
-        "duo-chat-gpt-6-luna",
-        "openai-gpt-6-luna",
+        "us.openai.gpt-6-luna",
         "global.openai.gpt-6-luna",
-        "us.openai.gpt-6-luna"
+        "openai.gpt-6-luna",
+        "duo-chat-gpt-6-luna"
       ],
       "context_length": 1050000,
+      "release_date": "2026-09-22",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -10730,12 +11679,13 @@
       "media_type": "text",
       "display_name": "GPT-6 Sol",
       "aliases": [
-        "duo-chat-gpt-6-sol",
-        "openai-gpt-6-sol",
         "global.openai.gpt-6-sol",
-        "us.openai.gpt-6-sol"
+        "openai.gpt-6-sol",
+        "us.openai.gpt-6-sol",
+        "duo-chat-gpt-6-sol"
       ],
       "context_length": 1050000,
+      "release_date": "2026-09-22",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -10833,13 +11783,14 @@
       "media_type": "text",
       "display_name": "GPT-6.1 Sol",
       "aliases": [
-        "duo-chat-gpt-6-1-sol",
-        "openai-gpt-61-sol",
-        "openai-gpt-6-1-sol",
+        "us.openai.gpt-6.1-sol",
         "global.openai.gpt-6.1-sol",
-        "us.openai.gpt-6.1-sol"
+        "openai.gpt-6.1-sol",
+        "openai-gpt-61-sol",
+        "duo-chat-gpt-6-1-sol"
       ],
       "context_length": 1050000,
+      "release_date": "2026-09-29",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -10937,12 +11888,13 @@
       "media_type": "text",
       "display_name": "GPT-6.1 Terra",
       "aliases": [
-        "openai-gpt-61-terra",
-        "openai-gpt-6.1-terra",
+        "openai.gpt-6.1-terra",
+        "global.openai.gpt-6.1-terra",
         "us.openai.gpt-6.1-terra",
-        "global.openai.gpt-6.1-terra"
+        "openai-gpt-61-terra"
       ],
       "context_length": 1050000,
+      "release_date": "2026-10-26",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -11040,6 +11992,7 @@
       "media_type": "text",
       "display_name": "Daybreak Blue",
       "context_length": 1050000,
+      "release_date": "2026-08-07",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -11137,6 +12090,7 @@
       "media_type": "text",
       "display_name": "Daybreak Red",
       "context_length": 400000,
+      "release_date": "2026-08-07",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -11193,6 +12147,10 @@
       "name": "gpt-image-2",
       "media_type": "image",
       "display_name": "GPT Image 2",
+      "aliases": [
+        "gpt-image-2-2026-04-21"
+      ],
+      "release_date": "2026-04-21",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -11278,6 +12236,7 @@
       "name": "gpt-image-2.5-flare",
       "media_type": "image",
       "display_name": "GPT Image 2.5 Flare",
+      "release_date": "2026-09-08",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -11365,6 +12324,7 @@
       "name": "gpt-image-2.5-sunburst",
       "media_type": "image",
       "display_name": "GPT Image 2.5 Sunburst",
+      "release_date": "2026-09-08",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -11457,6 +12417,9 @@
       ],
       "discontinued": true,
       "context_length": 200000,
+      "release_date": "2024-12-05",
+      "shutdown_date": "2026-10-23",
+      "successor": "openai/gpt-5.6-sol",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -11505,6 +12468,9 @@
       "display_name": "o1-pro",
       "discontinued": true,
       "context_length": 200000,
+      "release_date": "2025-03-19",
+      "shutdown_date": "2026-10-23",
+      "successor": "openai/gpt-5.6-sol",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -11555,6 +12521,9 @@
         "openai-o3"
       ],
       "context_length": 200000,
+      "release_date": "2025-04-16",
+      "shutdown_date": "2026-12-11",
+      "successor": "openai/gpt-5.6-sol",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -11606,6 +12575,9 @@
       ],
       "discontinued": true,
       "context_length": 200000,
+      "release_date": "2024-12-20",
+      "shutdown_date": "2026-10-23",
+      "successor": "openai/gpt-5.6-sol",
       "facts": {
         "image_input": false,
         "structured_output": true,
@@ -11653,6 +12625,9 @@
       "media_type": "text",
       "display_name": "o3-pro",
       "context_length": 200000,
+      "release_date": "2025-06-10",
+      "shutdown_date": "2026-12-11",
+      "successor": "openai/gpt-5.6-sol",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -11701,6 +12676,9 @@
       "display_name": "o4-mini",
       "discontinued": true,
       "context_length": 200000,
+      "release_date": "2025-04-16",
+      "shutdown_date": "2026-10-23",
+      "successor": "openai/gpt-5.6-terra",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -11748,6 +12726,7 @@
       "media_type": "video",
       "display_name": "Sora 2",
       "discontinued": true,
+      "shutdown_date": "2026-09-24",
       "facts": {
         "durations": [
           4,
@@ -11790,6 +12769,7 @@
       "media_type": "video",
       "display_name": "Sora 2 Pro",
       "discontinued": true,
+      "shutdown_date": "2026-09-24",
       "facts": {
         "durations": [
           4,
@@ -11979,6 +12959,7 @@
       "name": "viduq2",
       "media_type": "image",
       "display_name": "Vidu Q2 Image",
+      "release_date": "2025-12-01",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -12114,6 +13095,7 @@
       "name": "viduq3-pro",
       "media_type": "video",
       "display_name": "Vidu Q3 Pro",
+      "release_date": "2026-01-27",
       "facts": {
         "durations": [
           1,
@@ -12181,9 +13163,73 @@
     },
     {
       "maker": "shengshu",
+      "name": "viduq3-pro-fast",
+      "media_type": "video",
+      "display_name": "Vidu Q3 Pro Fast",
+      "facts": {
+        "durations": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16
+        ],
+        "resolutions": [
+          "720p",
+          "1080p"
+        ],
+        "max_reference_images": 0,
+        "text_to_video": false,
+        "first_frame": true,
+        "last_frame": false,
+        "reference_audio": false
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "720p"
+                },
+                "price": 0.375
+              },
+              {
+                "when": {
+                  "resolution": "1080p"
+                },
+                "price": 0.46875
+              }
+            ],
+            "defaults": {
+              "resolution": "720p"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "maker": "shengshu",
       "name": "viduq3-turbo",
       "media_type": "video",
       "display_name": "Vidu Q3 Turbo",
+      "release_date": "2026-02-11",
       "facts": {
         "durations": [
           1,
@@ -12295,163 +13341,10 @@
     },
     {
       "maker": "xai",
-      "name": "grok-4-1-fast-non-reasoning",
-      "media_type": "text",
-      "display_name": "Grok 4.1 Fast (Non-Reasoning)",
-      "discontinued": true,
-      "facts": {
-        "image_input": true,
-        "structured_output": true,
-        "max_output_tokens": 131072
-      },
-      "price": {
-        "currency": "USD",
-        "meters": [
-          {
-            "meter": "uncached_input_tokens",
-            "dims": [
-              "context_tier"
-            ],
-            "rows": [
-              {
-                "when": {
-                  "context_tier": 0
-                },
-                "price": 1.25
-              },
-              {
-                "when": {
-                  "context_tier": 199999
-                },
-                "price": 2.5
-              }
-            ]
-          },
-          {
-            "meter": "cache_read_tokens",
-            "dims": [
-              "context_tier"
-            ],
-            "rows": [
-              {
-                "when": {
-                  "context_tier": 0
-                },
-                "price": 0.2
-              },
-              {
-                "when": {
-                  "context_tier": 199999
-                },
-                "price": 0.4
-              }
-            ]
-          },
-          {
-            "meter": "output_tokens",
-            "dims": [
-              "context_tier"
-            ],
-            "rows": [
-              {
-                "when": {
-                  "context_tier": 0
-                },
-                "price": 2.5
-              },
-              {
-                "when": {
-                  "context_tier": 199999
-                },
-                "price": 5.0
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "maker": "xai",
-      "name": "grok-4-1-fast-reasoning",
-      "media_type": "text",
-      "display_name": "Grok 4.1 Fast Reasoning",
-      "discontinued": true,
-      "facts": {
-        "image_input": true,
-        "structured_output": true,
-        "max_output_tokens": 131072
-      },
-      "price": {
-        "currency": "USD",
-        "meters": [
-          {
-            "meter": "uncached_input_tokens",
-            "dims": [
-              "context_tier"
-            ],
-            "rows": [
-              {
-                "when": {
-                  "context_tier": 0
-                },
-                "price": 1.25
-              },
-              {
-                "when": {
-                  "context_tier": 199999
-                },
-                "price": 2.5
-              }
-            ]
-          },
-          {
-            "meter": "cache_read_tokens",
-            "dims": [
-              "context_tier"
-            ],
-            "rows": [
-              {
-                "when": {
-                  "context_tier": 0
-                },
-                "price": 0.2
-              },
-              {
-                "when": {
-                  "context_tier": 199999
-                },
-                "price": 0.4
-              }
-            ]
-          },
-          {
-            "meter": "output_tokens",
-            "dims": [
-              "context_tier"
-            ],
-            "rows": [
-              {
-                "when": {
-                  "context_tier": 0
-                },
-                "price": 2.5
-              },
-              {
-                "when": {
-                  "context_tier": 199999
-                },
-                "price": 5.0
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "maker": "xai",
       "name": "grok-4.20-0309-non-reasoning",
       "media_type": "text",
       "display_name": "Grok 4.20 Non-Reasoning",
+      "release_date": "2026-03-09",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -12528,6 +13421,7 @@
       "name": "grok-4.20-0309-reasoning",
       "media_type": "text",
       "display_name": "Grok 4.20 Reasoning",
+      "release_date": "2026-03-09",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -12605,6 +13499,7 @@
       "media_type": "text",
       "display_name": "Grok 4.20 Multi-Agent",
       "context_length": 1000000,
+      "release_date": "2026-03-09",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -12684,6 +13579,7 @@
       "aliases": [
         "xai.grok-4.3"
       ],
+      "release_date": "2026-04-17",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -12761,6 +13657,7 @@
       "media_type": "text",
       "display_name": "Grok 4.5",
       "context_length": 500000,
+      "release_date": "2026-07-08",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -12843,6 +13740,7 @@
         "global.xai.grok-4.6"
       ],
       "context_length": 500000,
+      "release_date": "2026-08-12",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -12920,10 +13818,11 @@
       "media_type": "text",
       "display_name": "Grok 4.7",
       "aliases": [
-        "global.xai.grok-4.7",
-        "us.xai.grok-4.7"
+        "us.xai.grok-4.7",
+        "global.xai.grok-4.7"
       ],
       "context_length": 500000,
+      "release_date": "2026-09-21",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -13001,6 +13900,7 @@
       "media_type": "text",
       "display_name": "Grok Build 0.1",
       "context_length": 256000,
+      "release_date": "2026-04-16",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -13077,6 +13977,9 @@
       "name": "grok-imagine-image",
       "media_type": "image",
       "display_name": "Grok Imagine Image",
+      "aliases": [
+        "grok-imagine-image-2026-03-02"
+      ],
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -13113,28 +14016,70 @@
     },
     {
       "maker": "xai",
-      "name": "grok-imagine-image-pro",
+      "name": "grok-imagine-image-2.0",
       "media_type": "image",
-      "display_name": "Grok Imagine Image Pro",
-      "discontinued": true,
+      "display_name": "Grok Imagine Image 2.0",
+      "release_date": "2026-08-07",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
         "resolutions": [
           "1K",
           "2K"
-        ]
+        ],
+        "max_reference_images": 5
       },
       "price": {
         "currency": "USD",
         "meters": [
           {
             "meter": "output_images",
+            "dims": [
+              "resolution",
+              "quality"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "1K",
+                  "quality": "low"
+                },
+                "price": 0.04
+              },
+              {
+                "when": {
+                  "resolution": "2K",
+                  "quality": "low"
+                },
+                "price": 0.06
+              },
+              {
+                "when": {
+                  "resolution": "1K",
+                  "quality": "medium"
+                },
+                "price": 0.06
+              },
+              {
+                "when": {
+                  "resolution": "2K",
+                  "quality": "medium"
+                },
+                "price": 0.08
+              }
+            ],
+            "defaults": {
+              "resolution": "1K",
+              "quality": "medium"
+            }
+          },
+          {
+            "meter": "input_images",
             "dims": [],
             "rows": [
               {
                 "when": {},
-                "price": 0.07
+                "price": 0.01
               }
             ]
           }
@@ -13146,6 +14091,7 @@
       "name": "grok-imagine-video",
       "media_type": "video",
       "display_name": "Grok Imagine Video",
+      "release_date": "2026-01-28",
       "facts": {
         "durations": [
           1,
@@ -13199,6 +14145,16 @@
             "defaults": {
               "resolution": "480p"
             }
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.002
+              }
+            ]
           }
         ]
       }
@@ -13208,6 +14164,11 @@
       "name": "grok-imagine-video-1.5",
       "media_type": "video",
       "display_name": "Grok Imagine Video 1.5",
+      "aliases": [
+        "grok-imagine-video-1.5-preview",
+        "grok-imagine-video-1.5-2026-05-30"
+      ],
+      "release_date": "2026-06-16",
       "facts": {
         "durations": [
           1,
@@ -13267,6 +14228,16 @@
             "defaults": {
               "resolution": "480p"
             }
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.01
+              }
+            ]
           }
         ]
       }
@@ -13336,6 +14307,16 @@
             "defaults": {
               "resolution": "480p"
             }
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.01
+              }
+            ]
           }
         ]
       }
@@ -13346,6 +14327,7 @@
       "media_type": "text",
       "display_name": "GLM-4.5",
       "context_length": 131072,
+      "release_date": "2025-07-28",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -13358,6 +14340,7 @@
       "media_type": "text",
       "display_name": "GLM-4.5-Air",
       "context_length": 131072,
+      "release_date": "2025-07-28",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -13451,67 +14434,11 @@
     },
     {
       "maker": "zhipu",
-      "name": "glm-4.5-flash",
-      "media_type": "text",
-      "display_name": "GLM-4.5-Flash",
-      "context_length": 131072,
-      "facts": {
-        "image_input": false,
-        "structured_output": false,
-        "max_output_tokens": 98304
-      },
-      "price": {
-        "currency": "CNY",
-        "meters": [
-          {
-            "meter": "uncached_input_tokens",
-            "dims": [],
-            "rows": [
-              {
-                "when": {},
-                "price": 0.0
-              }
-            ]
-          },
-          {
-            "meter": "cache_read_tokens",
-            "dims": [],
-            "rows": [
-              {
-                "when": {},
-                "price": 0.0
-              }
-            ]
-          },
-          {
-            "meter": "cache_write_5m_tokens",
-            "dims": [],
-            "rows": [
-              {
-                "when": {},
-                "price": 0.0
-              }
-            ]
-          },
-          {
-            "meter": "output_tokens",
-            "dims": [],
-            "rows": [
-              {
-                "when": {},
-                "price": 0.0
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "maker": "zhipu",
       "name": "glm-4.5v",
       "media_type": "text",
       "display_name": "GLM-4.5V",
       "context_length": 64000,
+      "release_date": "2025-08-11",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -13612,6 +14539,7 @@
         "zai-org-glm-4.6"
       ],
       "context_length": 204800,
+      "release_date": "2025-09-30",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -13624,6 +14552,7 @@
       "media_type": "text",
       "display_name": "GLM-4.6V",
       "context_length": 128000,
+      "release_date": "2025-12-08",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -13721,6 +14650,7 @@
       "media_type": "text",
       "display_name": "GLM-4.6V-Flash",
       "context_length": 128000,
+      "release_date": "2025-12-08",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -13733,10 +14663,11 @@
       "media_type": "text",
       "display_name": "GLM-4.7",
       "aliases": [
-        "zai-org-glm-4.7",
-        "zai.glm-4.7"
+        "zai.glm-4.7",
+        "zai-org-glm-4.7"
       ],
       "context_length": 204800,
+      "release_date": "2025-12-22",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -13837,6 +14768,7 @@
         "zai.glm-4.7-flash"
       ],
       "context_length": 200000,
+      "release_date": "2026-01-19",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -13894,6 +14826,7 @@
       "media_type": "text",
       "display_name": "GLM-4.7-FlashX",
       "context_length": 200000,
+      "release_date": "2026-01-19",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -13951,10 +14884,11 @@
       "media_type": "text",
       "display_name": "GLM-5",
       "aliases": [
-        "zai-org-glm-5",
-        "zai.glm-5"
+        "zai.glm-5",
+        "zai-org-glm-5"
       ],
       "context_length": 204800,
+      "release_date": "2026-02-12",
       "facts": {
         "image_input": false,
         "structured_output": false,
@@ -14052,12 +14986,13 @@
       "media_type": "text",
       "display_name": "GLM-5.1",
       "aliases": [
-        "zai-glm-5-1",
-        "coding-glm-5.1",
+        "zai-glm-5.1",
         "alicloud-glm-5.1",
+        "coding-glm-5.1",
         "zai-org-glm-5-1"
       ],
       "context_length": 200000,
+      "release_date": "2026-04-07",
       "facts": {
         "image_input": false,
         "structured_output": true,
@@ -14156,11 +15091,12 @@
       "display_name": "GLM-5.2",
       "aliases": [
         "zai-glm-5-2",
-        "glm5.2",
         "databricks-glm-5-2",
+        "glm5.2",
         "zai-org-glm-5-2"
       ],
       "context_length": 1000000,
+      "release_date": "2026-06-13",
       "facts": {
         "image_input": false,
         "structured_output": true,
@@ -14219,13 +15155,14 @@
       "display_name": "GLM-5.3",
       "aliases": [
         "zai-glm-5-3",
-        "umans-glm-5.3",
-        "z-ai-glm-5-3",
-        "glm5.3",
+        "us.zai.glm-5.3",
         "global.zai.glm-5.3",
-        "us.zai.glm-5.3"
+        "glm5.3",
+        "umans-glm-5.3",
+        "z-ai-glm-5-3"
       ],
       "context_length": 1000000,
+      "release_date": "2026-08-14",
       "facts": {
         "image_input": false,
         "structured_output": true,
@@ -14285,11 +15222,12 @@
       "aliases": [
         "zai-glm-5-3-flash",
         "morph-glm53flash",
+        "glm5.3-flash",
         "umans-glm-5.3-flash",
-        "z-ai-glm-5-3-flash",
-        "glm5.3-flash"
+        "z-ai-glm-5-3-flash"
       ],
       "context_length": 1000000,
+      "release_date": "2026-08-26",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -14347,6 +15285,7 @@
       "media_type": "text",
       "display_name": "GLM-5.3-FlashX",
       "context_length": 1000000,
+      "release_date": "2026-09-18",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -14407,6 +15346,7 @@
         "z-ai-glm-5v-turbo"
       ],
       "context_length": 200000,
+      "release_date": "2026-04-01",
       "facts": {
         "image_input": true,
         "structured_output": false,
@@ -14504,81 +15444,88 @@
       "models": [
         {
           "api_model_name": "gemini-3-flash-preview",
-          "entry": "google/gemini-3-flash-preview"
+          "entry": "google/gemini-3-flash-preview",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-3-pro-image",
-          "entry": "google/gemini-3-pro-image"
+          "entry": "google/gemini-3-pro-image",
+          "endpoint": "gemini-image"
         },
         {
           "api_model_name": "gemini-3.1-flash-image",
-          "entry": "google/gemini-3.1-flash-image"
+          "entry": "google/gemini-3.1-flash-image",
+          "endpoint": "gemini-image"
         },
         {
           "api_model_name": "veo-3.1-generate-preview",
-          "entry": "google/veo-3.1-generate-preview"
+          "entry": "google/veo-3.1-generate-preview",
+          "endpoint": "gemini-video"
         },
         {
           "api_model_name": "veo-3.1-fast-generate-preview",
-          "entry": "google/veo-3.1-fast-generate-preview"
+          "entry": "google/veo-3.1-fast-generate-preview",
+          "endpoint": "gemini-video"
         },
         {
           "api_model_name": "veo-3.1-lite-generate-preview",
-          "entry": "google/veo-3.1-lite-generate-preview"
+          "entry": "google/veo-3.1-lite-generate-preview",
+          "endpoint": "gemini-video"
         },
         {
           "api_model_name": "gemini-3.8-flash-tts",
-          "entry": "google/gemini-3.8-flash-tts"
+          "entry": "google/gemini-3.8-flash-tts",
+          "endpoint": "gemini-tts"
         },
         {
           "api_model_name": "gemini-3.8-flash-lite-tts",
-          "entry": "google/gemini-3.8-flash-lite-tts"
+          "entry": "google/gemini-3.8-flash-lite-tts",
+          "endpoint": "gemini-tts"
         },
         {
           "api_model_name": "gemini-3.1-flash-lite",
-          "entry": "google/gemini-3.1-flash-lite"
+          "entry": "google/gemini-3.1-flash-lite",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-3.1-pro-preview",
-          "entry": "google/gemini-3.1-pro-preview"
-        },
-        {
-          "api_model_name": "gemini-3.5-flash",
-          "entry": "google/gemini-3.5-flash"
+          "entry": "google/gemini-3.1-pro-preview",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-3.5-flash-lite",
-          "entry": "google/gemini-3.5-flash-lite"
+          "entry": "google/gemini-3.5-flash-lite",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-3.6-flash",
-          "entry": "google/gemini-3.6-flash"
-        },
-        {
-          "api_model_name": "gemini-3.7-flash",
-          "entry": "google/gemini-3.7-flash"
+          "entry": "google/gemini-3.6-flash",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-3.8-flash",
-          "entry": "google/gemini-3.8-flash"
+          "entry": "google/gemini-3.8-flash",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-4-argon",
-          "entry": "google/gemini-4-argon"
+          "entry": "google/gemini-4-argon",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemma-4-26b-a4b-it",
-          "entry": "google/gemma-4-26b-a4b-it"
+          "entry": "google/gemma-4-26b-a4b-it",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemma-4-31b-it",
-          "entry": "google/gemma-4-31b-it"
+          "entry": "google/gemma-4-31b-it",
+          "endpoint": "gemini-generate"
         }
       ],
       "defaults": {
         "text": "gemini-3-flash-preview",
         "image": "gemini-3.1-flash-image",
-        "video": "veo-3.1-lite-generate-preview",
         "audio": "gemini-3.8-flash-tts"
       }
     },
@@ -14586,63 +15533,78 @@
       "models": [
         {
           "api_model_name": "gemini-3-flash-preview",
-          "entry": "google/gemini-3-flash-preview"
+          "entry": "google/gemini-3-flash-preview",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-3-pro-image",
-          "entry": "google/gemini-3-pro-image"
+          "entry": "google/gemini-3-pro-image",
+          "endpoint": "gemini-image"
         },
         {
           "api_model_name": "gemini-3.1-flash-image",
-          "entry": "google/gemini-3.1-flash-image"
+          "entry": "google/gemini-3.1-flash-image",
+          "endpoint": "gemini-image"
         },
         {
           "api_model_name": "veo-3.1-generate-001",
-          "entry": "google/veo-3.1-generate-001"
+          "entry": "google/veo-3.1-generate-001",
+          "endpoint": "gemini-vertex-video"
         },
         {
           "api_model_name": "veo-3.1-fast-generate-001",
-          "entry": "google/veo-3.1-fast-generate-001"
+          "entry": "google/veo-3.1-fast-generate-001",
+          "endpoint": "gemini-vertex-video"
         },
         {
           "api_model_name": "gemini-3.8-flash-tts",
-          "entry": "google/gemini-3.8-flash-tts"
+          "entry": "google/gemini-3.8-flash-tts",
+          "endpoint": "gemini-tts"
         },
         {
           "api_model_name": "gemini-3.8-flash-lite-tts",
-          "entry": "google/gemini-3.8-flash-lite-tts"
+          "entry": "google/gemini-3.8-flash-lite-tts",
+          "endpoint": "gemini-tts"
         },
         {
           "api_model_name": "gemini-3.1-flash-lite",
-          "entry": "google/gemini-3.1-flash-lite"
+          "entry": "google/gemini-3.1-flash-lite",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-3.1-pro-preview",
-          "entry": "google/gemini-3.1-pro-preview"
+          "entry": "google/gemini-3.1-pro-preview",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-3.5-flash",
-          "entry": "google/gemini-3.5-flash"
+          "entry": "google/gemini-3.5-flash",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-3.5-flash-lite",
-          "entry": "google/gemini-3.5-flash-lite"
+          "entry": "google/gemini-3.5-flash-lite",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-3.6-flash",
-          "entry": "google/gemini-3.6-flash"
+          "entry": "google/gemini-3.6-flash",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-3.7-flash",
-          "entry": "google/gemini-3.7-flash"
+          "entry": "google/gemini-3.7-flash",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-3.8-flash",
-          "entry": "google/gemini-3.8-flash"
+          "entry": "google/gemini-3.8-flash",
+          "endpoint": "gemini-generate"
         },
         {
           "api_model_name": "gemini-4-argon",
-          "entry": "google/gemini-4-argon"
+          "entry": "google/gemini-4-argon",
+          "endpoint": "gemini-generate"
         }
       ],
       "defaults": {
@@ -14656,68 +15618,108 @@
       "models": [
         {
           "api_model_name": "doubao-seed-2-1-lite-260915",
-          "entry": "bytedance/doubao-seed-2.1-lite"
+          "entry": "bytedance/doubao-seed-2.1-lite",
+          "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "doubao-seed-2-1-pro-260915",
+          "entry": "bytedance/doubao-seed-2.1-pro",
+          "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "doubao-seedream-5-0-pro-260628",
+          "entry": "bytedance/doubao-seedream-5-0-pro",
+          "endpoint": "ark-seedream-4"
+        },
+        {
+          "api_model_name": "doubao-seedream-5-0-flash-260915",
+          "entry": "bytedance/doubao-seedream-5-0-flash",
+          "endpoint": "ark-seedream-4"
         },
         {
           "api_model_name": "doubao-seedream-5-0-lite-260128",
-          "entry": "bytedance/doubao-seedream-5-0-lite"
+          "entry": "bytedance/doubao-seedream-5-0-lite",
+          "endpoint": "ark-seedream-4"
         },
         {
           "api_model_name": "doubao-seedream-5-0-260128",
-          "entry": "bytedance/doubao-seedream-5-0-lite"
+          "entry": "bytedance/doubao-seedream-5-0-lite",
+          "endpoint": "ark-seedream-4"
         },
         {
           "api_model_name": "doubao-seedream-4-5-251128",
-          "entry": "bytedance/doubao-seedream-4-5"
+          "entry": "bytedance/doubao-seedream-4-5",
+          "endpoint": "ark-seedream-4"
         },
         {
           "api_model_name": "doubao-seedream-4-0-250828",
-          "entry": "bytedance/doubao-seedream-4-0"
+          "entry": "bytedance/doubao-seedream-4-0",
+          "endpoint": "ark-seedream-4"
         },
         {
           "api_model_name": "doubao-seedance-2-0-260128",
-          "entry": "bytedance/doubao-seedance-2.0"
+          "entry": "bytedance/doubao-seedance-2.0",
+          "endpoint": "ark-seedance-2"
         },
         {
           "api_model_name": "doubao-seedance-2-0-fast-260128",
-          "entry": "bytedance/doubao-seedance-2.0-fast"
+          "entry": "bytedance/doubao-seedance-2.0-fast",
+          "endpoint": "ark-seedance-2"
         },
         {
           "api_model_name": "doubao-seedance-2-0-mini-260615",
-          "entry": "bytedance/doubao-seedance-2.0-mini"
+          "entry": "bytedance/doubao-seedance-2.0-mini",
+          "endpoint": "ark-seedance-2"
         },
         {
           "api_model_name": "doubao-seedance-2-5-260628",
-          "entry": "bytedance/doubao-seedance-2.5"
+          "entry": "bytedance/doubao-seedance-2.5",
+          "endpoint": "ark-seedance-2-5"
+        },
+        {
+          "api_model_name": "doubao-seed-2-0-pro-260215",
+          "entry": "bytedance/doubao-seed-2.0-pro",
+          "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "doubao-seed-2-0-code-preview-260215",
+          "entry": "bytedance/doubao-seed-2-0-code-preview-260215",
+          "endpoint": "ark-chat"
         },
         {
           "api_model_name": "doubao-seed-2-0-lite-260428",
-          "entry": "bytedance/doubao-seed-2-0-lite-260428"
+          "entry": "bytedance/doubao-seed-2.0-lite",
+          "endpoint": "ark-chat"
         },
         {
           "api_model_name": "doubao-seed-2-0-mini-260428",
-          "entry": "bytedance/doubao-seed-2.0-mini"
+          "entry": "bytedance/doubao-seed-2.0-mini",
+          "endpoint": "ark-chat"
         },
         {
           "api_model_name": "doubao-seed-2-1-pro-260628",
-          "entry": "bytedance/doubao-seed-2-1-pro-260628"
+          "entry": "bytedance/doubao-seed-2-1-pro-260628",
+          "endpoint": "ark-chat"
         },
         {
           "api_model_name": "doubao-seed-2-1-turbo-260628",
-          "entry": "bytedance/doubao-seed-2-1-turbo-260628"
+          "entry": "bytedance/doubao-seed-2-1-turbo-260628",
+          "endpoint": "ark-chat"
         },
         {
           "api_model_name": "doubao-seed-character-260628",
-          "entry": "bytedance/doubao-seed-character-260628"
+          "entry": "bytedance/doubao-seed-character-260628",
+          "endpoint": "ark-chat"
         },
         {
           "api_model_name": "doubao-seed-evolving",
-          "entry": "bytedance/doubao-seed-evolving"
+          "entry": "bytedance/doubao-seed-evolving",
+          "endpoint": "ark-chat"
         }
       ],
       "defaults": {
         "text": "doubao-seed-2-1-lite-260915",
-        "image": "doubao-seedream-5-0-lite-260128",
+        "image": "doubao-seedream-5-0-pro-260628",
         "video": "doubao-seedance-2-0-mini-260615"
       }
     },
@@ -14725,76 +15727,76 @@
       "models": [
         {
           "api_model_name": "doubao-seed-2.0-mini",
-          "entry": "bytedance/doubao-seed-2.0-mini"
-        },
-        {
-          "api_model_name": "doubao-seed-2.0-lite",
-          "entry": "bytedance/doubao-seed-2.0-lite"
-        },
-        {
-          "api_model_name": "doubao-seed-2.0-pro",
-          "entry": "bytedance/doubao-seed-2.0-pro"
-        },
-        {
-          "api_model_name": "doubao-seed-2.0-code",
-          "entry": "bytedance/doubao-seed-2.0-code"
-        },
-        {
-          "api_model_name": "glm-5.1",
-          "entry": "zhipu/glm-5.1"
-        },
-        {
-          "api_model_name": "kimi-k2.6",
-          "entry": "moonshot/kimi-k2.6"
-        },
-        {
-          "api_model_name": "minimax-m2.7",
-          "entry": "minimax/MiniMax-M2.7"
-        },
-        {
-          "api_model_name": "doubao-seedream-5.0-lite",
-          "entry": "bytedance/doubao-seedream-5-0-lite"
+          "entry": "bytedance/doubao-seed-2.0-mini",
+          "endpoint": "ark-chat"
         },
         {
           "api_model_name": "doubao-seedance-2.0",
-          "entry": "bytedance/doubao-seedance-2.0"
+          "entry": "bytedance/doubao-seedance-2.0",
+          "endpoint": "ark-seedance-2"
         },
         {
           "api_model_name": "doubao-seedance-2.0-fast",
-          "entry": "bytedance/doubao-seedance-2.0-fast"
+          "entry": "bytedance/doubao-seedance-2.0-fast",
+          "endpoint": "ark-seedance-2"
         },
         {
           "api_model_name": "doubao-seedance-2.0-mini",
-          "entry": "bytedance/doubao-seedance-2.0-mini"
+          "entry": "bytedance/doubao-seedance-2.0-mini",
+          "endpoint": "ark-seedance-2"
+        },
+        {
+          "api_model_name": "doubao-seed-2.1-lite",
+          "entry": "bytedance/doubao-seed-2.1-lite",
+          "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "doubao-seedream-5-0-pro",
+          "entry": "bytedance/doubao-seedream-5-0-pro",
+          "endpoint": "ark-seedream-4"
+        },
+        {
+          "api_model_name": "doubao-seedream-5.0-flash",
+          "entry": "bytedance/doubao-seedream-5-0-flash",
+          "endpoint": "ark-seedream-4"
+        },
+        {
+          "api_model_name": "doubao-seedance-2.5",
+          "entry": "bytedance/doubao-seedance-2.5",
+          "endpoint": "ark-seedance-2-5"
         },
         {
           "api_model_name": "doubao-seed-evolving",
-          "entry": "bytedance/doubao-seed-evolving"
-        },
-        {
-          "api_model_name": "glm-5.3",
-          "entry": "zhipu/glm-5.3"
-        },
-        {
-          "api_model_name": "glm-5.3-flash",
-          "entry": "zhipu/glm-5.3-flash"
-        },
-        {
-          "api_model_name": "deepseek-v4-flash",
-          "entry": "deepseek/deepseek-v4-flash"
+          "entry": "bytedance/doubao-seed-evolving",
+          "endpoint": "ark-chat"
         },
         {
           "api_model_name": "deepseek-v4-pro",
-          "entry": "deepseek/deepseek-v4-pro"
+          "entry": "deepseek/deepseek-v4-pro",
+          "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "glm-5.3-flash",
+          "entry": "zhipu/glm-5.3-flash",
+          "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "glm-5.3",
+          "entry": "zhipu/glm-5.3",
+          "endpoint": "ark-chat"
         },
         {
           "api_model_name": "kimi-k3",
-          "entry": "moonshot/kimi-k3"
+          "entry": "moonshot/kimi-k3",
+          "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "deepseek-v4-flash",
+          "entry": "deepseek/deepseek-v4-flash",
+          "endpoint": "ark-chat"
         }
       ],
       "defaults": {
-        "text": "doubao-seed-2.0-lite",
-        "image": "doubao-seedream-5.0-lite",
         "video": "doubao-seedance-2.0-mini"
       }
     },
@@ -14802,51 +15804,68 @@
       "models": [
         {
           "api_model_name": "grok-4.3",
-          "entry": "xai/grok-4.3"
+          "entry": "xai/grok-4.3",
+          "endpoint": "grok-chat"
         },
         {
           "api_model_name": "grok-imagine-image",
-          "entry": "xai/grok-imagine-image"
+          "entry": "xai/grok-imagine-image",
+          "endpoint": "grok-image"
+        },
+        {
+          "api_model_name": "grok-imagine-image-2.0",
+          "entry": "xai/grok-imagine-image-2.0",
+          "endpoint": "grok-image"
         },
         {
           "api_model_name": "grok-imagine-video",
-          "entry": "xai/grok-imagine-video"
+          "entry": "xai/grok-imagine-video",
+          "endpoint": "grok-video-classic"
         },
         {
           "api_model_name": "grok-imagine-video-1.5",
-          "entry": "xai/grok-imagine-video-1.5"
+          "entry": "xai/grok-imagine-video-1.5",
+          "endpoint": "grok-video-mixed"
         },
         {
           "api_model_name": "grok-imagine-video-1.5-lite",
-          "entry": "xai/grok-imagine-video-1.5-lite"
+          "entry": "xai/grok-imagine-video-1.5-lite",
+          "endpoint": "grok-video-mixed"
         },
         {
           "api_model_name": "grok-4.20-0309-non-reasoning",
-          "entry": "xai/grok-4.20-0309-non-reasoning"
+          "entry": "xai/grok-4.20-0309-non-reasoning",
+          "endpoint": "grok-chat"
         },
         {
           "api_model_name": "grok-4.20-0309-reasoning",
-          "entry": "xai/grok-4.20-0309-reasoning"
+          "entry": "xai/grok-4.20-0309-reasoning",
+          "endpoint": "grok-chat"
         },
         {
           "api_model_name": "grok-4.20-multi-agent-0309",
-          "entry": "xai/grok-4.20-multi-agent-0309"
+          "entry": "xai/grok-4.20-multi-agent-0309",
+          "endpoint": "grok-chat"
         },
         {
           "api_model_name": "grok-4.5",
-          "entry": "xai/grok-4.5"
+          "entry": "xai/grok-4.5",
+          "endpoint": "grok-chat"
         },
         {
           "api_model_name": "grok-4.6",
-          "entry": "xai/grok-4.6"
+          "entry": "xai/grok-4.6",
+          "endpoint": "grok-chat"
         },
         {
           "api_model_name": "grok-4.7",
-          "entry": "xai/grok-4.7"
+          "entry": "xai/grok-4.7",
+          "endpoint": "grok-chat"
         },
         {
           "api_model_name": "grok-build-0.1",
-          "entry": "xai/grok-build-0.1"
+          "entry": "xai/grok-build-0.1",
+          "endpoint": "grok-chat"
         }
       ],
       "defaults": {
@@ -14859,79 +15878,103 @@
       "models": [
         {
           "api_model_name": "gpt-5.4-mini",
-          "entry": "openai/gpt-5.4-mini"
+          "entry": "openai/gpt-5.4-mini",
+          "endpoint": "openai-responses"
+        },
+        {
+          "api_model_name": "o3-pro",
+          "entry": "openai/o3-pro",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-image-2.5-sunburst",
-          "entry": "openai/gpt-image-2.5-sunburst"
+          "entry": "openai/gpt-image-2.5-sunburst",
+          "endpoint": "openai-images"
         },
         {
           "api_model_name": "gpt-image-2.5-flare",
-          "entry": "openai/gpt-image-2.5-flare"
+          "entry": "openai/gpt-image-2.5-flare",
+          "endpoint": "openai-images"
         },
         {
           "api_model_name": "gpt-image-2",
-          "entry": "openai/gpt-image-2"
+          "entry": "openai/gpt-image-2",
+          "endpoint": "openai-images"
         },
         {
           "api_model_name": "gpt-5.3-codex",
-          "entry": "openai/gpt-5.3-codex"
+          "entry": "openai/gpt-5.3-codex",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-5.4",
-          "entry": "openai/gpt-5.4"
+          "entry": "openai/gpt-5.4",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-5.4-nano",
-          "entry": "openai/gpt-5.4-nano"
+          "entry": "openai/gpt-5.4-nano",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-5.4-pro",
-          "entry": "openai/gpt-5.4-pro"
+          "entry": "openai/gpt-5.4-pro",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-5.5",
-          "entry": "openai/gpt-5.5"
+          "entry": "openai/gpt-5.5",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-5.5-pro",
-          "entry": "openai/gpt-5.5-pro"
+          "entry": "openai/gpt-5.5-pro",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-5.6",
-          "entry": "openai/gpt-5.6"
+          "entry": "openai/gpt-5.6",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-5.6-luna",
-          "entry": "openai/gpt-5.6-luna"
+          "entry": "openai/gpt-5.6-luna",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-5.6-sol",
-          "entry": "openai/gpt-5.6-sol"
+          "entry": "openai/gpt-5.6-sol",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-5.6-terra",
-          "entry": "openai/gpt-5.6-terra"
+          "entry": "openai/gpt-5.6-terra",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-6-astra",
-          "entry": "openai/gpt-6-astra"
+          "entry": "openai/gpt-6-astra",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-6-luna",
-          "entry": "openai/gpt-6-luna"
+          "entry": "openai/gpt-6-luna",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-6-sol",
-          "entry": "openai/gpt-6-sol"
+          "entry": "openai/gpt-6-sol",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-6.1-sol",
-          "entry": "openai/gpt-6.1-sol"
+          "entry": "openai/gpt-6.1-sol",
+          "endpoint": "openai-responses"
         },
         {
           "api_model_name": "gpt-6.1-terra",
-          "entry": "openai/gpt-6.1-terra"
+          "entry": "openai/gpt-6.1-terra",
+          "endpoint": "openai-responses"
         }
       ],
       "defaults": {
@@ -14943,27 +15986,38 @@
       "models": [
         {
           "api_model_name": "viduq2",
-          "entry": "shengshu/viduq2"
+          "entry": "shengshu/viduq2",
+          "endpoint": "vidu-image"
         },
         {
           "api_model_name": "viduq1",
-          "entry": "shengshu/viduq1"
+          "entry": "shengshu/viduq1",
+          "endpoint": "vidu-image"
         },
         {
           "api_model_name": "viduq3-turbo",
-          "entry": "shengshu/viduq3-turbo"
+          "entry": "shengshu/viduq3-turbo",
+          "endpoint": "vidu-video-q3-turbo"
         },
         {
           "api_model_name": "viduq3-pro",
-          "entry": "shengshu/viduq3-pro"
+          "entry": "shengshu/viduq3-pro",
+          "endpoint": "vidu-video-q3-pro"
+        },
+        {
+          "api_model_name": "viduq3-pro-fast",
+          "entry": "shengshu/viduq3-pro-fast",
+          "endpoint": "vidu-video-q3-fast"
         },
         {
           "api_model_name": "viduq3",
-          "entry": "shengshu/viduq3"
+          "entry": "shengshu/viduq3",
+          "endpoint": "vidu-video-q3-reference"
         },
         {
           "api_model_name": "vidu2.0",
-          "entry": "shengshu/vidu2.0"
+          "entry": "shengshu/vidu2.0",
+          "endpoint": "vidu-video-2"
         }
       ],
       "defaults": {
@@ -14975,147 +16029,208 @@
       "models": [
         {
           "api_model_name": "qwen-plus",
-          "entry": "alibaba/qwen-plus"
+          "entry": "alibaba/qwen-plus",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "qwen3-max",
-          "entry": "alibaba/qwen3-max"
+          "entry": "alibaba/qwen3-max",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "qwen-long",
-          "entry": "alibaba/qwen-long"
+          "entry": "alibaba/qwen-long",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "qwen-image-2.0",
-          "entry": "alibaba/qwen-image-2.0"
+          "entry": "alibaba/qwen-image-2.0",
+          "endpoint": "dashscope-qwen-image"
         },
         {
           "api_model_name": "qwen-image-2.0-pro",
-          "entry": "alibaba/qwen-image-2.0-pro"
+          "entry": "alibaba/qwen-image-2.0-pro",
+          "endpoint": "dashscope-qwen-image"
+        },
+        {
+          "api_model_name": "qwen-image-3.0",
+          "entry": "alibaba/qwen-image-3.0",
+          "endpoint": "dashscope-qwen-image"
         },
         {
           "api_model_name": "qwen-image-edit-plus",
-          "entry": "alibaba/qwen-image-edit-plus"
+          "entry": "alibaba/qwen-image-edit-plus",
+          "endpoint": "dashscope-qwen-image-edit"
         },
         {
           "api_model_name": "qwen-image-edit-max",
-          "entry": "alibaba/qwen-image-edit-max"
+          "entry": "alibaba/qwen-image-edit-max",
+          "endpoint": "dashscope-qwen-image-edit"
         },
         {
           "api_model_name": "wan2.7-image",
-          "entry": "alibaba/wan2.7-image"
+          "entry": "alibaba/wan2.7-image",
+          "endpoint": "dashscope-wan-image"
         },
         {
           "api_model_name": "wan2.7-image-pro",
-          "entry": "alibaba/wan2.7-image-pro"
+          "entry": "alibaba/wan2.7-image-pro",
+          "endpoint": "dashscope-wan-image"
         },
         {
           "api_model_name": "happyhorse-1.1-i2v",
-          "entry": "alibaba/happyhorse-1.1-i2v"
+          "entry": "alibaba/happyhorse-1.1-i2v",
+          "endpoint": "dashscope-always-on-video"
         },
         {
           "api_model_name": "happyhorse-1.1-t2v",
-          "entry": "alibaba/happyhorse-1.1-t2v"
+          "entry": "alibaba/happyhorse-1.1-t2v",
+          "endpoint": "dashscope-always-on-video"
         },
         {
           "api_model_name": "happyhorse-1.1-r2v",
-          "entry": "alibaba/happyhorse-1.1-r2v"
+          "entry": "alibaba/happyhorse-1.1-r2v",
+          "endpoint": "dashscope-reference-video"
         },
         {
           "api_model_name": "happyhorse-1.0-i2v",
-          "entry": "alibaba/happyhorse-1.0-i2v"
+          "entry": "alibaba/happyhorse-1.0-i2v",
+          "endpoint": "dashscope-always-on-video"
         },
         {
           "api_model_name": "happyhorse-1.0-t2v",
-          "entry": "alibaba/happyhorse-1.0-t2v"
+          "entry": "alibaba/happyhorse-1.0-t2v",
+          "endpoint": "dashscope-always-on-video"
         },
         {
           "api_model_name": "happyhorse-1.0-r2v",
-          "entry": "alibaba/happyhorse-1.0-r2v"
+          "entry": "alibaba/happyhorse-1.0-r2v",
+          "endpoint": "dashscope-reference-video"
         },
         {
           "api_model_name": "wan2.7-i2v",
-          "entry": "alibaba/wan2.7-i2v"
+          "entry": "alibaba/wan2.7-i2v",
+          "endpoint": "dashscope-always-on-video"
         },
         {
           "api_model_name": "wan2.7-t2v",
-          "entry": "alibaba/wan2.7-t2v"
+          "entry": "alibaba/wan2.7-t2v",
+          "endpoint": "dashscope-always-on-video"
         },
         {
           "api_model_name": "wan2.7-r2v",
-          "entry": "alibaba/wan2.7-r2v"
+          "entry": "alibaba/wan2.7-r2v",
+          "endpoint": "dashscope-reference-voice-video"
         },
         {
           "api_model_name": "wan3.0-video",
-          "entry": "alibaba/wan3.0-video"
+          "entry": "alibaba/wan3.0-video",
+          "endpoint": "dashscope-wan3-video"
+        },
+        {
+          "api_model_name": "wan3.0-video-prime",
+          "entry": "alibaba/wan3.0-video-prime",
+          "endpoint": "dashscope-wan3-video"
         },
         {
           "api_model_name": "qwen3-tts-flash",
-          "entry": "alibaba/qwen3-tts-flash"
+          "entry": "alibaba/qwen3-tts-flash",
+          "endpoint": "dashscope-tts"
+        },
+        {
+          "api_model_name": "qwen3.6-max-preview",
+          "entry": "alibaba/qwen3.6-max-preview",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "MiniMax-M2.5",
+          "entry": "minimax/MiniMax-M2.5",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "qwen3.5-flash",
-          "entry": "alibaba/qwen3.5-flash"
+          "entry": "alibaba/qwen3.5-flash",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "qwen3.5-plus",
-          "entry": "alibaba/qwen3.5-plus"
+          "entry": "alibaba/qwen3.5-plus",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "qwen3.6-flash",
-          "entry": "alibaba/qwen3.6-flash"
+          "entry": "alibaba/qwen3.6-flash",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "qwen3.6-plus",
-          "entry": "alibaba/qwen3.6-plus"
+          "entry": "alibaba/qwen3.6-plus",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "qwen3.7-flash",
-          "entry": "alibaba/qwen3.7-flash"
+          "entry": "alibaba/qwen3.7-flash",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "qwen3.7-max",
-          "entry": "alibaba/qwen3.7-max"
+          "entry": "alibaba/qwen3.7-max",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "qwen3.7-plus",
-          "entry": "alibaba/qwen3.7-plus"
+          "entry": "alibaba/qwen3.7-plus",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "qwen3.8-flash",
-          "entry": "alibaba/qwen3.8-flash"
+          "entry": "alibaba/qwen3.8-flash",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "qwen3.8-max",
-          "entry": "alibaba/qwen3.8-max"
-        },
-        {
-          "api_model_name": "glm-5.3",
-          "entry": "zhipu/glm-5.3"
-        },
-        {
-          "api_model_name": "kimi-k2.6",
-          "entry": "moonshot/kimi-k2.6"
+          "entry": "alibaba/qwen3.8-max",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "glm-5",
-          "entry": "zhipu/glm-5"
-        },
-        {
-          "api_model_name": "deepseek-v4-pro",
-          "entry": "deepseek/deepseek-v4-pro"
-        },
-        {
-          "api_model_name": "glm-5.1",
-          "entry": "zhipu/glm-5.1"
+          "entry": "zhipu/glm-5",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "glm-5.2",
-          "entry": "zhipu/glm-5.2"
+          "entry": "zhipu/glm-5.2",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "glm-5.1",
+          "entry": "zhipu/glm-5.1",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "deepseek-v4-pro",
+          "entry": "deepseek/deepseek-v4-pro",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "kimi-k2.6",
+          "entry": "moonshot/kimi-k2.6",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "glm-5.3",
+          "entry": "zhipu/glm-5.3",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "kimi-k3",
-          "entry": "moonshot/kimi-k3"
+          "entry": "moonshot/kimi-k3",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "deepseek-v4.1-flash",
+          "entry": "deepseek/deepseek-flash",
+          "endpoint": "openai-chat"
         }
       ],
       "defaults": {
@@ -15129,39 +16244,78 @@
       "models": [
         {
           "api_model_name": "MiniMax-M3",
-          "entry": "minimax/MiniMax-M3"
+          "entry": "minimax/MiniMax-M3",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "MiniMax-M2.7",
-          "entry": "minimax/MiniMax-M2.7"
+          "entry": "minimax/MiniMax-M2.7",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "image-01",
-          "entry": "minimax/image-01"
+          "entry": "minimax/image-01",
+          "endpoint": "minimax-image"
         },
         {
           "api_model_name": "MiniMax-H3",
-          "entry": "minimax/MiniMax-H3"
+          "entry": "minimax/MiniMax-H3",
+          "endpoint": "minimax-h3"
+        },
+        {
+          "api_model_name": "MiniMax-H3-Highspeed",
+          "entry": "minimax/MiniMax-H3-Highspeed",
+          "endpoint": "minimax-h3"
+        },
+        {
+          "api_model_name": "MiniMax-H3-Lite",
+          "entry": "minimax/MiniMax-H3-Lite",
+          "endpoint": "minimax-h3"
+        },
+        {
+          "api_model_name": "MiniMax-H3-Max",
+          "entry": "minimax/MiniMax-H3-Max",
+          "endpoint": "minimax-h3"
         },
         {
           "api_model_name": "MiniMax-Hailuo-2.3",
-          "entry": "minimax/MiniMax-Hailuo-2.3"
+          "entry": "minimax/MiniMax-Hailuo-2.3",
+          "endpoint": "minimax-hailuo-v1"
         },
         {
           "api_model_name": "MiniMax-Hailuo-2.3-Fast",
-          "entry": "minimax/MiniMax-Hailuo-2.3-Fast"
+          "entry": "minimax/MiniMax-Hailuo-2.3-Fast",
+          "endpoint": "minimax-hailuo-v1-fast"
         },
         {
           "api_model_name": "speech-2.8-hd",
-          "entry": "minimax/speech-2.8-hd"
+          "entry": "minimax/speech-2.8-hd",
+          "endpoint": "minimax-tts"
         },
         {
           "api_model_name": "speech-2.8-turbo",
-          "entry": "minimax/speech-2.8-turbo"
+          "entry": "minimax/speech-2.8-turbo",
+          "endpoint": "minimax-tts"
+        },
+        {
+          "api_model_name": "MiniMax-M2.5",
+          "entry": "minimax/MiniMax-M2.5",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "MiniMax-M2.5-highspeed",
+          "entry": "minimax/MiniMax-M2.5-highspeed",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "MiniMax-M2.7-highspeed",
+          "entry": "minimax/MiniMax-M2.7-highspeed",
+          "endpoint": "openai-chat"
         },
         {
           "api_model_name": "MiniMax-M3.1-Flash",
-          "entry": "minimax/MiniMax-M3.1-Flash"
+          "entry": "minimax/MiniMax-M3.1-Flash",
+          "endpoint": "openai-chat"
         }
       ],
       "defaults": {
@@ -15175,33 +16329,40 @@
       "models": [
         {
           "api_model_name": "kling-v2-5-turbo",
-          "entry": "kuaishou/kling-v2-5-turbo"
+          "entry": "kuaishou/kling-v2-5-turbo",
+          "endpoint": "kling-video-pro-silent"
         },
         {
           "api_model_name": "kling-image-o1",
-          "entry": "kuaishou/kling-image-o1"
+          "entry": "kuaishou/kling-image-o1",
+          "endpoint": "kling-image"
         },
         {
           "api_model_name": "kling-v3-omni",
           "entry": "kuaishou/kling-v3-omni",
-          "media_type": "image"
+          "media_type": "image",
+          "endpoint": "kling-image"
         },
         {
           "api_model_name": "kling-v3",
-          "entry": "kuaishou/kling-v3"
+          "entry": "kuaishou/kling-v3",
+          "endpoint": "kling-video-audio"
         },
         {
           "api_model_name": "kling-v3-omni",
           "entry": "kuaishou/kling-v3-omni",
-          "media_type": "video"
+          "media_type": "video",
+          "endpoint": "kling-video-audio"
         },
         {
           "api_model_name": "kling-v2-6",
-          "entry": "kuaishou/kling-v2-6"
+          "entry": "kuaishou/kling-v2-6",
+          "endpoint": "kling-video-pro-audio"
         },
         {
           "api_model_name": "kling-video-o1",
-          "entry": "kuaishou/kling-video-o1"
+          "entry": "kuaishou/kling-video-o1",
+          "endpoint": "kling-video-silent"
         }
       ],
       "defaults": {
@@ -15213,39 +16374,48 @@
       "models": [
         {
           "api_model_name": "agnes-3.0-flash",
-          "entry": "agnes/agnes-3.0-flash"
+          "entry": "agnes/agnes-3.0-flash",
+          "endpoint": "agnes-chat"
         },
         {
           "api_model_name": "agnes-2.5-flash",
-          "entry": "agnes/agnes-2.5-flash"
+          "entry": "agnes/agnes-2.5-flash",
+          "endpoint": "agnes-chat"
         },
         {
           "api_model_name": "agnes-2.5-pro",
-          "entry": "agnes/agnes-2.5-pro"
+          "entry": "agnes/agnes-2.5-pro",
+          "endpoint": "agnes-chat"
         },
         {
           "api_model_name": "agnes-2.0-flash",
-          "entry": "agnes/agnes-2.0-flash"
+          "entry": "agnes/agnes-2.0-flash",
+          "endpoint": "agnes-chat"
         },
         {
           "api_model_name": "agnes-image-2.5-flash",
-          "entry": "agnes/agnes-image-2.5-flash"
+          "entry": "agnes/agnes-image-2.5-flash",
+          "endpoint": "agnes-image-tier"
         },
         {
           "api_model_name": "agnes-image-2.1-flash",
-          "entry": "agnes/agnes-image-2.1-flash"
+          "entry": "agnes/agnes-image-2.1-flash",
+          "endpoint": "agnes-image-pixels"
         },
         {
           "api_model_name": "agnes-video-2.5-flash",
-          "entry": "agnes/agnes-video-2.5-flash"
+          "entry": "agnes/agnes-video-2.5-flash",
+          "endpoint": "agnes-video-2-5"
         },
         {
           "api_model_name": "agnes-video-2.5",
-          "entry": "agnes/agnes-video-2.5"
+          "entry": "agnes/agnes-video-2.5",
+          "endpoint": "agnes-video-2-5"
         },
         {
           "api_model_name": "agnes-video-v2.0",
-          "entry": "agnes/agnes-video-v2.0"
+          "entry": "agnes/agnes-video-v2.0",
+          "endpoint": "agnes-video-2"
         }
       ],
       "defaults": {
