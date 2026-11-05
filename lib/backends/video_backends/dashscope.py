@@ -341,11 +341,19 @@ _CHANNEL_CAPABILITIES = VideoCapabilities(
 class DashScopeVideoEndpoint:
     """同一异步 API 下不同的音轨、参考图与音色挂载契约。"""
 
-    audio_track: VideoAudioMode = VideoAudioMode.CONTROLLABLE
     audio_switch: bool = False
     reference_required: bool = False
     reference_audio_per_image: bool = False
     wan3_host: bool = False
+
+    @property
+    def audio_track(self) -> VideoAudioMode:
+        """音轨形态由请求是否下发 ``parameters.audio`` 决定：不下发时上游按默认出有声成片。
+
+        百炼视频请求没有对所有型号通用的音轨开关，官方出处见 ``docs/api-docs/endpoints/dashscope-video.md``。
+        能力声明、请求与计量都读这一位，不会各说一套。
+        """
+        return VideoAudioMode.CONTROLLABLE if self.audio_switch else VideoAudioMode.ALWAYS_ON
 
 
 # 提示词长度仍按型号识别；目录条目尚无这一维度。
@@ -408,7 +416,7 @@ def _profile_key_for_model(model: str | None, entry: CatalogEntry | None = None)
 
 
 class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
-    """阿里百炼视频后端（异步 video-synthesis 端点）。"""
+    """阿里百炼视频后端（异步 video-synthesis 端点）；本类即通用端点 ``dashscope-video``，不下发音轨开关、固定有声。"""
 
     endpoint: ClassVar[DashScopeVideoEndpoint] = DashScopeVideoEndpoint()
 
@@ -506,7 +514,7 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         分辨率取实际下发的档位（未指定时下发 720P）；结算的输出秒数取 ``usage.duration``。音轨按端点是否下发开关计量，
-        不带开关时按有声计量。参考图张数按执行闸门的生效上限计量。
+        不带开关时与能力声明一致，按有声计量。参考图张数按执行闸门的生效上限计量。
         """
         caps = request.video_capabilities or cls.video_capabilities_for_model(model, entry)
         image_limit = reference_image_limit(caps)
@@ -541,12 +549,11 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
             parameters["ratio"] = request.aspect_ratio
         if request.seed is not None:
             parameters["seed"] = request.seed
-        # 只有带音轨开关的端点下发 audio；其他端点不发送未知参数。
+        # 只有带音轨开关的端点下发 audio；其他端点不发送未知参数，成片固定有声。
         if self.endpoint.audio_switch:
             parameters["audio"] = request.generate_audio
-        elif not request.generate_audio and self._video_capabilities.audio_track is VideoAudioMode.ALWAYS_ON:
-            # 恒有声型号发不出静音请求；执行期能力被用户覆盖放宽时才会走到这里，付费前拒绝而不是照常出有声成片。
-            # 认不得的型号按「无信号不收紧」声明可控，这里同样不收紧，沿用不下发开关。
+        elif not request.generate_audio:
+            # 发不出静音请求；执行期能力被用户覆盖放宽时才会走到这里，付费前拒绝而不是照常出有声成片。
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
         return {
@@ -814,23 +821,24 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
 
 
 class DashScopeAlwaysOnVideoBackend(DashScopeVideoBackend):
-    """没有音轨开关且固定有声的异步视频请求。"""
+    """没有音轨开关且固定有声的异步视频请求（HappyHorse 与 wan2.7 的文生、图生）。
 
-    endpoint = DashScopeVideoEndpoint(audio_track=VideoAudioMode.ALWAYS_ON)
+    请求契约与通用端点相同；端点名分开保留，供已知型号的预填与已记下端点的模型沿用。
+    """
+
+    endpoint = DashScopeVideoEndpoint()
 
 
 class DashScopeReferenceVideoBackend(DashScopeVideoBackend):
     """参考生视频请求必须携带参考图。"""
 
-    endpoint = DashScopeVideoEndpoint(audio_track=VideoAudioMode.ALWAYS_ON, reference_required=True)
+    endpoint = DashScopeVideoEndpoint(reference_required=True)
 
 
 class DashScopeReferenceVoiceVideoBackend(DashScopeVideoBackend):
     """参考生视频的音色逐项挂在参考图上。"""
 
-    endpoint = DashScopeVideoEndpoint(
-        audio_track=VideoAudioMode.ALWAYS_ON, reference_required=True, reference_audio_per_image=True
-    )
+    endpoint = DashScopeVideoEndpoint(reference_required=True, reference_audio_per_image=True)
 
 
 class DashScopeWan3VideoBackend(DashScopeVideoBackend):
