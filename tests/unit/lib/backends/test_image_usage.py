@@ -17,7 +17,9 @@ _IMAGE_PROVIDERS = sorted(provider for provider, media_type in PROVIDER_SPEC_REG
 
 @pytest.mark.parametrize("provider_id", _IMAGE_PROVIDERS)
 def test_every_builtin_image_channel_estimates_text_to_image(provider_id: str) -> None:
-    model = catalog.default_model(provider_id, "image")
+    model = next(
+        key for key, info in catalog.list_models(provider_id).items() if info.media_type == "image" and not info.hidden
+    )
     assert model is not None
     # 通道原样下发档位，所以取目录里确实声明的档位（没声明分辨率的模型用 1K）。
     resolutions = catalog.get_model(provider_id, model, media_type="image").resolutions

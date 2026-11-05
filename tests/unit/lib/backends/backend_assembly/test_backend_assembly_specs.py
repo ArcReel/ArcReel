@@ -53,7 +53,7 @@ def _built(spec: ProviderSpec, config: LoadedConfig, model: str | None) -> dict[
     ],
 )
 def test_migrated_builtin_video_providers_use_shipped_definitions(provider_id: str, model: str, endpoint: str):
-    backend = builtin_model_spec(provider_id, "video", model).build_backend(
+    backend = get_provider_spec(provider_id, "video", endpoint).build_backend(
         _loaded(credentials={"api_key": "sk-test"}, provider_id=provider_id), model
     )
 
@@ -130,14 +130,12 @@ class TestBuildSimpleBaseUrlPriority:
             ("ark", "doubao-seedance-2-0-mini-260615", "ark-seedance-2"),
             ("ark", "doubao-seedance-2-5-260628", "ark-seedance-2-5"),
             ("ark-agent-plan", "doubao-seedance-2.0-fast", "ark-seedance-2"),
-            # 不在清单里、名字也没写明代际：取 1.x 端点
-            ("ark", "doubao-seedance-1-0-pro-250528", "ark-seedance-1"),
         ],
     )
     def test_ark_video_builds_through_the_seedance_endpoint_of_the_model(
         self, provider_id: str, model_id: str, endpoint: str
     ):
-        """官方收录的方舟视频模型按名字选 Seedance 端点，装配经该端点的调用通道。"""
+        """官方收录的方舟视频模型按数据声明的 Seedance 端点装配。"""
         config = _loaded(credentials={"api_key": "TEST-ark-key"}, provider_id=provider_id)
         spec = builtin_model_spec(provider_id, "video", model_id)
         assert spec.endpoint == endpoint

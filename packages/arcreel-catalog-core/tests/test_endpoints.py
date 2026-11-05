@@ -10,6 +10,7 @@ from arcreel_catalog_core import (
     ENDPOINT_DECLARATIONS_SINCE,
     MEDIA_TYPES,
     BuiltinEndpoint,
+    app_version_key,
     endpoint_version_floor,
 )
 from arcreel_catalog_core import endpoints as manifest
@@ -38,8 +39,20 @@ def test_every_endpoint_is_selectable_somewhere_and_versions_are_well_formed():
     assert all(manifest.is_app_version(version) for version in versions if version is not None)
 
 
-def test_baseline_endpoints_set_no_floor():
-    assert endpoint_version_floor("ark", "video", "ark-seedance-2") is None
+def test_verified_baseline_model_omits_only_declaration_reading_floor(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(manifest, "ENDPOINT_DECLARATIONS_SINCE", "0.40.1")
+    monkeypatch.setattr(
+        manifest, "BUILTIN_ENDPOINTS", {**BUILTIN_ENDPOINTS, "ark-seedance-3": BuiltinEndpoint("video", since="0.41.0")}
+    )
+    assert endpoint_version_floor("ark", "video", "ark-seedance-2", include_declaration_version=False) is None
+    assert endpoint_version_floor("ark", "video", "ark-seedance-3", include_declaration_version=False) == "0.41.0"
+
+
+def test_application_versions_compare_numerically_with_missing_components_zero():
+    assert app_version_key("0.9") < app_version_key("0.40.0") < app_version_key("0.41")
+    assert app_version_key("1") == app_version_key("1.0.0")
+    with pytest.raises(ValueError, match="invalid application version"):
+        app_version_key("1.2.3.4")
 
 
 @pytest.mark.parametrize(

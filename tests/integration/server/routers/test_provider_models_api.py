@@ -1003,7 +1003,7 @@ async def test_manual_entry_rejects_a_name_the_catalog_already_has(
     models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     _, url = await _house_model(db_factory)
-    clash = {**_NEW_IMAGE, "maker": "my-relay", "name": "gemini-3.1-flash-image-preview"}
+    clash = {**_NEW_IMAGE, "maker": "my-relay", "name": "gemini-3.1-flash-image"}
     assert catalog.find_entry(clash["name"], media_type="image") is not None
 
     resp = models_client.patch(url, json={"new_entry": clash})
@@ -1019,7 +1019,7 @@ async def test_link_to_another_entry_then_unlink(
     models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     _, url = await _house_model(db_factory)
-    target = catalog.find_entry("gemini-3.1-flash-image-preview", media_type="image")
+    target = catalog.find_entry("gemini-3.1-flash-image", media_type="image")
     assert target is not None
 
     resp = models_client.patch(url, json={"entry_binding": target.key.ref})
@@ -1053,7 +1053,7 @@ async def test_link_is_validated_against_the_catalog_and_the_media_type(
     assert models_client.get(url).json()["entry_binding"] is None
 
     # 已关联的模型换到另一种媒体类型的调用端点：原绑定不再成立，要求同一次保存里重新关联或解除
-    image_entry = catalog.find_entry("gemini-3.1-flash-image-preview", media_type="image")
+    image_entry = catalog.find_entry("gemini-3.1-flash-image", media_type="image")
     assert image_entry is not None
     assert models_client.patch(url, json={"entry_binding": image_entry.key.ref}).status_code == 200
     switched = models_client.patch(url, json={"endpoint": "openai-chat"})

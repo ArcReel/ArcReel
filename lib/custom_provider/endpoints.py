@@ -1543,8 +1543,7 @@ _ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNOREC
 
 #: MiniMax 输入受限端点的精确型号名（小写；剥离命名空间前缀后比较）。Fast 只接受图生视频、
 #: S2V 必须带参考图——把一个别名建到这两键等于给它加上无从核实的输入要求，故只认表列的
-#: 官方型号 id，与 alembic ``8c2b1e7d4a90`` 和 backend_assembly.specs._minimax_video_endpoint
-#: 同源（三处各存一份字面量，改其一须同改另两处）。S2V 另收 "minimax-s2v-01"：聚合商把厂商名
+#: 官方型号 id，仅用于添加时预填；历史迁移保留升级时的规则。S2V 另收 "minimax-s2v-01"：聚合商把厂商名
 #: 前缀直接粘进 id 的常见别名形态，语义仍是那一个精确型号。
 _MINIMAX_FAST_MODELS = frozenset({"minimax-hailuo-2.3-fast"})
 _MINIMAX_S2V_MODELS = frozenset({"s2v-01", "minimax-s2v-01"})
@@ -1733,8 +1732,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     # "wan2.7-s2v"）不再被误吞成 MiniMax S2V 协议，落下方 4) 的通用视频端点。
     canonical = re.split(r"[/:]", lowered)[-1]
     if "hailuo" in lowered:
-        # Fast 只接受图生视频，端点级能力据此分居两键（见 backend_assembly.specs
-        # ._minimax_video_endpoint 的同源口径），不能与 2.3 共用一个定义。
+        # Fast 只接受图生视频，端点级能力据此分居两键，不能与 2.3 共用一个定义。
         return "minimax-hailuo-v1-fast" if canonical in _MINIMAX_FAST_MODELS else "minimax-hailuo-v1"
     if canonical in _MINIMAX_S2V_MODELS:
         return "minimax-s2v-01"

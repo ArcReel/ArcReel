@@ -21,8 +21,6 @@ def test_ark_agent_plan_registered() -> None:
     models = catalog.list_models("ark-agent-plan")
     defaults_by_media = {m.media_type: mid for mid, m in models.items() if m.default}
     assert defaults_by_media == {
-        "text": "doubao-seed-2.0-lite",
-        "image": "doubao-seedream-5.0-lite",
         "video": "doubao-seedance-2.0-mini",
     }
     for mid, m in models.items():
@@ -34,10 +32,10 @@ def test_ark_agent_plan_registered() -> None:
 def test_ark_agent_plan_baseline_models_present() -> None:
     baseline = {
         "doubao-seed-2.0-mini",
-        "doubao-seed-2.0-lite",
-        "doubao-seed-2.0-pro",
-        "doubao-seed-2.0-code",
-        "doubao-seedream-5.0-lite",
+        "doubao-seed-2.1-lite",
+        "doubao-seedream-5-0-pro",
+        "doubao-seedream-5.0-flash",
+        "doubao-seedance-2.5",
         "doubao-seedance-2.0",
         "doubao-seedance-2.0-fast",
         "doubao-seedance-2.0-mini",

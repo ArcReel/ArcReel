@@ -563,8 +563,18 @@ class TestVideoRequestFacts:
         ],
     )
     async def test_lane_facts_equal_the_read_side_facts_for_the_same_configuration(
-        self, patched_session_factory, project_env, fake_assemble, route, generation_type, project, allowed
+        self, patched_session_factory, project_env, fake_assemble, route, generation_type, project, allowed, monkeypatch
     ):
+        install_catalog(
+            monkeypatch,
+            with_entry_changes(
+                factory_snapshot(),
+                "gemini-aistudio",
+                "veo-3.1-generate-preview",
+                discontinued=False,
+                shutdown_date=None,
+            ),
+        )
         ctx = await resolve_generation_context(
             "demo", None, project=project, video=VideoLaneRequest(generation_type=generation_type, route=route)
         )

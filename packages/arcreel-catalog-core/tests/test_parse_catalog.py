@@ -181,6 +181,7 @@ def test_single_entry_is_read_like_a_catalog_entry():
 def test_endpoint_declaration_is_optional_and_unknown_names_are_kept():
     """实例侧不按端点清单拒收：较新的数据可能挂接这个版本还不认识的端点。"""
     data = catalog()
+    data["builtin_providers"]["gemini-aistudio"]["models"][0].pop("endpoint")
     data["builtin_providers"]["kling"]["models"][0]["endpoint"] = "kling-video-v9"
 
     providers = parse_catalog(data).builtin_providers

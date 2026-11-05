@@ -21,6 +21,7 @@ from .endpoints import (
     ENDPOINT_DECLARATIONS_SINCE,
     BuiltinEndpoint,
     ProviderEndpointOptions,
+    app_version_key,
     endpoint_version_floor,
     provider_endpoint_options,
 )
@@ -102,6 +103,7 @@ __all__ = [
     "ProviderEndpointOptions",
     "TextFacts",
     "VideoFacts",
+    "app_version_key",
     "check_catalog",
     "check_catalog_files",
     "check_entry",

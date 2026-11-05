@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import replace
 
 import pytest
 
+from arcreel_catalog_core import BuiltinProviderListing
 from lib.backends.backend_assembly import specs
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.backend_assembly.specs import (
@@ -77,12 +79,30 @@ class TestDeclarations:
 
 
 class TestAssemblyFollowsTheEndpoint:
-    def test_official_minimax_models_keep_choosing_their_endpoint_by_name(self):
-        assert _built_endpoint_and_text_to_video("minimax", "MiniMax-H3") == ("minimax-h3", True)
-        assert _built_endpoint_and_text_to_video("minimax", "MiniMax-Hailuo-2.3-Fast") == (
-            "minimax-hailuo-v1-fast",
-            False,
-        )
+    def test_official_model_assembly_follows_synced_endpoint_not_model_name(self):
+        original = catalog.factory_snapshot()
+        listing = original.builtin_providers["minimax"]
+        model_id = "MiniMax-H3"
+        try:
+            for endpoint, expected in (("minimax-h3", True), ("minimax-hailuo-v1-fast", False)):
+                models = tuple(
+                    replace(model, endpoint=endpoint) if model.api_model_name == model_id else model
+                    for model in listing.models
+                )
+                catalog.install_synced_data(
+                    replace(
+                        original,
+                        dataset_version="2099-01-01T00:00:00Z",
+                        builtin_providers={
+                            **original.builtin_providers,
+                            "minimax": BuiltinProviderListing(models, listing.defaults),
+                        },
+                    )
+                )
+                assert _built_endpoint_and_text_to_video("minimax", model_id) == (endpoint, expected)
+                assert declared_builtin_video_capabilities("minimax", model_id).text_to_video is expected
+        finally:
+            catalog.install_synced_data(None)
 
     def test_a_user_added_model_is_built_through_the_endpoint_it_chose(self, user_added: None):
         _install(catalog.UserAddedModel("minimax", "acme-video", "video", endpoint="minimax-h3"))
@@ -106,10 +126,10 @@ class TestAssemblyFollowsTheEndpoint:
             "minimax", "MiniMax-Hailuo-2.3-Fast-relay"
         )
 
-    def test_a_user_added_model_without_a_recorded_endpoint_keeps_the_name_rule(self, user_added: None):
+    def test_a_user_added_model_without_a_recorded_endpoint_uses_the_provider_default(self, user_added: None):
         _install(catalog.UserAddedModel("minimax", "proxy/minimax-h3", "video"))
 
-        assert _built_endpoint_and_text_to_video("minimax", "proxy/minimax-h3") == ("minimax-h3", True)
+        assert _built_endpoint_and_text_to_video("minimax", "proxy/minimax-h3") == ("minimax-hailuo-v1", True)
 
     @pytest.mark.parametrize("provider_id", ["ark", "ark-agent-plan"])
     def test_both_ark_providers_offer_the_three_seedance_endpoints(self, provider_id: str):
@@ -129,15 +149,15 @@ class TestAssemblyFollowsTheEndpoint:
                 "ark", "ep-20261104-opaque"
             ) == backend.video_capabilities_for_model("ep-20261104-opaque")
 
-    def test_a_user_added_ark_model_without_a_recorded_endpoint_follows_its_bound_entry(self, user_added: None):
-        """没有记下端点时与官方收录的模型同一规则：先看所对应条目的名字（含条目绑定），再看 API 模型名。"""
+    def test_an_unrecorded_endpoint_uses_the_default_regardless_of_entry_binding(self, user_added: None):
+        """没有记下端点时用默认端点；条目绑定只决定模型事实。"""
         _install(
             catalog.UserAddedModel("ark", "ep-bound", "video", entry_binding="bytedance/doubao-seedance-2.5"),
             catalog.UserAddedModel("ark", "ep-unbound", "video"),
         )
 
-        assert builtin_model_spec("ark", "video", "ep-bound").endpoint == "ark-seedance-2-5"
-        assert builtin_model_spec("ark", "video", "ep-unbound").endpoint == "ark-seedance-1"
+        assert builtin_model_spec("ark", "video", "ep-bound").endpoint == "ark-seedance-2"
+        assert builtin_model_spec("ark", "video", "ep-unbound").endpoint == "ark-seedance-2"
 
 
 class TestPrefill:
@@ -178,10 +198,5 @@ class TestPrefill:
         ("agnes", "agnes-image-2.1-flash", "agnes-image-pixels"),
     ],
 )
-def test_official_image_selection_and_new_model_prefill_preserve_the_old_request_contract(
-    provider: str, model: str, endpoint: str
-):
-    from lib.backends.backend_assembly.specs import official_model_endpoint
-
-    assert official_model_endpoint(provider, "image", model) == endpoint
+def test_new_image_model_prefill_preserves_the_name_rule(provider: str, model: str, endpoint: str):
     assert infer_builtin_endpoint(provider, "image", model) == endpoint

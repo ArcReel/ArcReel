@@ -139,7 +139,6 @@ class TestVideoCapabilitiesForModel:
             ("MiniMax-Hailuo-2.3", True),
             # Fast 仅图生视频：这条收窄由 minimax-hailuo-v1-fast 定义里必需的首帧输入承担。
             ("MiniMax-Hailuo-2.3-Fast", False),
-            ("S2V-01", False),
             ("MiniMax-H3", True),
         ],
     )
@@ -204,6 +203,7 @@ _VIDEO_AUDIO_STANCES: dict[tuple[str, str], tuple[str, str]] = {
     ("ark-agent-plan", "doubao-seedance-2.0"): ("controllable", "controllable"),
     ("ark-agent-plan", "doubao-seedance-2.0-fast"): ("controllable", "controllable"),
     ("ark-agent-plan", "doubao-seedance-2.0-mini"): ("controllable", "controllable"),
+    ("ark-agent-plan", "doubao-seedance-2.5"): ("controllable", "controllable"),
     ("dashscope", "happyhorse-1.0-i2v"): ("always_on", "always_on"),
     ("dashscope", "happyhorse-1.0-r2v"): ("always_on", "always_on"),
     ("dashscope", "happyhorse-1.0-t2v"): ("always_on", "always_on"),
@@ -214,6 +214,7 @@ _VIDEO_AUDIO_STANCES: dict[tuple[str, str], tuple[str, str]] = {
     ("dashscope", "wan2.7-r2v"): ("always_on", "always_on"),
     ("dashscope", "wan2.7-t2v"): ("always_on", "always_on"),
     ("dashscope", "wan3.0-video"): ("controllable", "controllable"),
+    ("dashscope", "wan3.0-video-prime"): ("controllable", "controllable"),
     ("gemini-aistudio", "veo-3.1-fast-generate-preview"): ("always_on", "always_on"),
     ("gemini-aistudio", "veo-3.1-generate-preview"): ("always_on", "always_on"),
     ("gemini-aistudio", "veo-3.1-lite-generate-preview"): ("always_on", "always_on"),
@@ -230,11 +231,15 @@ _VIDEO_AUDIO_STANCES: dict[tuple[str, str], tuple[str, str]] = {
     ("kling", "kling-v3-omni"): ("controllable", "always_off"),
     ("kling", "kling-video-o1"): ("always_off", "always_off"),
     ("minimax", "MiniMax-H3"): ("always_on", "always_on"),
+    ("minimax", "MiniMax-H3-Highspeed"): ("always_on", "always_on"),
+    ("minimax", "MiniMax-H3-Lite"): ("always_on", "always_on"),
+    ("minimax", "MiniMax-H3-Max"): ("always_on", "always_on"),
     ("minimax", "MiniMax-Hailuo-2.3"): ("always_off", "always_off"),
     ("minimax", "MiniMax-Hailuo-2.3-Fast"): ("always_off", "always_off"),
     ("vidu", "vidu2.0"): ("always_off", "always_off"),
     ("vidu", "viduq3"): ("controllable", "controllable"),
     ("vidu", "viduq3-pro"): ("controllable", "controllable"),
+    ("vidu", "viduq3-pro-fast"): ("controllable", "controllable"),
     ("vidu", "viduq3-turbo"): ("controllable", "controllable"),
 }
 
