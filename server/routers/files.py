@@ -25,7 +25,7 @@ from fastapi.responses import PlainTextResponse
 from lib.bgm.library import BGM_DIR, BGM_EXTENSIONS, BGM_MAX_BYTES, BgmTrack
 from lib.bgm.service import BgmError, BgmLibraryService
 from lib.catalog.errors import ModelNotInCatalogError
-from lib.config.resolver import VisionCapabilityError
+from lib.config.resolver import NoAvailableProviderError, VisionCapabilityError
 from lib.episode.episode_ledger import is_derived_episode_name
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
@@ -1424,7 +1424,7 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
     上传风格参考图并分析风格
 
     1. 保存图片到 projects/{project_name}/style_reference.png
-    2. 调用 Gemini API 分析风格
+    2. 调用文本供应商分析风格
     3. 更新 project.json 的 style_image 和 style_description 字段
     """
     original_filename = _require_filename(file, _t)
@@ -1448,13 +1448,9 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
                 raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
             style_filename = f"style_reference{new_ext}"
 
-            output_path = project_dir / style_filename
-            with open(output_path, "wb") as f:
-                f.write(content_norm)
+            return project_dir / style_filename, style_filename, content_norm
 
-            return output_path, style_filename
-
-        output_path, style_filename = await run_sync_transaction(_sync_prepare)
+        output_path, style_filename, content_norm = await asyncio.to_thread(_sync_prepare)
 
         # 调用 TextGenerator 分析风格（自动追踪用量）
         from lib.backends.providers import CallPurpose
@@ -1465,6 +1461,7 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         generator = await TextGenerator.create(
             TextTaskType.STYLE_ANALYSIS, project_name, purpose=CallPurpose.STYLE_ANALYSIS
         )
+        await run_sync_transaction(output_path.write_bytes, content_norm)
         result = await generator.generate(
             TextGenerationRequest(
                 prompt=builtin_templates.render("text/style_analysis"), images=[ImageInput(path=output_path)]
@@ -1500,6 +1497,10 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
+    except NoAvailableProviderError as exc:
+        raise BadRequestError("text_provider_not_configured").with_diagnostic(
+            {"code": "text_provider_not_configured"}
+        ) from exc
     except VisionCapabilityError as e:
         raise BadRequestError(
             "vision_model_required", provider=e.provider_id, model=e.model_id, task=e.task_type.value
