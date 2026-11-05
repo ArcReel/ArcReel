@@ -17,7 +17,7 @@ export function entryDraftOf(entry: ProviderModelEntryInfo | null): EntryDraft |
 /** 各媒体类型可以修改的模型事实，按界面顺序；时长联动约束紧跟可选时长。 */
 export const EDITABLE_FACTS: Record<ProviderModelItem["media_type"], CapabilityKey[]> = {
   text: ["image_input", "structured_output", "max_output_tokens"],
-  image: ["text_to_image", "image_to_image", "max_reference_images", "resolutions"],
+  image: ["text_to_image", "image_to_image", "resolutions"],
   video: ["durations", "duration_constraints", "resolutions"],
   audio: [],
 };

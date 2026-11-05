@@ -1255,7 +1255,7 @@ async def test_image_reference_override_controls_api_candidates_and_execution(
     model_id = "grok-imagine-image" if custom else "relay-image"
     url = f"/api/v1/providers/{provider}/models/{model_id}"
 
-    async def runtime(overrides, expected):
+    async def runtime(expected):
         if custom:
             async with db_factory() as session:
                 backend = await load_custom_backend(
@@ -1294,7 +1294,7 @@ async def test_image_reference_override_controls_api_candidates_and_execution(
             else builtin_model_buckets(provider, model_id, catalog.get_model(provider, model_id, media_type="image"))
         )
         assert ("i2i" in buckets) is bool(expected)
-        await runtime(overrides, expected)
+        await runtime(expected)
 
 
 @pytest.mark.parametrize("value", [-1, True, 1.5, None])

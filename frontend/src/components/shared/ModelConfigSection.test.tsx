@@ -447,6 +447,18 @@ describe("ModelConfigSection", () => {
         expect(await screen.findByText(DISCONTINUED_ERROR)).toBeInTheDocument();
       });
 
+      it("keeps the capability error when only another generation path references the model", async () => {
+        // 图生视频跟随全局默认执行该模型，本页只有参考生视频显式引用它：那条提示说的不是这条路径
+        renderWithCandidates({
+          projectName: "demo",
+          value: { ...EMPTY_VALUE, videoProviderR2V: "ark/seedance" },
+          globalDefaults: { ...EMPTY_GLOBALS, video: "ark/seedance" },
+          candidates: discontinued(),
+        });
+
+        expect(await screen.findByText(DISCONTINUED_ERROR)).toBeInTheDocument();
+      });
+
       it("keeps the capability error next to a notice that only announces the shutdown", async () => {
         // 即将下线的模型仍可调用，能力查询报的是别的问题，不与提示重复
         renderWithCandidates({

@@ -29,16 +29,18 @@ from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
     AUDIO_TRACK_OVERRIDE_KEYS,
-    CAPABILITY_OVERRIDE_FIELDS,
     CHANNEL_FACT_OVERRIDE_KEYS,
-    capability_type_name,
-    capability_value_matches,
     filter_valid_overrides,
     resolve_audio_pair,
     strip_incoherent_audio_overrides,
     two_sided_video_capabilities,
 )
-from lib.custom_provider.capability_view import CapabilityView, custom_capability_view
+from lib.custom_provider.capability_view import (
+    CapabilityView,
+    custom_capability_view,
+    overridable_keys,
+    override_value_check,
+)
 from lib.custom_provider.discovery_formats import endpoint_attachment_holds, is_comfyui_protocol
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row, resolve_endpoint_spec
 from lib.custom_provider.endpoints import (
@@ -52,7 +54,6 @@ from lib.custom_provider.endpoints import (
 from lib.custom_provider.model_facts import (
     ALL_MODEL_FACT_OVERRIDE_KEYS,
     COMFYUI_VIDEO_OVERRIDE_KEYS,
-    MODEL_FACT_OVERRIDE_KEYS,
     comfyui_duration_override,
     matched_entry_summary,
     model_fact_overrides,
@@ -712,9 +713,7 @@ def _check_capability_overrides(
                 ),
             )
         return
-    applicable = MODEL_FACT_OVERRIDE_KEYS.get(media_type, frozenset()) | (
-        CHANNEL_FACT_OVERRIDE_KEYS if media_type == "video" else frozenset()
-    )
+    applicable = overridable_keys(media_type)
     for key, value in overrides.items():
         if key not in applicable:
             raise HTTPException(
@@ -729,11 +728,7 @@ def _check_capability_overrides(
             )
         # 值类型判定复用读取侧的同一函数：两边各写一份会漂移，届时写入侧放行的值被合成
         # 静默忽略，正是本能力覆盖链路要消灭的「界面允许、执行反悔」。
-        if media_type == "video" and key in CHANNEL_FACT_OVERRIDE_KEYS:
-            expected = CAPABILITY_OVERRIDE_FIELDS[key]
-            valid, expected_name = capability_value_matches(value, expected), capability_type_name(expected)
-        else:
-            valid, expected_name = model_fact_value_matches(key, value), model_fact_type_name(key)
+        valid, expected_name = override_value_check(media_type, key, value)
         if not valid:
             raise HTTPException(
                 status_code=422,

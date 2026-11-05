@@ -1369,6 +1369,23 @@ class TestGenericEndpointAudio:
         )
         assert DashScopeVideoBackend.metered_usage("proxy-custom-video", request).dimensions["audio"] is True
 
+    async def test_resumed_silent_task_settles_as_audio(self, tmp_path: Path):
+        """静音请求在提交前即被拒，只有续跑会带着持久化的 ``generate_audio=False`` 走到结算。"""
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        client = _client(get=AsyncMock(return_value=_resp(_succeeded())))
+        p1, p2, p3 = _patches(client, AsyncMock())
+        request = VideoGenerationRequest(
+            prompt="p", output_path=tmp_path / "o.mp4", duration_seconds=5, generate_audio=False
+        )
+        with p1, p2, p3:
+            result = await DashScopeVideoBackend(api_key="sk", model="proxy-custom-video").resume_video(
+                "t-silent", request
+            )
+        assert result.generate_audio is True
+        usage = DashScopeVideoBackend.metered_usage("proxy-custom-video", request, result)
+        assert usage.dimensions["audio"] is True
+
     @pytest.mark.parametrize("endpoint", sorted(DASHSCOPE_VIDEO_BACKENDS))
     def test_every_endpoint_declares_controllable_audio_only_when_it_sends_the_switch(self, tmp_path, endpoint):
         from arcreel_market_core.video_backend_contract import VideoAudioMode

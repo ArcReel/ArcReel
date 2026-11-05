@@ -24,6 +24,7 @@ from tests.integration.lib.generation.worker_support import (
     seed_running_task,
     stub_executors,
     task_status,
+    use_worker_project,
 )
 
 
@@ -43,13 +44,6 @@ class TestReadIntEnv:
     def test_minimum_enforced(self, monkeypatch):
         monkeypatch.setenv("ARCREEL_INT", "0")
         assert _read_int_env("ARCREEL_INT", 3, minimum=2) == 2
-
-
-def _patch_pm(monkeypatch, project: dict | None):
-    """让 worker 的 get_project_manager().load_project 返回给定 project dict。"""
-    pm = type("PM", (), {"load_project": lambda self, name: project or {}})()
-    for target in ("lib.generation.generation_worker.get_project_manager", "lib.config.resolver.get_project_manager"):
-        monkeypatch.setattr(target, lambda: pm)
 
 
 @pytest.fixture
@@ -91,13 +85,13 @@ class TestExtractProvider:
 
     async def test_project_level_video_backend(self, monkeypatch):
         """项目级 video_backend 优先于全局默认。"""
-        _patch_pm(monkeypatch, {"video_backend": "ark/doubao-seedance-2-0-260128"})
+        use_worker_project(monkeypatch, {"video_backend": "ark/doubao-seedance-2-0-260128"})
         task = {"payload": {}, "project_name": "demo", "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
     async def test_project_level_image_t2i(self, monkeypatch):
         """image 投影按代表性 generation_type=t2i 取项目级 image_provider_t2i。"""
-        _patch_pm(monkeypatch, {"image_provider_t2i": "gemini-vertex/imagen-3"})
+        use_worker_project(monkeypatch, {"image_provider_t2i": "gemini-vertex/imagen-3"})
         task = {"payload": {}, "project_name": "demo", "task_type": "storyboard"}
         assert await _extract_provider(task) == "gemini-vertex"
 
@@ -109,7 +103,7 @@ class TestExtractProvider:
         若误判为 image lane（按 task_type != "video" 去读 image 槽），会取到纯图片
         供应商，导致 worker 在 video 通道以 video_max==0 直接把任务标记
         「供应商不支持 video 生成」。"""
-        _patch_pm(
+        use_worker_project(
             monkeypatch,
             {
                 "video_backend": "ark/doubao-seedance-2-0-260128",
@@ -121,7 +115,7 @@ class TestExtractProvider:
 
     async def test_reference_video_prefers_r2v_bucket_provider(self, monkeypatch):
         """视频单元级状态读不到时回退当前 r2v 配置，不采用 payload 中的 enqueue-time pin。"""
-        _patch_pm(
+        use_worker_project(
             monkeypatch,
             {
                 "video_backend": "ark/doubao-seedance-2-0-260128",
@@ -266,7 +260,7 @@ class TestExtractProviderAlignsWithExecution:
         from lib.db import async_session_factory
 
         project = {"image_provider_t2i": "openai/gen-1", "image_provider_i2i": "openai/edit-1"}
-        _patch_pm(monkeypatch, project)
+        use_worker_project(monkeypatch, project)
         task = {"payload": {}, "project_name": "demo", "task_type": "storyboard"}
 
         worker_provider = await _extract_provider(task)
@@ -278,7 +272,7 @@ class TestExtractProviderAlignsWithExecution:
         from lib.db import async_session_factory
 
         project = {"video_backend": "ark/doubao-seedance-2-0-260128"}
-        _patch_pm(monkeypatch, project)
+        use_worker_project(monkeypatch, project)
         task = {"payload": {}, "project_name": "demo", "task_type": "video"}
 
         worker_provider = await _extract_provider(task)

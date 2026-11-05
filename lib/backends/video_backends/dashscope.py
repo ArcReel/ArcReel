@@ -812,7 +812,8 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
             duration_seconds=billing_duration if billing_duration is not None else request.duration_seconds,
             video_uri=video_url,
             task_id=task_id,
-            generate_audio=request.generate_audio,
+            # 结算以这一位为准：不下发开关的端点成片固定有声，续跑升级前以静音提交的任务也照有声上报。
+            generate_audio=request.generate_audio if self.endpoint.audio_switch else True,
         )
 
     @staticmethod
