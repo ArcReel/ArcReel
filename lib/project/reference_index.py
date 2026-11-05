@@ -45,6 +45,7 @@ from lib.episode.episode_sources import (
     whole_source_files,
 )
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, normalize_asset_name
+from lib.project.project_migrations.backups import is_versioned_backup_name
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, END_FRAME_RESOURCE_TYPE
 from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.script_models import get_generated_assets
@@ -115,7 +116,6 @@ _UNREFERENCED = FileReference(FileRole.UNREFERENCED)
 _INFRASTRUCTURE = FileReference(FileRole.INFRASTRUCTURE)
 _AGENT_CONFIG = FileReference(FileRole.AGENT_CONFIG)
 
-_BACKUP_RE = re.compile(r"\.bak\.v\d+-\d+$")
 _TIMELINE_PATH_RE = re.compile(r"^edit_timelines/episode_[1-9]\d*/(tl-[0-9a-f]{8})\.json$")
 _RENDER_RECORD_SUFFIX = ".render.json"
 #: 剧本条目数组与各自的 ID 字段；参考生视频的条目是视频单元。
@@ -148,7 +148,7 @@ def is_infrastructure_path(rel: str) -> bool:
         return False
     if parts[:2] == (ARCREEL_DIRNAME, MEMORY_DIRNAME) or parts == (ARCREEL_DIRNAME,):
         return any(part.startswith(".") for part in parts[2:])
-    return any(part.startswith(".") or part == "__MACOSX" or _BACKUP_RE.search(part) for part in parts)
+    return any(part.startswith(".") or part == "__MACOSX" or is_versioned_backup_name(part) for part in parts)
 
 
 def _normalize(value: object) -> str | None:
