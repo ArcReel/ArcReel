@@ -1168,3 +1168,120 @@ class TestOrphanDispatcherNonBlockingOverride:
         await asyncio.gather(*worker._slots.all_active_tasks())
 
         assert resumed == ["orphan-x"] * expected_resumes
+
+    @staticmethod
+    def _recording_resume(monkeypatch) -> list[str]:
+        resumed: list[str] = []
+
+        async def _resume(task, *, job_id):
+            resumed.append(task["task_id"])
+            return {"job_id": job_id}
+
+        monkeypatch.setattr(stub_executors, "resume", _resume)
+        return resumed
+
+    @pytest.mark.asyncio
+    async def test_retry_download_dispatches_when_finished_occupant_awaits_drain(self, monkeypatch, staged_project):
+        """普通执行体落下下载失败后已结束、占用等主循环 drain：重试立即派发，不被这条占用挡住。"""
+        orphan = _storyboard_orphan("task-x", job_id="job-x")
+        queue = FakeWorkerQueue()
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"ark": {"image": 0, "video": 1}}),
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+        )
+        resumed = self._recording_resume(monkeypatch)
+        finished = asyncio.get_running_loop().create_future()
+        finished.set_result(None)
+        worker._slots.register("ark", "video", "task-x", finished)
+
+        await worker.retry_artifact_download(dict(orphan), poll_timeout_seconds=60)
+        await worker._recovery.wait_dispatchers()
+
+        assert resumed == ["task-x"]
+
+    @pytest.mark.asyncio
+    async def test_retry_download_waits_for_occupant_still_finishing(self, monkeypatch, staged_project):
+        """普通执行体落下下载失败后还在收尾：重试不丢，执行体结束后任务仍 running 就派发一次。"""
+        orphan = _storyboard_orphan("task-x", job_id="job-x")
+        queue = FakeWorkerQueue()
+        queue._orphans = [orphan]
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"ark": {"image": 0, "video": 1}}),
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+        )
+        resumed = self._recording_resume(monkeypatch)
+        finishing = asyncio.get_running_loop().create_future()
+        worker._slots.register("ark", "video", "task-x", finishing)
+
+        await worker.retry_artifact_download(dict(orphan), poll_timeout_seconds=60)
+        await asyncio.sleep(0.05)
+        assert resumed == [], "执行体结束前不应接续"
+
+        finishing.set_result(None)
+        await worker._recovery.wait_dispatchers()
+
+        assert resumed == ["task-x"]
+
+    @pytest.mark.asyncio
+    async def test_scan_skips_orphan_that_reached_terminal_state_during_the_scan(self, monkeypatch, staged_project):
+        """孤儿行读于扫描开头：扫描让出事件循环期间已落终态的任务不再接续，之后的重试不受影响。"""
+
+        class _StatusQueue(FakeWorkerQueue):
+            status = "running"
+
+            async def get_task(self, task_id):
+                return {"task_id": task_id, "status": self.status}
+
+        orphan = _storyboard_orphan("orphan-x", job_id="job-x")
+        queue = _StatusQueue()
+        queue._orphans = [orphan]
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"ark": {"image": 0, "video": 1}}),
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+        )
+        resumed = self._recording_resume(monkeypatch)
+
+        async def _poll_timeout_while_task_finishes() -> int:
+            queue.status = "succeeded"
+            return 60
+
+        monkeypatch.setattr(
+            "lib.generation.restart_recovery.read_video_poll_timeout_seconds", _poll_timeout_while_task_finishes
+        )
+
+        await worker._recovery.handle_orphans()
+        await worker._recovery.wait_dispatchers()
+        assert resumed == []
+
+        await worker.retry_artifact_download(dict(orphan), poll_timeout_seconds=60)
+        await worker._recovery.wait_dispatchers()
+        assert resumed == ["orphan-x"]
+
+    @pytest.mark.asyncio
+    async def test_scan_dispatches_when_status_check_fails(self, monkeypatch, staged_project):
+        """核对状态时数据库瞬时出错：照常接续，不让任务停在 running 等下次启动。"""
+
+        class _BrokenStatusQueue(FakeWorkerQueue):
+            async def get_task(self, task_id):
+                raise TimeoutError("QueuePool limit reached")
+
+        queue = _BrokenStatusQueue()
+        queue._orphans = [_storyboard_orphan("orphan-x", job_id="job-x")]
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"ark": {"image": 0, "video": 1}}),
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+        )
+        resumed = self._recording_resume(monkeypatch)
+
+        await worker._recovery.handle_orphans()
+        await worker._recovery.wait_dispatchers()
+
+        assert resumed == ["orphan-x"]

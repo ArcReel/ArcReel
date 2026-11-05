@@ -379,6 +379,14 @@ class SlotTable:
         """所有占用的 task_id（pending+inflight）：self-active 扫描用。"""
         return {tid for bucket in self._slots.values() for tid in bucket}
 
+    def live_occupant(self, task_id: str) -> asyncio.Future[Any] | None:
+        """该任务还没结束的执行体；执行体已 done、只等主循环 drain 的占用不算。"""
+        for bucket in self._slots.values():
+            occ = bucket.get(task_id)
+            if occ is not None and not occ.task.done():
+                return occ.task
+        return None
+
     def all_active_tasks(self) -> list[asyncio.Future[Any]]:
         """所有占用的执行体（pending+inflight）：shutdown wait 用。"""
         return [occ.task for bucket in self._slots.values() for occ in bucket.values()]
