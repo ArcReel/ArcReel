@@ -1350,6 +1350,22 @@ class TestProjectArchiveService:
         assert result.project_name != "demo"
         assert (pm.get_project_path(result.project_name) / "project.json").exists()
 
+    @pytest.mark.parametrize("schema_version", [0, 1])
+    def test_import_minimal_legacy_archive_has_no_backup_warnings(self, tmp_path, schema_version):
+        pm = ProjectManager(tmp_path / "projects")
+        archive_path = tmp_path / "legacy.zip"
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            archive.writestr(
+                "project.json",
+                json.dumps({"schema_version": schema_version, "title": "Demo", "content_mode": "narration"}),
+            )
+
+        result = ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="legacy.zip")
+
+        assert result.project["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+        assert list(pm.get_project_path(result.project_name).glob("project.json.bak.v*"))
+        assert not any(warning.key == "val_unrecognized_entry" for warning in result.warnings)
+
     def test_import_legacy_v1_archive_runs_migration(self, tmp_path):
         """启动后导入的旧归档（schema_version=1 + legacy image_backend）在导入入口走完整迁移链。"""
         import json as _json
