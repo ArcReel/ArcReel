@@ -160,3 +160,67 @@ def test_custom_override_closing_i2i_makes_the_reference_path_unsupported():
     )
     assert limit == InputLimit.unsupported()
     assert _clamped(limit, 16) == 16
+
+
+# ---------------------------------------------------------------------------
+# 设置页的生效能力与候选读同一个求值结果
+# ---------------------------------------------------------------------------
+
+
+def test_settings_show_i2i_unsupported_when_the_entry_records_zero_references(monkeypatch: pytest.MonkeyPatch):
+    """条目显式记 0 张：设置页的图生图为不支持、参考图上限 0，与候选（只进 t2i）一致。"""
+    from lib.custom_provider.capability_view import builtin_capability_view, custom_capability_view
+    from lib.custom_provider.endpoints import get_endpoint_spec
+
+    data = with_entry_facts(query.factory_snapshot(), "grok", "grok-imagine-image", max_reference_images=0)
+    data = with_entry_facts(data, "gemini-aistudio", "gemini-3-pro-image", max_reference_images=0)
+    install_catalog(monkeypatch, data)
+    zero_references = {"text_to_image": True, "image_to_image": False, "max_reference_images": 0}
+
+    official = query.get_model("grok", "grok-imagine-image", media_type="image")
+    assert official is not None
+    view = builtin_capability_view("grok", "grok-imagine-image", base_model=official, official=True, overrides={})
+    assert view.effective == zero_references
+    assert builtin_model_buckets("grok", "grok-imagine-image", official) == {"t2i"}
+
+    # 自定义供应商按模型名对应同一个条目；图生图仍可修改，原值是求值后的不支持
+    custom = custom_capability_view(
+        model_id="gemini-3-pro-image",
+        endpoint="gemini-image",
+        spec=get_endpoint_spec("gemini-image"),
+        raw_overrides=None,
+        applied_overrides=None,
+        entry_binding=None,
+    )
+    assert (custom.base, "image_to_image" in custom.editable) == (zero_references, True)
+    assert custom_model_buckets(endpoint="gemini-image", model_id="gemini-3-pro-image") == {"t2i"}
+
+
+def test_settings_show_both_image_dimensions_of_a_comfyui_endpoint_from_its_bindings():
+    """ComfyUI 图片端点：文生图、图生图与参考图上限都按节点绑定展示，只读，与候选一致。"""
+    from lib.custom_provider.capability_view import custom_capability_view
+    from lib.custom_provider.endpoints import comfyui_endpoint_spec
+    from tests.factories import comfyui_endpoint_definition
+
+    t2i = comfyui_endpoint_definition(media_type="image")
+    i2i = comfyui_endpoint_definition(media_type="image")
+    i2i["bindings"]["reference_images"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+
+    def view(definition: dict):
+        spec = comfyui_endpoint_spec("ce-7", definition)
+        return custom_capability_view(
+            model_id="doubao-seedream-4-5-251128",  # 对得上条目也不读条目
+            endpoint="ce-7",
+            spec=spec,
+            raw_overrides=None,
+            applied_overrides=None,
+            entry_binding=None,
+        )
+
+    text_only, reference_only = view(t2i), view(i2i)
+    assert text_only.displayed == ("text_to_image", "image_to_image", "max_reference_images")
+    assert (text_only.editable, text_only.effective) == (
+        (),
+        {"text_to_image": True, "image_to_image": False, "max_reference_images": 0},
+    )
+    assert reference_only.effective == {"text_to_image": False, "image_to_image": True, "max_reference_images": 1}
