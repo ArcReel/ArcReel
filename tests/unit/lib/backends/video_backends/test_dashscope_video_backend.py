@@ -235,7 +235,9 @@ class TestCapabilities:
         from lib.backends.video_backends.dashscope import _CHANNEL_CAPABILITIES, DashScopeVideoBackend
 
         assert _profile_key("happyhorse") is None
-        assert DashScopeVideoBackend(api_key="sk", model="happyhorse").video_capabilities == _CHANNEL_CAPABILITIES
+        assert DashScopeVideoBackend(api_key="sk", model="happyhorse").video_capabilities == replace(
+            _CHANNEL_CAPABILITIES, audio_track=DashScopeVideoBackend.endpoint.audio_track
+        )
 
     def test_wan27_declares_prompt_char_limit(self):
         """wan2.7 全家族 prompt ≤ 5000 字符；超限官方静默截断并照常计费，故须付费前拦。"""
@@ -1222,15 +1224,6 @@ class TestWan3:
             )
         assert ei.value.code == "video_audio_switch_not_supported"
 
-    def test_silent_request_on_unrecognized_model_not_rejected(self, tmp_path):
-        """认不得的型号声明可控，静音请求照常组装、不下发开关。"""
-        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-
-        payload = DashScopeVideoBackend(api_key="sk", model="proxy-custom-video")._build_payload(
-            VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=False)
-        )
-        assert "audio" not in payload["parameters"]
-
     def test_end_frame_on_model_without_last_frame_rejected(self, tmp_path):
 
         with pytest.raises(VideoCapabilityError) as ei:
@@ -1331,6 +1324,64 @@ class TestWan3:
             )
 
         assert client.gets[-1]["url"] == "https://maas-a.example.com/ws-1/api/v1/tasks/t-wan3"
+
+
+class TestGenericEndpointAudio:
+    """通用端点 ``dashscope-video`` 不下发音轨开关：能力声明、请求与计量都按固定有声。
+
+    百炼通用视频请求没有通用的音轨开关（旧版文生视频与 wan2.7 均无 ``parameters.audio``，图生视频只有
+    wan2.6-i2v-flash 有，且默认有声），出处见 ``docs/api-docs/endpoints/dashscope-video.md``。
+    """
+
+    _MODELS = ("proxy-custom-video", "wan2.7-videoedit", "wan2.6-i2v-flash")
+
+    @pytest.mark.parametrize("model", _MODELS)
+    def test_capability_declares_fixed_audio(self, model):
+        from arcreel_market_core.video_backend_contract import VideoAudioMode
+        from lib.backends.backend_assembly.specs import declared_builtin_video_capabilities
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        assert DashScopeVideoBackend.video_capabilities_for_model(model).audio_track is VideoAudioMode.ALWAYS_ON
+        declared = declared_builtin_video_capabilities("dashscope", model, endpoint="dashscope-video")
+        assert declared.audio_track is VideoAudioMode.ALWAYS_ON
+
+    @pytest.mark.parametrize("model", _MODELS)
+    def test_request_sends_no_audio_switch_and_rejects_silent(self, tmp_path, model):
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        backend = DashScopeVideoBackend(api_key="sk", model=model)
+        payload = backend._build_payload(
+            VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=True)
+        )
+        assert "audio" not in payload["parameters"]
+        with pytest.raises(VideoCapabilityError) as ei:
+            backend._build_payload(
+                VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=False)
+            )
+        assert ei.value.code == "video_audio_switch_not_supported"
+
+    @pytest.mark.parametrize("generate_audio", [True, False])
+    def test_metering_counts_audio(self, tmp_path, generate_audio):
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        request = VideoGenerationRequest(
+            prompt="p", output_path=tmp_path / "o.mp4", duration_seconds=5, generate_audio=generate_audio
+        )
+        assert DashScopeVideoBackend.metered_usage("proxy-custom-video", request).dimensions["audio"] is True
+
+    @pytest.mark.parametrize("endpoint", sorted(DASHSCOPE_VIDEO_BACKENDS))
+    def test_every_endpoint_declares_controllable_audio_only_when_it_sends_the_switch(self, tmp_path, endpoint):
+        from arcreel_market_core.video_backend_contract import VideoAudioMode
+
+        backend_cls = DASHSCOPE_VIDEO_BACKENDS[endpoint]
+        image = _ref(tmp_path, "ref.png")
+        payload = backend_cls(api_key="sk", model="opaque-model")._build_payload(
+            VideoGenerationRequest(
+                prompt="p", output_path=tmp_path / "o.mp4", generate_audio=True, reference_images=[image]
+            )
+        )
+        controllable = backend_cls.video_capabilities_for_model("opaque-model").audio_track
+        assert ("audio" in payload["parameters"]) is (controllable is VideoAudioMode.CONTROLLABLE)
 
 
 class TestCustomProviderBaseUrlReplay:
