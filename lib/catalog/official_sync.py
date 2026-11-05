@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -185,15 +186,20 @@ async def _sync_loop(
 def start_official_sync(
     session_factory: async_sessionmaker[AsyncSession],
     http_client: Callable[[], httpx.AsyncClient] = get_http_client,
-) -> asyncio.Task[None]:
-    """启动后台同步循环：立即检查一次，之后每天一次。"""
+) -> asyncio.Task[None] | None:
+    """立即检查一次，之后每天一次；离线录制设 ARCREEL_SKIP_CATALOG_SYNC=1 跳过网络同步。"""
+    if os.getenv("ARCREEL_SKIP_CATALOG_SYNC") == "1":
+        logger.info("ARCREEL_SKIP_CATALOG_SYNC=1，跳过官方目录同步")
+        return None
     return asyncio.get_running_loop().create_task(
         _sync_loop(session_factory, http_client), name="catalog-official-sync"
     )
 
 
-async def stop_official_sync(task: asyncio.Task[None]) -> None:
+async def stop_official_sync(task: asyncio.Task[None] | None) -> None:
     """取消同步循环，等它连同被打断的数据库会话一起收尾完再返回。"""
+    if task is None:
+        return
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
