@@ -361,7 +361,9 @@ def video_capability_satisfied(
     return InputLimit.from_json(max_reference_images).accepts_input
 
 
-def builtin_video_audio_track(provider_id: str, model_id: str, *, generation_type: VideoGenerationType) -> str | None:
+def builtin_video_audio_track(
+    provider_id: str, model_id: str, *, generation_type: VideoGenerationType, builtin_endpoint: str | None = None
+) -> str | None:
     """内置视频 model 在该任务类型桶上的成片音轨形态；无法解析时 None（调用方按「无信号不收紧」处理）。
 
     真相源是 backend 的 ``VideoCapabilities``——backend 是执行期真正构造请求的一方，「请求体里
@@ -379,7 +381,7 @@ def builtin_video_audio_track(provider_id: str, model_id: str, *, generation_typ
     if catalog.get_model(provider_id, model_id, media_type="video") is None:
         return None
     try:
-        caps = builtin_video_capabilities_for_model(provider_id, model_id)
+        caps = builtin_video_capabilities_for_model(provider_id, model_id, endpoint=builtin_endpoint)
     except ValueError:
         return None
     return caps.audio_track_for_route(generation_type).value
@@ -993,7 +995,12 @@ class ConfigResolver:
             ).duration_constraints
 
     async def video_audio_track(
-        self, provider_id: str, model_id: str, *, generation_type: VideoGenerationType
+        self,
+        provider_id: str,
+        model_id: str,
+        *,
+        generation_type: VideoGenerationType,
+        builtin_endpoint: str | None = None,
     ) -> str | None:
         """视频模型在该任务类型桶上的成片音轨形态（``VideoAudioMode`` 的字面量）；没有信号时为 None。
 
@@ -1002,7 +1009,9 @@ class ConfigResolver:
         调用方按「无信号不收紧」处理，引用失效由能力解析报错，这里不重复。
         """
         if not is_custom_provider(provider_id):
-            return builtin_video_audio_track(provider_id, model_id, generation_type=generation_type)
+            return builtin_video_audio_track(
+                provider_id, model_id, generation_type=generation_type, builtin_endpoint=builtin_endpoint
+            )
         from lib.custom_provider.capabilities import (
             overridden_audio_track,
             synthesize_video_capabilities_with_overrides,
@@ -1036,6 +1045,7 @@ class ConfigResolver:
         project: dict | None = None,
         *,
         generation_type: VideoGenerationType | None = None,
+        builtin_endpoint: str | None = None,
     ) -> dict:
         """读取指定 provider/model 的视频能力，不再二次解析 provider。
 
@@ -1050,10 +1060,17 @@ class ConfigResolver:
         声音一致性等二维值按 ``project`` 的生成模式派生；``generation_type`` 显式给定时按该任务类型桶派生
         逐路径的能力位（音轨形态按执行子路径分叉，见 :func:`builtin_video_audio_track`）——
         执行层已知任务落在哪个桶，传进来才能拿到与实际请求同形的结果。
+        ``builtin_endpoint`` 为构造后端时选定的内置调用端点；缺省时读模型当前挂接的端点。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_caps_for_model(
-                svc, session, provider_id, model_id, project, generation_type=generation_type
+                svc,
+                session,
+                provider_id,
+                model_id,
+                project,
+                generation_type=generation_type,
+                builtin_endpoint=builtin_endpoint,
             )
 
     async def video_pricing_generate_audio(
@@ -1544,6 +1561,7 @@ class ConfigResolver:
         project: dict | None,
         *,
         generation_type: VideoGenerationType | None = None,
+        builtin_endpoint: str | None = None,
     ) -> dict:
         # 音轨形态按执行子路径分叉（可灵 v3-omni 的多图主体子路径不带音轨开关），故能力解析需要
         # 知道落哪个桶；未显式给定时按项目路线定桶，与 `_resolve_video_capabilities_from_project`
@@ -1634,7 +1652,7 @@ class ConfigResolver:
             # 视频能力位与参考图上限取调用通道声明与模型条目两侧求值的生效值，与执行闸门、能力闸
             # （`_ensure_video_bucket_capability`）与桶候选下拉（`lib.backends.generation_type_buckets`）同一个结果。
             try:
-                builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id)
+                builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id, endpoint=builtin_endpoint)
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
             max_reference_images = builtin_caps.max_reference_images
@@ -1648,7 +1666,9 @@ class ConfigResolver:
             # 路线无音轨的子路径（可灵 v3-omni 多图主体）据此如实派生出 voice_consistency=none。
             has_audio = builtin_caps.audio_track_for_route(generation_type) != "always_off"
             try:
-                default_tier_generates_audio = builtin_effective_generate_audio_for_model(provider_id, model_id)
+                default_tier_generates_audio = builtin_effective_generate_audio_for_model(
+                    provider_id, model_id, endpoint=builtin_endpoint
+                )
             except ValueError as exc:
                 raise ValueError(
                     f"cannot resolve video pricing capabilities for {provider_id}/{model_id}: {exc}"

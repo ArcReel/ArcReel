@@ -297,11 +297,13 @@ async def evaluate_video_request_facts(
     identity: VideoRequestIdentity,
     resolver: ConfigResolver,
     resolution_override: ResolutionOverride | None = None,
+    builtin_endpoint: str | None = None,
 ) -> VideoRequestFacts | VideoRequestFactsFailure:
     """对一次视频请求求值执行事实；解析不出时返回带类型的失败，不抛出、不回退。
 
     ``resolution_override`` 只供预览未保存的分辨率（见 :class:`ResolutionOverride`）；缺省时按
-    项目已保存配置解析请求分辨率。
+    项目已保存配置解析请求分辨率。``builtin_endpoint`` 传执行侧构造后端时选定的端点，
+    能力、音轨与音频计价按它求值；缺省时读当前配置。
     """
 
     codes = _ROUTE_FAILURE_CODES[route]
@@ -318,7 +320,7 @@ async def evaluate_video_request_facts(
 
     try:
         caps = await resolver.video_capabilities_for_model(
-            provider_id, model_id, project, generation_type=generation_type
+            provider_id, model_id, project, generation_type=generation_type, builtin_endpoint=builtin_endpoint
         )
     except VideoSupportedDurationsError as exc:
         return VideoRequestFactsFailure(codes[exc.kind], (("provider", exc.provider_id), ("model", exc.model_id)))
@@ -384,7 +386,9 @@ async def evaluate_video_request_facts(
 
     voice_consistency: VoiceConsistency = caps.get("voice_consistency") or "soft"
     try:
-        audio_track = await resolver.video_audio_track(provider_id, model_id, generation_type=generation_type)
+        audio_track = await resolver.video_audio_track(
+            provider_id, model_id, generation_type=generation_type, builtin_endpoint=builtin_endpoint
+        )
     except SQLAlchemyError:
         return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
     has_audio_track, audio_switch_controllable = video_audio_model_facts(
