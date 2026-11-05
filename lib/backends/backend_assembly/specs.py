@@ -943,6 +943,13 @@ def apply_user_added_video_overrides(caps: VideoCapabilities, provider_id: str, 
     return enforce_audio_capability_invariant(merge_overrides(caps, channel), endpoint=provider_id, model_id=model_id)
 
 
+def _builtin_video_spec(provider_id: str, model_id: str, endpoint: str | None) -> ProviderSpec:
+    """给出的端点或模型当前挂接的端点所对应的内置视频调用通道。"""
+    if endpoint is not None:
+        return get_provider_spec(provider_id, "video", endpoint)
+    return builtin_model_spec(provider_id, "video", model_id)
+
+
 def declared_builtin_video_capabilities(
     provider_id: str, model_id: str, *, endpoint: str | None = None
 ) -> VideoCapabilities:
@@ -950,11 +957,7 @@ def declared_builtin_video_capabilities(
 
     通道取模型挂接的端点（:func:`builtin_model_endpoint`）；``endpoint`` 给出时按它求值，供保存前核对换端点后的能力覆盖。
     """
-    spec = (
-        get_provider_spec(provider_id, "video", endpoint)
-        if endpoint is not None
-        else builtin_model_spec(provider_id, "video", model_id)
-    )
+    spec = _builtin_video_spec(provider_id, model_id, endpoint)
     if spec.registry_backend == "declarative":
         from lib.custom_provider.builtin_definitions import declarative_video_capabilities
 
@@ -1005,11 +1008,7 @@ def builtin_video_metered_usage(
 
 
 def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str, *, endpoint: str | None = None) -> bool:
-    spec = (
-        get_provider_spec(provider_id, "video", endpoint)
-        if endpoint is not None
-        else builtin_model_spec(provider_id, "video", model_id)
-    )
+    spec = _builtin_video_spec(provider_id, model_id, endpoint)
     if spec.registry_backend == "declarative":
         # 计价口径与能力声明同源：定义声明成片恒无音轨时，默认执行档不可能产出人声。
         from arcreel_market_core.video_backend_contract import VideoAudioMode

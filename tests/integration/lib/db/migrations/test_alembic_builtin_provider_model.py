@@ -40,8 +40,15 @@ def test_hidden_agnes_models_disabled_and_others_enabled(
 
     disabled = asyncio.run(_disabled(db_path))
 
-    assert disabled["agnes"] == _HIDDEN
-    assert {pid for pid, models in disabled.items() if models} == {"agnes"}
+    # 读侧把已下线的模型一并算作不作候选；迁移写下的停用状态只有 agnes 这 3 个
+    discontinued = {
+        pid: frozenset(view.model_id for view in catalog.provider_models(pid) if view.lifecycle.discontinued)
+        for pid in disabled
+    }
+    assert disabled["agnes"] == _HIDDEN | discontinued["agnes"]
+    assert {pid: models for pid, models in disabled.items() if pid != "agnes"} == {
+        pid: models for pid, models in discontinued.items() if pid != "agnes"
+    }
     # 其余官方收录模型都是启用：agnes 只停用这 3 个
     agnes_models = {view.model_id for view in catalog.provider_models("agnes")}
     assert agnes_models - _HIDDEN
