@@ -28,6 +28,11 @@ if [[ "$*" == *graphql* || "$*" == *--paginate* || "$1" != api ]]; then
   exit 1
 fi
 
+if [[ -n "${WAIT_TEST_FORBIDDEN_ROUTE:-}" && "$* " == *"$WAIT_TEST_FORBIDDEN_ROUTE"* ]]; then
+  cat "$WAIT_TEST_DATA/security_forbidden.txt" >&2
+  exit 1
+fi
+
 mode=${WAIT_TEST_MODE:-review_change}
 if [[ "$mode" == "slow_probe" ]]; then
   clock=$(<"$WAIT_TEST_ROOT/clock")
@@ -199,7 +204,7 @@ reset_case() {
 run_wait() {
   local mode="$1"
   shift
-  WAIT_TEST_MODE="$mode" WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" \
+  WAIT_TEST_MODE="$mode" WAIT_TEST_ROOT="$TMP_ROOT" WAIT_TEST_DATA="$SCRIPT_DIR/testdata" PATH="$TMP_ROOT/bin:$PATH" \
     bash "$WAIT_SH" "${REPO_ARGS[@]}" 1767 "$@" \
     > "$TMP_ROOT/result.out" 2> "$TMP_ROOT/result.err"
 }
@@ -294,3 +299,24 @@ run_wait security_unavailable --max 60
 [[ "$(<"$TMP_ROOT/sleeps")" == "60" ]] || fail "expected unavailable code scanning to remain a stable signal"
 grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected unavailable code scanning not to abort waiting"
 echo "PASS: an unavailable code-scanning endpoint remains observable without blocking the loop"
+
+for route in '/code-scanning/alerts?' 'ref=refs/pull/' '/code-scanning/alerts?state=open'; do
+  for signal in review check; do
+    reset_case
+    WAIT_TEST_FORBIDDEN_ROUTE="$route" run_wait "${signal}_change" --max 180
+    [[ "$(<"$TMP_ROOT/sleeps")" == "60" ]] || fail "expected $signal change after one interval with forbidden $route"
+    grep -q '^WAIT_CHANGE:' "$TMP_ROOT/result.out" || fail "expected $signal change despite forbidden $route"
+    [[ ! -s "$TMP_ROOT/result.err" ]] || fail "expected optional 403 not to report an error"
+  done
+done
+echo "PASS: forbidden PR/base code scanning still allows review and check changes to wake the wait"
+
+for route in '/pulls/1767 ' '/issues/1767/comments?' '/issues/1767/reactions' '/pulls/1767/reviews?' '/pulls/1767/comments' '/check-runs?'; do
+  reset_case
+  if WAIT_TEST_FORBIDDEN_ROUTE="$route" run_wait flat --max 180; then
+    fail "expected required $route permission error to fail"
+  fi
+  [[ ! -s "$TMP_ROOT/sleeps" ]] || fail "expected required 403 to fail without retries"
+  grep -q '^WAIT_ERROR:' "$TMP_ROOT/result.err" || fail "expected required 403 to report WAIT_ERROR"
+done
+echo "PASS: required endpoint permission errors still fail immediately"

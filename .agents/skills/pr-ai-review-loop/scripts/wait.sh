@@ -170,7 +170,7 @@ fetch_json() {
 
   grep -Ei '^(HTTP/|Retry-After:)' "$raw_output" >> "$error_file" || true
   if [[ "$availability" == "optional" ]] \
-    && grep -Eq '(^|[^0-9])(404|422)([^0-9]|$)' "$error_file"; then
+    && grep -Eq '(^|[^0-9])(403|404|422)([^0-9]|$)' "$error_file"; then
     FAILURE_KIND="unavailable"
     RETRY_AFTER=0
     return 1
