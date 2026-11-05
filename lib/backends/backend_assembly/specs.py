@@ -890,13 +890,16 @@ def infer_builtin_endpoint(provider_id: str, media_type: str, model_id: str) -> 
     return inferred if inferred in declared.endpoints else declared.default
 
 
-def builtin_video_capabilities_for_model(provider_id: str, model_id: str) -> VideoCapabilities:
+def builtin_video_capabilities_for_model(
+    provider_id: str, model_id: str, *, endpoint: str | None = None
+) -> VideoCapabilities:
     """读取内置视频的生效能力：调用通道的声明与模型条目两侧求值，用户添加的模型再叠加能力覆盖（docs/adr/0104）。
 
     覆盖整维替换、优先级最高；音频两维合起来无意义时按不支持参考音频处理，与自定义供应商同一口径。
+    ``endpoint`` 给出时按它求值，使执行侧能力与构造后端时选定的端点一致。
     """
     return effective_builtin_video_capabilities(
-        declared_builtin_video_capabilities(provider_id, model_id), provider_id, model_id
+        declared_builtin_video_capabilities(provider_id, model_id, endpoint=endpoint), provider_id, model_id
     )
 
 
@@ -1001,13 +1004,20 @@ def builtin_video_metered_usage(
     )
 
 
-def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str) -> bool:
-    spec = builtin_model_spec(provider_id, "video", model_id)
+def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str, *, endpoint: str | None = None) -> bool:
+    spec = (
+        get_provider_spec(provider_id, "video", endpoint)
+        if endpoint is not None
+        else builtin_model_spec(provider_id, "video", model_id)
+    )
     if spec.registry_backend == "declarative":
         # 计价口径与能力声明同源：定义声明成片恒无音轨时，默认执行档不可能产出人声。
         from arcreel_market_core.video_backend_contract import VideoAudioMode
 
-        return builtin_video_capabilities_for_model(provider_id, model_id).audio_track is not VideoAudioMode.ALWAYS_OFF
+        return (
+            builtin_video_capabilities_for_model(provider_id, model_id, endpoint=endpoint).audio_track
+            is not VideoAudioMode.ALWAYS_OFF
+        )
     from lib.backends.video_backends.registry import effective_generate_audio_for_model
 
     return effective_generate_audio_for_model(

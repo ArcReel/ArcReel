@@ -136,7 +136,8 @@ async def _get_or_create_backend(
     模型。缓存键不含它：续跑写入的实例与新调用共用缓存，新调用取缓存前照样经 ``callable_model_key`` 检查。
 
     内置供应商的模型在这里只读一次挂接的调用端点：按它构造、按它分缓存键，视频的续跑守卫也取它
-    （:func:`_video_endpoint_guard`）。之后的 await 期间用户改了端点，守卫仍与实际提交任务的实例一致。自定义供应商为 None。
+    （:func:`_video_endpoint_guard`），请求事实也按它求值。之后的 await 期间用户改了端点，
+    事实与守卫仍与实际提交任务的实例一致。自定义供应商为 None。
     """
     effective_model = await callable_model_key(
         provider_id=provider_name,
@@ -179,7 +180,7 @@ async def _get_or_create_video_backend(
     default_video_model: str | None = None,
     submitted_job: bool = False,
 ) -> tuple[Any, str | None]:
-    """获取或创建 VideoBackend 实例（带缓存），连同它提交任务时冻结的续跑守卫（:func:`_video_endpoint_guard`）。
+    """获取或创建 VideoBackend 实例（带缓存），连同构造它的内置调用端点。
 
     provider_name 可以是旧格式（gemini/seedance/grok）或新格式（gemini-aistudio/gemini-vertex）。
     通过 resolver 按需加载供应商配置。
@@ -189,7 +190,7 @@ async def _get_or_create_video_backend(
     backend, endpoint = await _get_or_create_backend(
         "video", provider_name, provider_settings, resolver, default_video_model, submitted_job=submitted_job
     )
-    return backend, _video_endpoint_guard(backend, endpoint)
+    return backend, endpoint
 
 
 async def _get_or_create_image_backend(
@@ -467,7 +468,7 @@ async def resolve_generation_context(
             resolved = await r.resolve_video_backend(
                 project, payload, generation_type=generation_type, submitted_job=video.submitted_job
             )
-            video_backend, endpoint_guard = await _get_or_create_video_backend(
+            video_backend, builtin_endpoint = await _get_or_create_video_backend(
                 resolved.provider_id,
                 {},
                 r,
@@ -486,6 +487,7 @@ async def resolve_generation_context(
                     generation_type=generation_type,
                     identity=ExecutionVideoIdentity(resolved.provider_id, actual_model),
                     resolver=r,
+                    builtin_endpoint=builtin_endpoint,
                 )
             requested_generate_audio_fallback = True
             if isinstance(request_facts, VideoRequestFacts):
@@ -502,7 +504,7 @@ async def resolve_generation_context(
                 resolution=resolution,
                 request_facts=request_facts,
                 requested_generate_audio_fallback=requested_generate_audio_fallback,
-                endpoint=endpoint_guard,
+                endpoint=_video_endpoint_guard(video_backend, builtin_endpoint),
             )
 
         if audio is not None:

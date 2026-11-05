@@ -18,7 +18,8 @@ from sqlalchemy import update
 
 from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.backends.audio_backends.base import VoiceOption
-from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+from lib.backends.backend_assembly.loaded_config import LoadedConfig
+from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model, get_provider_spec
 from lib.backends.image_backends.base import BOTH_IMAGE_CAPABILITIES, ImageCapability
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelDiscontinuedError, ModelNotInCatalogError
@@ -409,6 +410,64 @@ class TestVideoLane:
 
         assert built_with == ["ark-seedance-2"]
         assert ctx.video.endpoint == "builtin:ark-seedance-2"
+
+    @pytest.mark.parametrize(
+        ("endpoint", "changed_endpoint", "has_audio"),
+        [
+            ("kling-video-pro-silent", "kling-video-audio", False),
+            ("kling-video-audio", "kling-video-pro-silent", True),
+        ],
+    )
+    async def test_request_facts_use_the_endpoint_the_backend_was_built_with(
+        self, patched_session_factory, project_env, monkeypatch, endpoint, changed_endpoint, has_audio
+    ):
+        """构造期间切换端点，事实和读侧能力仍按本次实际构造的端点求值。"""
+        model_id = "endpoint-race-video"
+
+        def install_endpoint(value):
+            catalog.install_user_added_models(
+                (catalog.UserAddedModel("kling", model_id, "video", fallback_durations=(5,), endpoint=value),)
+            )
+
+        install_endpoint(endpoint)
+        backends = []
+
+        async def _assemble(*, provider_id, media_type, model_id, builtin_endpoint, **kwargs):
+            backend = get_provider_spec(provider_id, media_type, builtin_endpoint).build_backend(
+                LoadedConfig(
+                    credentials={"access_key": "test", "secret_key": "test"}, provider_meta=None, rate_limiter=None
+                ),
+                model_id,
+            )
+            backends.append(backend)
+            install_endpoint(changed_endpoint)
+            return backend
+
+        use_backend_assembler(monkeypatch, _assemble)
+        project = {"video_backend": f"kling/{model_id}", "video_generate_audio": True}
+        try:
+            ctx = await resolve_generation_context(
+                "demo", None, project=project, video=VideoLaneRequest(route="storyboard")
+            )
+            facts = ctx.video.request_facts
+            assert isinstance(facts, VideoRequestFacts)
+            assert facts.has_audio_track is has_audio
+            caps = await ConfigResolver(patched_session_factory).video_capabilities_for_model(
+                "kling", model_id, project, generation_type="i2v", builtin_endpoint=endpoint
+            )
+            current_caps = await ConfigResolver(patched_session_factory).video_capabilities_for_model(
+                "kling", model_id, project, generation_type="i2v"
+            )
+        finally:
+            catalog.install_user_added_models(())
+
+        assert ctx.video.endpoint == f"builtin:{endpoint}"
+        assert backends[0].video_capabilities.audio_track.value == ("controllable" if has_audio else "always_off")
+        assert facts.audio_switch_controllable is has_audio
+        assert facts.generate_audio is has_audio
+        assert caps["generate_audio"] is has_audio
+        assert facts.voice_consistency == caps["voice_consistency"] == ("soft" if has_audio else "none")
+        assert current_caps["generate_audio"] is not has_audio
 
     async def test_submitted_job_requires_a_pinned_identity(self, patched_session_factory, project_env, fake_assemble):
         """续跑的下线豁免只给提交时锁定的身份：没有锁定身份时不按当前配置解析，直接报错，也不构造 backend。"""
