@@ -44,7 +44,7 @@ interface Props {
 
 /**
  * 「这个供应商支持的参数」：每个维度一行。可以修改的维度显示原值与「修改」，修改后整维替换并可编辑，「恢复」即去掉
- * 这一维的覆盖；不能修改的维度（官方收录的模型的全部维度、图片的参考图上限等）只读显示生效值。原值是没有修改时运行时
+ * 这一维的覆盖；不能修改的维度（官方收录的模型的全部维度等）只读显示生效值。原值是没有修改时运行时
  * 采用的值（模型条目与调用通道两侧求值的结果），两侧都没有声明的数值显示「未收录」。可选时长下方紧跟时长联动约束。
  */
 export function ProviderCapabilityOverrides({ capabilities, value, onChange, onValidityChange }: Props) {
@@ -250,7 +250,7 @@ export function CapabilityValueEditor({ dimension, label, value, resolutions, on
       label={editLabel}
       initial={value === null || value === undefined ? "" : scalarText(value)}
       inputMode={numeric.float ? "decimal" : "numeric"}
-      hint={numeric.nullable ? t("pm_cap_empty_unrecorded_hint") : undefined}
+      hint={dimension === "max_reference_images" ? t("pm_cap_reference_images_hint") : numeric.nullable ? t("pm_cap_empty_unrecorded_hint") : undefined}
       parse={(text) => {
         const trimmed = text.trim();
         if (!trimmed) return numeric.nullable ? { value: null } : { error: t("pm_cap_error_required") };

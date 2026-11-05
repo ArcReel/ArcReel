@@ -1503,6 +1503,7 @@ export default {
   'pm_cap_text_to_video': 'Văn bản thành video',
   'pm_cap_first_frame': 'Khung hình đầu',
   'pm_cap_last_frame': 'Khung hình cuối',
+  'pm_cap_reference_images_hint': '0 nghĩa là không nhận ảnh tham chiếu; thay đổi giới hạn không bật khả năng tạo ảnh từ ảnh nếu điểm cuối không hỗ trợ',
   'pm_cap_max_reference_images': 'Số ảnh tham chiếu tối đa',
   'pm_cap_reference_audio_mode': 'Âm thanh tham chiếu',
   'pm_cap_max_reference_audio_count': 'Số đoạn âm thanh tham chiếu tối đa',

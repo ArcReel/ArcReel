@@ -729,7 +729,7 @@ def _check_capability_overrides(
             )
         # 值类型判定复用读取侧的同一函数：两边各写一份会漂移，届时写入侧放行的值被合成
         # 静默忽略，正是本能力覆盖链路要消灭的「界面允许、执行反悔」。
-        if key in CHANNEL_FACT_OVERRIDE_KEYS:
+        if media_type == "video" and key in CHANNEL_FACT_OVERRIDE_KEYS:
             expected = CAPABILITY_OVERRIDE_FIELDS[key]
             valid, expected_name = capability_value_matches(value, expected), capability_type_name(expected)
         else:

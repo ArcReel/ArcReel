@@ -224,3 +224,28 @@ def test_settings_show_both_image_dimensions_of_a_comfyui_endpoint_from_its_bind
         {"text_to_image": True, "image_to_image": False, "max_reference_images": 0},
     )
     assert reference_only.effective == {"text_to_image": False, "image_to_image": True, "max_reference_images": 1}
+
+
+def test_reference_limit_override_cannot_enable_an_unimplemented_or_disabled_image_path():
+    from lib.custom_provider.capability_view import custom_capability_view
+    from lib.custom_provider.endpoints import get_endpoint_spec
+
+    overrides = {"image_to_image": False, "max_reference_images": 8}
+    spec = get_endpoint_spec("openai-images")
+    view = custom_capability_view(
+        model_id="relay-image",
+        endpoint="openai-images",
+        spec=spec,
+        raw_overrides=overrides,
+        applied_overrides=overrides,
+        entry_binding=None,
+    )
+    assert view.effective["max_reference_images"] == 0
+    assert view.effective["image_to_image"] is False
+    assert custom_model_buckets(endpoint="openai-images", model_id="relay-image", capability_overrides=overrides) == {
+        "t2i"
+    }
+    assert (
+        image_reference_limit(capabilities={T2I}, entry_limit=0, channel_limit=0, override=8)
+        == InputLimit.unsupported()
+    )

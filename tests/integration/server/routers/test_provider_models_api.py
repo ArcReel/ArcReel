@@ -1213,3 +1213,97 @@ def test_model_reference_setting_keys_have_i18n_labels() -> None:
         content = (i18n_dir / locale / "dashboard.ts").read_text(encoding="utf-8")
         for key in GLOBAL_MODEL_SETTING_KEYS:
             assert f"'global_bucket_label_{key}'" in content, f"{locale} 缺 global_bucket_label_{key} 文案"
+
+
+@pytest.mark.parametrize("custom", [False, True])
+@pytest.mark.parametrize("entry_limit", [0, 3])
+async def test_image_reference_override_controls_api_candidates_and_execution(
+    models_client, db_factory, monkeypatch, custom, entry_limit
+):
+    from lib.backends.generation_type_buckets import builtin_model_buckets, custom_model_buckets
+    from lib.backends.image_backends.base import ImageCapabilityError
+    from lib.backends.image_backends.grok import GrokImageBackend
+    from lib.backends.image_capabilities import backend_reference_image_limit, gate_image_request
+    from lib.custom_provider.loader import load_custom_backend
+    from tests.catalog_support import with_entry_facts
+
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(catalog.factory_snapshot(), "grok", "grok-imagine-image", max_reference_images=entry_limit),
+    )
+    if custom:
+        pid = await _custom_provider(
+            db_factory,
+            [
+                {
+                    "model_id": "grok-imagine-image",
+                    "display_name": "Image",
+                    "endpoint": "openai-images",
+                    "is_enabled": True,
+                }
+            ],
+        )
+        provider = f"custom-{pid}"
+    else:
+        provider = "grok"
+        _add_user_model(models_client, provider, "relay-image", "image")
+        linked = models_client.patch(
+            f"/api/v1/providers/{provider}/models/relay-image",
+            json={"entry_binding": catalog.find_entry("grok-imagine-image", media_type="image").key.ref},
+        )
+        assert linked.status_code == 200, linked.text
+    model_id = "grok-imagine-image" if custom else "relay-image"
+    url = f"/api/v1/providers/{provider}/models/{model_id}"
+
+    async def runtime(overrides, expected):
+        if custom:
+            async with db_factory() as session:
+                backend = await load_custom_backend(
+                    session=session, provider_id=provider, model_id=model_id, media_type="image"
+                )
+        else:
+            backend = GrokImageBackend(api_key="fake", model=model_id)
+        limit = await backend_reference_image_limit(backend, provider_id=provider)
+        assert limit.to_json() == expected
+        if expected:
+            await gate_image_request(backend, provider_id=provider, reference_count=expected)
+            with pytest.raises(ImageCapabilityError) as error:
+                await gate_image_request(backend, provider_id=provider, reference_count=expected + 1)
+            assert error.value.code == "image_reference_images_exceeded"
+        else:
+            with pytest.raises(ImageCapabilityError) as error:
+                await gate_image_request(backend, provider_id=provider, reference_count=1)
+            assert error.value.code == "image_capability_missing_i2i"
+
+    for override, expected in [(8, 8), (0, 0), (None, entry_limit)]:
+        overrides = {"image_to_image": True}
+        if override is not None:
+            overrides["max_reference_images"] = override
+        response = models_client.patch(url, json={"capability_overrides": overrides})
+        assert response.status_code == 200, response.text
+        detail = models_client.get(url).json()
+        caps = detail["capabilities"]
+        assert "max_reference_images" in caps["editable"]
+        assert caps["base"]["max_reference_images"] == entry_limit
+        assert caps["overrides"] == overrides
+        assert caps["effective"]["max_reference_images"] == expected
+        assert caps["effective"]["image_to_image"] is bool(expected)
+        buckets = (
+            custom_model_buckets(endpoint="openai-images", model_id=model_id, capability_overrides=overrides)
+            if custom
+            else builtin_model_buckets(provider, model_id, catalog.get_model(provider, model_id, media_type="image"))
+        )
+        assert ("i2i" in buckets) is bool(expected)
+        await runtime(overrides, expected)
+
+
+@pytest.mark.parametrize("value", [-1, True, 1.5, None])
+@pytest.mark.parametrize("custom", [False, True])
+async def test_image_reference_override_rejects_invalid_values(models_client, db_factory, value, custom):
+    if custom:
+        _, url = await _house_model(db_factory)
+    else:
+        _add_user_model(models_client, "grok", "relay-image", "image")
+        url = "/api/v1/providers/grok/models/relay-image"
+    response = models_client.patch(url, json={"capability_overrides": {"max_reference_images": value}})
+    assert response.status_code == 422, response.text

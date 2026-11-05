@@ -78,15 +78,21 @@ class CustomImageBackend:
         model: str,
         model_capabilities: frozenset[ImageCapability] | None = None,
         entry_reference_limit: int | None = None,
+        reference_limit_override: int | None = None,
     ) -> None:
         self._provider_id = provider_id
         self._delegate = delegate
         self._model = model
         self._model_capabilities = model_capabilities
         self._entry_reference_limit = entry_reference_limit
+        self.reference_limit_override = reference_limit_override
 
     def with_model_facts(
-        self, model_capabilities: frozenset[ImageCapability] | None, *, entry_reference_limit: int | None
+        self,
+        model_capabilities: frozenset[ImageCapability] | None,
+        *,
+        entry_reference_limit: int | None,
+        reference_limit_override: int | None = None,
     ) -> CustomImageBackend:
         """返回注入了模型事实一侧的新实例：文生图 / 图生图与参考图上限（工厂按模型行的条目与能力覆盖算出）。"""
         return CustomImageBackend(
@@ -95,6 +101,7 @@ class CustomImageBackend:
             model=self._model,
             model_capabilities=model_capabilities,
             entry_reference_limit=entry_reference_limit,
+            reference_limit_override=reference_limit_override,
         )
 
     @property
