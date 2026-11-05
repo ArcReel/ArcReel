@@ -106,6 +106,7 @@ class TestRegistry:
             "gemini-video",
             "openai-tts",
             "dashscope-tts",
+            "dashscope-speech-synthesizer",
             "minimax-tts",
             "gemini-tts",
         }
@@ -341,7 +342,13 @@ class TestRegistry:
         image_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "image"}
         video_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "video"}
         audio_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "audio"}
-        assert audio_keys == {"openai-tts", "dashscope-tts", "minimax-tts", "gemini-tts"}
+        assert audio_keys == {
+            "openai-tts",
+            "dashscope-tts",
+            "dashscope-speech-synthesizer",
+            "minimax-tts",
+            "gemini-tts",
+        }
         assert text_keys == {"openai-chat", "openai-responses", "gemini-generate", "anthropic-messages"}
         assert image_keys == {
             "openai-images",
@@ -447,6 +454,10 @@ INFER_RULE_CASES = [
     ("qwen3-tts-flash", "openai", "dashscope-tts"),
     ("Qwen3-TTS-Flash", "google", "dashscope-tts"),
     ("proxy/qwen3-tts-instruct-flash", "openai", "dashscope-tts"),
+    # ── qwen-audio-<版本>-tts 系列 → dashscope-speech-synthesizer，不分 discovery_format ──
+    ("qwen-audio-3.1-tts-flash", "openai", "dashscope-speech-synthesizer"),
+    ("qwen-audio-3.0-tts-plus", "google", "dashscope-speech-synthesizer"),
+    ("proxy/Qwen-Audio-3.1-TTS-Plus", "openai", "dashscope-speech-synthesizer"),
     ("tts-1", "openai", "openai-tts"),  # 其余 TTS 仍为 openai-tts
     ("cosyvoice-v2", "openai", "openai-tts"),
     # ── Veo 仅 google 发现协议推断为 gemini-video，其余仍为 openai-video ──

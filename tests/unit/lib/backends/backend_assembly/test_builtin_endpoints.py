@@ -182,6 +182,11 @@ class TestPrefill:
             ("ark-agent-plan", "video", "doubao-seedance-2.0-mini", "ark-seedance-2"),
             ("ark", "video", "doubao-seedance-1-5-pro-251215", "ark-seedance-1"),
             ("ark", "video", "ep-20261104-opaque", "ark-seedance-2"),
+            # 百炼语音：qwen-audio-*-tts 走 SpeechSynthesizer，其余落回默认的 multimodal 端点
+            ("dashscope", "audio", "qwen-audio-3.1-tts-flash", "dashscope-speech-synthesizer"),
+            ("dashscope", "audio", "qwen-audio-3.0-tts-plus", "dashscope-speech-synthesizer"),
+            ("dashscope", "audio", "qwen3-tts-flash", "dashscope-tts"),
+            ("dashscope", "audio", "cosyvoice-v3", "dashscope-tts"),
         ],
     )
     def test_the_prefilled_endpoint_is_inferred_by_name_within_the_provider(

@@ -178,7 +178,7 @@ defineRegionScenarios("项目设置", [
     api: {
       "GET /api/v1/system/tts-model-capabilities?backend=gemini-aistudio/gemini-2.5-flash-preview-tts": {
         status: 200,
-        body: { supports_speed: true },
+        body: { supports_speed: true, voices: [] },
       },
       ...projectWith({
         generation_mode: "reference_video",

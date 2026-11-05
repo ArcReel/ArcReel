@@ -230,12 +230,20 @@ async def _audio_backend_for(provider_id: str, model_id: str, resolver: ConfigRe
         return await _get_or_create_audio_backend(provider_id, {}, r, default_audio_model=model_id)
 
 
-async def audio_backend_capabilities(provider_id: str, model_id: str) -> frozenset[AudioCapability]:
-    """指定音频 backend 声明的能力，供设置页判断配音语速是否生效。"""
+@dataclass(frozen=True)
+class AudioBackendProfile:
+    """指定音频 backend 声明的能力与音色表（音色按 backend 给出的顺序）。"""
+
+    capabilities: frozenset[AudioCapability]
+    voices: tuple[VoiceOption, ...]
+
+
+async def audio_backend_profile(provider_id: str, model_id: str) -> AudioBackendProfile:
+    """指定音频 backend 的能力与音色表，供设置页判断配音语速是否生效、列出该模型所用端点的音色。"""
     from lib.db import async_session_factory
 
     backend = await _audio_backend_for(provider_id, model_id, ConfigResolver(async_session_factory))
-    return frozenset(backend.capabilities)
+    return AudioBackendProfile(capabilities=frozenset(backend.capabilities), voices=tuple(backend.list_voices()))
 
 
 async def audio_backend_voice_ids(provider_id: str, model_id: str, resolver: ConfigResolver) -> tuple[str, ...]:

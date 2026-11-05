@@ -1439,6 +1439,35 @@
         ]
       },
       {
+        "key": "dashscope-speech-synthesizer",
+        "media_type": "audio",
+        "family": "dashscope",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_dashscope_speech_synthesizer_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/api/v1/services/audio/tts/SpeechSynthesizer",
+        "image_capabilities": null,
+        "end_image_capable": false,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "generate",
+            "display_name_key": "cp_request_generate",
+            "default_path": "/services/audio/tts/SpeechSynthesizer",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "dashscope_api_v1"
+          }
+        ]
+      },
+      {
         "key": "gemini-video",
         "media_type": "video",
         "family": "google",

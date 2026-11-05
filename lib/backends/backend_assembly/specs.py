@@ -576,7 +576,6 @@ _SIMPLE_MEDIA_ENDPOINTS: Mapping[tuple[str, str], str] = {
     ("vidu", "image"): "vidu-image",
     ("minimax", "image"): "minimax-image",
     ("openai", "video"): "openai-video",
-    ("dashscope", "audio"): "dashscope-tts",
     ("minimax", "audio"): "minimax-tts",
 }
 
@@ -606,6 +605,19 @@ _specs += [
     )
     for provider_id, endpoints in _IMAGE_ENDPOINTS.items()
     for endpoint in endpoints
+]
+#: 百炼音频的两个端点：multimodal-generation（qwen3-tts，默认端点）与 SpeechSynthesizer（qwen-audio-*-tts），
+#: registry 名就是端点名（``lib.backends.audio_backends.DASHSCOPE_AUDIO_BACKENDS``）。
+_DASHSCOPE_AUDIO_ENDPOINTS = ("dashscope-tts", "dashscope-speech-synthesizer")
+_specs += [
+    ProviderSpec(
+        provider_id="dashscope",
+        media_type="audio",
+        registry_backend=endpoint,
+        build_backend=partial(_build_simple, media_type="audio", registry_backend=endpoint),
+        endpoint=endpoint,
+    )
+    for endpoint in _DASHSCOPE_AUDIO_ENDPOINTS
 ]
 _specs += [
     _gemini_spec(provider_id, media_type, backend_type=backend_type)
@@ -724,6 +736,7 @@ _MULTI_ENDPOINT_DEFAULTS: Mapping[tuple[str, str], str] = {
     ("vidu", "video"): "vidu-video-q3-turbo",
     ("kling", "video"): "kling-video-pro-silent",
     ("dashscope", "video"): "dashscope-always-on-video",
+    ("dashscope", "audio"): "dashscope-tts",
     ("agnes", "video"): "agnes-video-2-5",
     # 方舟的默认视频模型是 Seedance 2.0 系列
     ("ark", "video"): "ark-seedance-2",

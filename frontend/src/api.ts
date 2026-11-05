@@ -461,7 +461,7 @@ class API {
     return this.request("/system/narration-defaults", { signal: options.signal });
   }
 
-  /** 所选 TTS 模型（provider/model）的能力，目前只回答是否支持配音语速。 */
+  /** 所选 TTS 模型（provider/model）的能力：是否支持配音语速，以及它所用调用端点的音色表。 */
   static async getTtsModelCapabilities(
     backend: string,
     options: { signal?: AbortSignal } = {},

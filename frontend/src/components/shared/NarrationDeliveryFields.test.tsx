@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import "@/i18n";
 import { API } from "@/api";
 import { NarrationDeliveryFields } from "./NarrationDeliveryFields";
+import type { TtsModelCapabilitiesResponse } from "@/types";
 import type { NarrationDeliveryValue } from "./narration-delivery";
 
 const ttsProject: NarrationDeliveryValue = {
@@ -27,7 +28,7 @@ function renderFields(value: NarrationDeliveryValue, onChange = vi.fn()) {
 
 describe("NarrationDeliveryFields", () => {
   it("switching delivery keeps the TTS snapshot", () => {
-    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
     const onChange = renderFields(ttsProject);
 
     fireEvent.click(screen.getByRole("radio", { name: "后期配音" }));
@@ -43,7 +44,7 @@ describe("NarrationDeliveryFields", () => {
   });
 
   it("disables the speed input with a reason when the model cannot take a speed", async () => {
-    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: false });
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: false, voices: [] });
     renderFields(ttsProject);
 
     await waitFor(() => expect(screen.getByLabelText("配音语速（可选）")).toBeDisabled());
@@ -52,7 +53,7 @@ describe("NarrationDeliveryFields", () => {
   });
 
   it("keeps the speed input editable for models that take a speed", async () => {
-    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
     renderFields(ttsProject);
 
     await waitFor(() => expect(API.getTtsModelCapabilities).toHaveBeenCalled());
@@ -60,13 +61,13 @@ describe("NarrationDeliveryFields", () => {
   });
 
   it("ignores a late capability answer for a model that is no longer selected", async () => {
-    let answerPrevious: (value: { supports_speed: boolean }) => void = () => {};
+    let answerPrevious: (value: TtsModelCapabilitiesResponse) => void = () => {};
     vi.spyOn(API, "getTtsModelCapabilities").mockImplementation((backend) =>
       backend === "openai/tts-1"
         ? new Promise((resolve) => {
             answerPrevious = resolve;
           })
-        : Promise.resolve({ supports_speed: false }),
+        : Promise.resolve({ supports_speed: false, voices: [] }),
     );
     const props = {
       onChange: vi.fn(),
@@ -81,13 +82,49 @@ describe("NarrationDeliveryFields", () => {
 
     rerender(<NarrationDeliveryFields {...props} value={ttsProject} />);
     await waitFor(() => expect(screen.getByLabelText("配音语速（可选）")).toBeDisabled());
-    await act(async () => answerPrevious({ supports_speed: true }));
+    await act(async () => answerPrevious({ supports_speed: true, voices: [] }));
 
     expect(screen.getByLabelText("配音语速（可选）")).toBeDisabled();
   });
 
+  it("lists the voices of the selected model's endpoint as suggestions while keeping free text", async () => {
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({
+      supports_speed: true,
+      voices: [
+        { id: "longanhuan_v3.1", label: "龙安欢 · 女声" },
+        { id: "xunanchuan_v3.1", label: "许南川 · 男声" },
+      ],
+    });
+    const onChange = renderFields({ ...ttsProject, audioBackend: "dashscope/qwen-audio-3.1-tts-plus" });
+
+    const input = screen.getByLabelText("旁白音色 ID");
+    await waitFor(() => expect(input).toHaveAttribute("list"));
+    const options = Array.from(document.querySelectorAll(`datalist#${CSS.escape(input.getAttribute("list") ?? "")} option`));
+    expect(options.map((o) => [o.getAttribute("value"), o.textContent])).toEqual([
+      ["longanhuan_v3.1", "龙安欢 · 女声"],
+      ["xunanchuan_v3.1", "许南川 · 男声"],
+    ]);
+    expect(screen.getByText("从列表选择音色，或照所选供应商文档填写音色 id")).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "my-cloned-voice" } });
+    expect(onChange).toHaveBeenCalledWith({
+      ...ttsProject,
+      audioBackend: "dashscope/qwen-audio-3.1-tts-plus",
+      narrationVoice: "my-cloned-voice",
+    });
+  });
+
+  it("offers no suggestions when the model has no voice list", async () => {
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
+    renderFields(ttsProject);
+
+    await waitFor(() => expect(API.getTtsModelCapabilities).toHaveBeenCalled());
+    expect(screen.getByLabelText("旁白音色 ID")).not.toHaveAttribute("list");
+    expect(screen.getByText("照所选供应商文档填写音色 id")).toBeInTheDocument();
+  });
+
   it("flags a TTS project without a voice", () => {
-    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
     renderFields({ ...ttsProject, narrationVoice: "  " });
 
     expect(screen.getByLabelText("旁白音色 ID")).toHaveAttribute("aria-invalid", "true");

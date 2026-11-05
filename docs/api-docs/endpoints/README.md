@@ -13,6 +13,7 @@
 - [dashscope-qwen-image-edit](dashscope-qwen-image-edit.md)
 - [dashscope-reference-video](dashscope-reference-video.md)
 - [dashscope-reference-voice-video](dashscope-reference-voice-video.md)
+- [dashscope-speech-synthesizer](dashscope-speech-synthesizer.md)
 - [dashscope-tts](dashscope-tts.md)
 - [dashscope-video](dashscope-video.md)
 - [dashscope-wan-image](dashscope-wan-image.md)

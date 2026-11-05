@@ -101,6 +101,7 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
         ),
         **_baseline("audio", "dashscope-tts", "gemini-tts", "minimax-tts"),
         "kling-video-model-path": BuiltinEndpoint("video", since="0.35.1"),
+        "dashscope-speech-synthesizer": BuiltinEndpoint("audio", since="0.35.1"),
     }
 )
 
@@ -132,7 +133,7 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
                 ),
                 "dashscope-always-on-video",
             ),
-            "audio": _single("dashscope-tts"),
+            "audio": ProviderEndpointOptions(("dashscope-tts", "dashscope-speech-synthesizer"), "dashscope-tts"),
         },
         "gemini-aistudio": {
             "text": _single("gemini-generate"),
