@@ -1120,6 +1120,7 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     monkeypatch.setattr("lib.asset_library.ingest.get_project_manager", for_pm)
     monkeypatch.setattr("lib.config.resolver.get_project_manager", for_pm)
     monkeypatch.setattr("lib.project.project_migration_guard.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.asset_sheets.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.assets.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.characters.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.derivative_uploads.get_project_manager", for_pm)
