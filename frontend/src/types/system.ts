@@ -43,8 +43,16 @@ export interface NarrationDefaultsResponse {
   narration_speed: number | null;
 }
 
+/** TTS 音色目录条目：id 是合成请求的 voice 取值，label 是按界面语言渲染的展示名。 */
+export interface TtsVoiceOption {
+  id: string;
+  label: string;
+}
+
 export interface TtsModelCapabilitiesResponse {
   supports_speed: boolean;
+  /** 该模型所用调用端点的音色表；同一供应商的不同端点音色不同。 */
+  voices: TtsVoiceOption[];
 }
 
 export interface GetSystemConfigResponse {

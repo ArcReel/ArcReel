@@ -17,6 +17,7 @@ from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
 from lib.backends.audio_backends.base import AudioSynthesisRequest
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
+from lib.backends.audio_backends.dashscope_speech_synthesizer import DashScopeSpeechSynthesizerBackend
 from lib.backends.image_backends.agnes import AgnesImageBackend
 from lib.backends.image_backends.base import ImageGenerationRequest
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
@@ -47,6 +48,9 @@ _CALLS: dict[str, Call] = {
     "dashscope-audio": lambda tmp_path: DashScopeAudioBackend(api_key="k", base_url=METADATA_BASE_URL).synthesize(
         AudioSynthesisRequest(text="你好", output_path=tmp_path / "out.wav", voice="Cherry")
     ),
+    "dashscope-speech-synthesizer": lambda tmp_path: DashScopeSpeechSynthesizerBackend(
+        api_key="k", base_url=METADATA_BASE_URL
+    ).synthesize(AudioSynthesisRequest(text="你好", output_path=tmp_path / "out.wav", voice="longanhuan_v3.1")),
     "agnes-image": lambda tmp_path: AgnesImageBackend(api_key="k", base_url=METADATA_BASE_URL).generate(
         _image(tmp_path)
     ),

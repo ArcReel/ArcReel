@@ -23,6 +23,10 @@ from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND
 from arcreel_market_core.endpoint_definition.media_type import definition_media_type
 from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
+from lib.backends.audio_backends.dashscope_speech_synthesizer import (
+    SPEECH_SYNTHESIZER_PATH,
+    DashScopeSpeechSynthesizerBackend,
+)
 from lib.backends.audio_backends.gemini import GeminiAudioBackend
 from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
@@ -449,17 +453,22 @@ def _build_openai_tts(provider, model_id: str, path_overrides: PathOverrides = N
 
 
 def _build_dashscope_tts(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider,
+    model_id: str,
+    path_overrides: PathOverrides = NO_PATH_OVERRIDES,
+    *,
+    backend_class: type[DashScopeAudioBackend] = DashScopeAudioBackend,
+    requests: tuple[EndpointRequest, ...] | None = None,
 ) -> CustomAudioBackend:
     # backend 内部由 host 派生 /api/v1（容忍带/不带后缀），此处传原始 base_url 即可，不重复归一化
     layer = path_override_layer(
-        _DASHSCOPE_GENERATION_REQUESTS,
+        _DASHSCOPE_GENERATION_REQUESTS if requests is None else requests,
         path_overrides,
         provider.base_url,
         dashscope_native_base_url(provider.base_url),
         model_id,
     )
-    delegate = DashScopeAudioBackend(
+    delegate = backend_class(
         api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
     )
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
@@ -580,6 +589,9 @@ _KLING_MODEL_PATH_VIDEO_REQUESTS = _python_requests(
 )
 _DASHSCOPE_GENERATION_REQUESTS = _python_requests(
     "dashscope_api_v1", ("generate", "cp_request_generate", "/services/aigc/multimodal-generation/generation")
+)
+_DASHSCOPE_SPEECH_SYNTHESIZER_REQUESTS = _python_requests(
+    "dashscope_api_v1", ("generate", "cp_request_generate", SPEECH_SYNTHESIZER_PATH)
 )
 _DASHSCOPE_ASYNC_VIDEO_REQUESTS = _python_requests(
     "dashscope_api_v1",
@@ -1033,6 +1045,21 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/api/v1/services/aigc/multimodal-generation/generation",
         build_backend=_build_dashscope_tts,
         requests=_DASHSCOPE_GENERATION_REQUESTS,
+    ),
+    # qwen-audio-*-tts 走 SpeechSynthesizer：请求体、音色表与用量回报都与 multimodal 端点不同
+    "dashscope-speech-synthesizer": EndpointSpec(
+        key="dashscope-speech-synthesizer",
+        media_type="audio",
+        family="dashscope",
+        display_name_key="endpoint_dashscope_speech_synthesizer_display",
+        request_method="POST",
+        request_path_template=f"/api/v1{SPEECH_SYNTHESIZER_PATH}",
+        build_backend=partial(
+            _build_dashscope_tts,
+            backend_class=DashScopeSpeechSynthesizerBackend,
+            requests=_DASHSCOPE_SPEECH_SYNTHESIZER_REQUESTS,
+        ),
+        requests=_DASHSCOPE_SPEECH_SYNTHESIZER_REQUESTS,
     ),
     "gemini-video": EndpointSpec(
         key="gemini-video",
@@ -1573,6 +1600,8 @@ _VIDEO_PATTERN = re.compile(
 _AUDIO_PATTERN = re.compile(r"tts|speech|cosyvoice", re.IGNORECASE)
 # 通义 TTS 家族（qwen-tts / qwen3-tts-flash 等）走百炼原生同步端点，不是 /v1/audio/speech
 _QWEN_TTS_PATTERN = re.compile(r"qwen3?-tts", re.IGNORECASE)
+# qwen-audio-<版本>-tts 家族（qwen-audio-3.1-tts-flash 等）走百炼 SpeechSynthesizer 端点
+_QWEN_AUDIO_TTS_PATTERN = re.compile(r"qwen-audio-[\d.]+-tts", re.IGNORECASE)
 # MiniMax 语音型号（speech-2.8-hd / speech-02-turbo 等，剥离命名空间后整段比较）走 t2a_v2。
 # 必须带 -hd / -turbo 档位后缀：Fish Audio 的 speech-1.5 等同名前缀 id 仍是 /v1/audio/speech。
 _MINIMAX_TTS_PATTERN = re.compile(r"speech-[\d.]+-(?:hd|turbo)")
@@ -1696,7 +1725,8 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
        "ark-seedance-1"；viduq3→"vidu-video"、Veo 且 discovery_format=google→"gemini-video"、否则 "openai-video"
     5) 图像家族 → seedream→"ark-seedream-3" / "ark-seedream-4"（不分 discovery_format），其余 discovery_format=google 走
        "gemini-image" 否则 "openai-images"（imagen 随图像家族推断，不再单独拦截）
-    6) TTS 家族（tts/speech/cosyvoice）→ qwen-tts / qwen3-tts 走 "dashscope-tts"，MiniMax 的
+    6) TTS 家族（tts/speech/cosyvoice）→ qwen-audio-<版本>-tts 走 "dashscope-speech-synthesizer"，
+       qwen-tts / qwen3-tts 走 "dashscope-tts"，MiniMax 的
        speech-<版本>-hd|turbo 走 "minimax-tts"，其余 "openai-tts"
        （不分 discovery_format；precedence 在 text 默认之前）
     7) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
@@ -1815,6 +1845,8 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
             return image_endpoint_for_name("ark", model_id)
         return "gemini-image" if discovery_format == "google" else "openai-images"
     if _AUDIO_PATTERN.search(model_id) and not _ASR_PATTERN.search(model_id):
+        if _QWEN_AUDIO_TTS_PATTERN.search(model_id):
+            return "dashscope-speech-synthesizer"
         if _QWEN_TTS_PATTERN.search(model_id):
             return "dashscope-tts"
         return "minimax-tts" if _MINIMAX_TTS_PATTERN.fullmatch(canonical) else "openai-tts"

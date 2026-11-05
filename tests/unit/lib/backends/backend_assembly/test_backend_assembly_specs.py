@@ -187,12 +187,26 @@ class TestMediaRegistryRouting:
 
     def test_dashscope_audio_uses_audio_registry(self):
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="dashscope")
+        # 默认端点仍是 multimodal-generation；registry 名就是端点名
         assert _built(get_provider_spec("dashscope", "audio"), config, "qwen3-tts-flash") == {
             "media": "audio",
-            "backend": "dashscope",
+            "backend": "dashscope-tts",
             "kwargs": {
                 "api_key": "sk-test",
                 "model": "qwen3-tts-flash",
+                "base_url": "https://dashscope.aliyuncs.com",
+            },
+        }
+
+    def test_dashscope_speech_synthesizer_endpoint_uses_its_own_registry_name(self):
+        config = _loaded(credentials={"api_key": "sk-test"}, provider_id="dashscope")
+        spec = get_provider_spec("dashscope", "audio", "dashscope-speech-synthesizer")
+        assert _built(spec, config, "qwen-audio-3.1-tts-flash") == {
+            "media": "audio",
+            "backend": "dashscope-speech-synthesizer",
+            "kwargs": {
+                "api_key": "sk-test",
+                "model": "qwen-audio-3.1-tts-flash",
                 "base_url": "https://dashscope.aliyuncs.com",
             },
         }

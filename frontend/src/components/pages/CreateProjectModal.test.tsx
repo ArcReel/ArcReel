@@ -113,7 +113,7 @@ function installStubs(name = "demo-proj") {
   vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
   vi.spyOn(API, "getNarrationDefaults").mockResolvedValue(narrationDefaults);
   vi.spyOn(API, "getAutoBackends").mockResolvedValue({ t2i: null, i2i: null, i2v: null, r2v: null, text: null });
-  vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
+  vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
   stubModelVideoCapabilities();
   vi.spyOn(API, "createProject").mockResolvedValue({ success: true, name, project: {} as never });
   vi.spyOn(API, "uploadStyleImage").mockResolvedValue({
@@ -559,7 +559,7 @@ describe("CreateProjectModal language switch", () => {
     vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(API, "getNarrationDefaults").mockResolvedValue(narrationDefaults);
-    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
     stubModelVideoCapabilities();
   });
 

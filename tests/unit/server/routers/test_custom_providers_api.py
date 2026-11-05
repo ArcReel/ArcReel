@@ -254,6 +254,7 @@ class TestEndpointCatalog:
             "gemini-video",
             "openai-tts",
             "dashscope-tts",
+            "dashscope-speech-synthesizer",
             "minimax-tts",
             "gemini-tts",
         }

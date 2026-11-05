@@ -111,7 +111,7 @@ beforeEach(() => {
     narration_speed: 1.2,
   });
   vi.spyOn(API, "getAutoBackends").mockResolvedValue({ t2i: null, i2i: null, i2v: null, r2v: null, text: null });
-  vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
+  vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
 });
 
 describe("ProjectSettingsPage – 分页与一次保存", () => {

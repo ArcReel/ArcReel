@@ -27,6 +27,7 @@ import { videoOptionMetaRenderer } from "@/components/shared/video-option-meta";
 import { VideoModelSpecBar } from "@/components/shared/VideoModelSpecBar";
 import { InlineWarning } from "@/components/shared/InlineWarning";
 import { ModelLifecycleNotice } from "@/components/shared/ModelLifecycleNotice";
+import { NarrationVoiceInput } from "@/components/shared/NarrationVoiceInput";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
 import { PageShellFooter } from "@/components/shared/page-shell/PageShell";
 import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
@@ -35,6 +36,7 @@ import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { useDisplayNames } from "@/hooks/useDisplayNames";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
+import { useTtsModelCapabilities } from "@/hooks/useTtsModelCapabilities";
 import {
   catalogDurations,
   getCustomProviderModels,
@@ -200,6 +202,8 @@ export function MediaModelSection() {
   const unit = useEditUnit({ source, save: saveFields });
   const fields = unit.value;
   const setFields = unit.setValue;
+  // 默认音频模型留空（自动选择）时不列音色：实际模型由运行时推断，列出某一家的音色会误导
+  const audioVoices = useTtsModelCapabilities(fields.default_audio_backend ?? "")?.voices ?? [];
 
   if (!settings || !options) {
     return (
@@ -524,14 +528,16 @@ export function MediaModelSection() {
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="narration-voice-input">{t("narration_voice_label")}</Label>
-          <Input
+          <NarrationVoiceInput
             id="narration-voice-input"
-            type="text"
             aria-describedby="narration-voice-hint"
             value={currentNarrationVoice}
-            onChange={(e) => setFields((prev) => ({ ...prev, narration_voice: e.target.value }))}
+            onChange={(narration_voice) => setFields((prev) => ({ ...prev, narration_voice }))}
+            voices={audioVoices}
           />
-          <FieldHint id="narration-voice-hint">{t("narration_voice_hint")}</FieldHint>
+          <FieldHint id="narration-voice-hint">
+            {audioVoices.length > 0 ? t("narration_voice_hint_with_voices") : t("narration_voice_hint")}
+          </FieldHint>
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="narration-speed-input">{t("narration_speed_label")}</Label>

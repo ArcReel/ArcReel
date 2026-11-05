@@ -54,7 +54,7 @@ from server.i18n import Locale, Translator
 from server.routers._validators import validate_backend_value
 from server.services.project.model_references import project_model_references
 from server.services.project.narration_settings import default_narration_tts
-from server.services.tasks.generation_context import audio_backend_capabilities
+from server.services.tasks.generation_context import audio_backend_profile
 
 logger = logging.getLogger(__name__)
 
@@ -666,24 +666,38 @@ async def get_narration_defaults(
     return NarrationDefaultsResponse(audio_backend=audio_backend, narration_voice=voice, narration_speed=speed)
 
 
+class TtsVoiceOption(BaseModel):
+    id: str
+    label: str
+
+
 class TtsModelCapabilitiesResponse(BaseModel):
     supports_speed: bool
+    # 该模型所用调用端点的音色表（同一供应商的不同端点音色不同）；设置页据此列出可选音色，音色仍可自由填写。
+    voices: list[TtsVoiceOption]
 
 
 @router.get("/system/tts-model-capabilities", response_model=TtsModelCapabilitiesResponse)
-async def get_tts_model_capabilities(backend: str) -> TtsModelCapabilitiesResponse:
-    """所选 TTS 模型（``provider/model``）是否把配音语速传给供应商；不支持时设置页置灰语速输入。"""
+async def get_tts_model_capabilities(backend: str, _t: Translator) -> TtsModelCapabilitiesResponse:
+    """所选 TTS 模型（``provider/model``）是否把配音语速传给供应商，以及它可选的音色。
+
+    语速不支持时设置页置灰语速输入。音色的 label 对部分供应商是 lib/i18n 翻译 key，按请求 locale 渲染；
+    label 本就是展示名的供应商 _t() 找不到 key 时原样返回。
+    """
     pair = parse_tts_backend(backend)
     if pair is None:
         raise UnprocessableError("narration_tts_model_required")
     try:
-        capabilities = await audio_backend_capabilities(*pair)
+        profile = await audio_backend_profile(*pair)
     except ModelNotInCatalogError:
         # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
         raise
     except ValueError as exc:
         raise UnprocessableError("narration_tts_model_invalid") from exc
-    return TtsModelCapabilitiesResponse(supports_speed=AudioCapability.SPEECH_SPEED in capabilities)
+    return TtsModelCapabilitiesResponse(
+        supports_speed=AudioCapability.SPEECH_SPEED in profile.capabilities,
+        voices=[TtsVoiceOption(id=v.id, label=_t(v.label)) for v in profile.voices],
+    )
 
 
 @router.get("/system/version")

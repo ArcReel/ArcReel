@@ -439,6 +439,43 @@ describe("MediaModelSection", () => {
     });
   });
 
+  it("lists the default audio model's voices under the narration voice", async () => {
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      options: { ...CONFIG.options, audio_backends: ["dashscope/qwen-audio-3.0-tts-plus"] },
+      settings: {
+        ...CONFIG.settings,
+        default_audio_backend: "dashscope/qwen-audio-3.0-tts-plus",
+        narration_voice: "longanlingxin",
+      },
+    } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+    const capabilities = vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({
+      supports_speed: true,
+      voices: [
+        { id: "longanlingxin", label: "龙安灵心 · 知心温暖音（女）" },
+        { id: "longanlufeng", label: "龙安鲁风 · 明亮开朗音（男）" },
+      ],
+    });
+    render(<MediaModelSection />);
+
+    const input = await screen.findByLabelText("旁白音色 ID");
+    await waitFor(() => expect(input).toHaveAttribute("list"));
+    expect(capabilities).toHaveBeenCalledWith("dashscope/qwen-audio-3.0-tts-plus", expect.anything());
+    const listId = CSS.escape(input.getAttribute("list") ?? "");
+    expect(Array.from(document.querySelectorAll(`datalist#${listId} option`)).map((o) => o.getAttribute("value"))).toEqual([
+      "longanlingxin",
+      "longanlufeng",
+    ]);
+    expect(screen.getByText("从列表选择音色，或照所选供应商文档填写音色 id；留空使用默认音色")).toBeInTheDocument();
+  });
+
+  it("does not ask for voices while the default audio model is auto-selected", async () => {
+    const capabilities = vi.spyOn(API, "getTtsModelCapabilities");
+    render(<MediaModelSection />);
+
+    expect(await screen.findByLabelText("旁白音色 ID")).not.toHaveAttribute("list");
+    expect(capabilities).not.toHaveBeenCalled();
+  });
+
   it("auto-expands a channel whose sub-field is already configured", async () => {
     mockConfig({ default_image_backend_i2i: "openai/gpt-image-edit" });
     render(<MediaModelSection />);

@@ -16,6 +16,7 @@ import pytest
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.audio_backends.base import AudioSynthesisRequest
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
+from lib.backends.audio_backends.dashscope_speech_synthesizer import DashScopeSpeechSynthesizerBackend
 from lib.backends.audio_backends.gemini import GeminiAudioBackend
 from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
@@ -106,6 +107,9 @@ _CALLS: dict[str, Call] = {
         api_key="k", base_url=f"{BASE}/v1", model="tts-1", transport_layer=layer
     ).synthesize(_speech(tmp_path)),
     "dashscope-tts": lambda layer, tmp_path: DashScopeAudioBackend(
+        api_key="k", base_url=BASE, transport_layer=layer
+    ).synthesize(_speech(tmp_path)),
+    "dashscope-speech-synthesizer": lambda layer, tmp_path: DashScopeSpeechSynthesizerBackend(
         api_key="k", base_url=BASE, transport_layer=layer
     ).synthesize(_speech(tmp_path)),
     "minimax-tts": lambda layer, tmp_path: MiniMaxAudioBackend(
