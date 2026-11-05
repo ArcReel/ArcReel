@@ -102,6 +102,7 @@ class TestRegistry:
             "kling-video-pro-audio",
             "kling-video-audio",
             "kling-video-silent",
+            "kling-video-model-path",
             "gemini-video",
             "openai-tts",
             "dashscope-tts",
@@ -390,6 +391,7 @@ class TestRegistry:
             "kling-video-pro-audio",
             "kling-video-audio",
             "kling-video-silent",
+            "kling-video-model-path",
             "gemini-video",
         }
 
@@ -613,6 +615,8 @@ class TestInferEndpoint:
             ("proxy/kling-v2-5-turbo", "openai", "kling-video-pro-silent"),
             ("KLING-V3", "openai", "kling-video-audio"),  # 大小写不敏感
             ("kling-v3-omni", "openai", "kling-video-audio"),  # 图像/视频同名歧义 → 默认归视频
+            ("kling-4.0", "openai", "kling-video-model-path"),  # 只在新版 API 上提供的型号
+            ("proxy/kling-3.0-turbo", "openai", "kling-video-model-path"),
             # 含 image 语义的可灵图像 → kling-image（先于通用图像家族，不被推到 openai-images）
             ("kling-image-o1", "openai", "kling-image"),
             ("kling-v3-omni-image", "openai", "kling-image"),

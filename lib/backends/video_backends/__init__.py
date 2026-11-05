@@ -87,6 +87,11 @@ from lib.backends.video_backends.kling import KLING_BACKENDS
 for _endpoint, _backend in KLING_BACKENDS.items():
     register_backend(_endpoint, _backend)
 
+# 可灵新版 API（模型名在路径里，只收 API Key）
+from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
+
+register_backend(KlingModelPathVideoBackend.endpoint_key, KlingModelPathVideoBackend)
+
 # Agnes — apihub 异步视频端点（裸 base64 + 轮询 + resume）
 from lib.backends.video_backends.agnes import AGNES_VIDEO_BACKENDS
 

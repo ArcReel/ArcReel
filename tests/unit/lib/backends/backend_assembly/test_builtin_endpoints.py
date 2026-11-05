@@ -173,6 +173,10 @@ class TestPrefill:
             ("vidu", "video", "viduq2", "vidu-video-q2"),
             ("vidu", "video", "viduq3-pro", "vidu-video-q3-pro"),
             ("kling", "video", "kling-v2-6", "kling-video-pro-audio"),
+            # 只在新版 API 上提供的型号
+            ("kling", "video", "kling-4.0", "kling-video-model-path"),
+            ("kling", "video", "kling-4.0-flash", "kling-video-model-path"),
+            ("kling", "video", "kling-3.0-turbo", "kling-video-model-path"),
             ("ark", "image", "kling-image-o2", "ark-seedream-4"),
             ("ark", "video", "doubao-seedance-2-5-260628", "ark-seedance-2-5"),
             ("ark-agent-plan", "video", "doubao-seedance-2.0-mini", "ark-seedance-2"),

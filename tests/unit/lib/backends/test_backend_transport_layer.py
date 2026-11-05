@@ -38,6 +38,7 @@ from lib.backends.video_backends.ark import Seedance2VideoBackend
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 from lib.backends.video_backends.gemini import GeminiVideoBackend
 from lib.backends.video_backends.kling import KlingVideoBackend
+from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
 from lib.backends.video_backends.openai import OpenAIVideoBackend
 from lib.backends.video_backends.vidu import ViduVideoBackend
 from tests.fakes import bounded_poll_clock
@@ -130,6 +131,9 @@ _CALLS: dict[str, Call] = {
     ).generate(_video(tmp_path)),
     "kling-video-pro-silent": lambda layer, tmp_path: KlingVideoBackend(
         auth_mode="bearer", api_key="k", base_url=f"{BASE}/v1", transport_layer=layer
+    ).generate(_video(tmp_path)),
+    "kling-video-model-path": lambda layer, tmp_path: KlingModelPathVideoBackend(
+        api_key="k", base_url=BASE, transport_layer=layer
     ).generate(_video(tmp_path)),
 }
 

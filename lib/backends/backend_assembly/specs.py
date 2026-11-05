@@ -196,6 +196,10 @@ _KLING_PROFILES = {
     "kling-v3": "audio",
     "kling-v3-omni": "audio",
     "kling-video-o1": "silent",
+    # 只在新版 API 上提供的型号（模型名写在路径里）
+    "kling-4.0": "model-path",
+    "kling-4.0-flash": "model-path",
+    "kling-3.0-turbo": "model-path",
 }
 _GROK_ENDPOINTS = ("grok-video-classic", "grok-video-mixed")
 _VIDU_ENDPOINTS = (
@@ -211,7 +215,13 @@ _VIDU_ENDPOINTS = (
     "vidu-video-q1-classic",
     "vidu-video-2",
 )
-_KLING_ENDPOINTS = ("kling-video-pro-silent", "kling-video-pro-audio", "kling-video-audio", "kling-video-silent")
+_KLING_ENDPOINTS = (
+    "kling-video-pro-silent",
+    "kling-video-pro-audio",
+    "kling-video-audio",
+    "kling-video-silent",
+    "kling-video-model-path",
+)
 
 
 def request_profile_endpoint_for_name(provider_id: str, name: str) -> str | None:

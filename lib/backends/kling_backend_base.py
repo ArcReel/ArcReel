@@ -109,6 +109,21 @@ class KlingBackendBase:
         assert self._static_api_key is not None
         return kling_bearer_headers(self._static_api_key)
 
+    # ── 响应解读（子类按所走的 API 设计标准重写） ──────────────────────────
+    # 默认是旧版 API（``model_name`` 作参数）的信封：``data.task_id``、``data.task_status``、终态 ``succeed``。
+
+    def _task_id_from(self, submit_payload: dict) -> str:
+        return extract_kling_task_id(submit_payload)
+
+    def _task_status(self, payload: dict) -> str | None:
+        return kling_task_status(payload)
+
+    def _is_terminal(self, payload: dict) -> bool:
+        return is_kling_task_terminal(payload)
+
+    def _failure_reason(self, payload: dict) -> str | None:
+        return kling_task_failure_reason(payload)
+
     # ── HTTP submit / poll 骨架 ─────────────────────────────────────────
 
     @with_retry_async(
@@ -135,7 +150,7 @@ class KlingBackendBase:
             provider=PROVIDER_KLING,
             request=request,
         )
-        return extract_kling_task_id(resp.json())
+        return self._task_id_from(resp.json())
 
     async def _poll_query(self, client: httpx.AsyncClient, endpoint_path: str, *, base_url: str | None = None) -> dict:
         """查询任务状态；``base_url`` 缺省用当下配置的域名，续跑回放提交域名时由调用方传入。"""
@@ -156,8 +171,8 @@ class KlingBackendBase:
         """轮询至终态（succeed/failed）：复用 base.poll_with_retry，注入 Kling 终态/失败/重试谓词。"""
         return await poll_with_retry(
             poll_fn=poll_fn,
-            is_done=is_kling_task_terminal,
-            is_failed=kling_task_failure_reason,
+            is_done=self._is_terminal,
+            is_failed=self._failure_reason,
             poll_interval=poll_interval,
             max_wait=max_wait,
             retry_if=should_retry_poll,
@@ -165,7 +180,7 @@ class KlingBackendBase:
             on_progress=lambda v, elapsed: logger.info(
                 "Kling %s生成中... status=%s elapsed=%ds",
                 self._media_label,
-                kling_task_status(v),
+                self._task_status(v),
                 int(elapsed),
             ),
         )

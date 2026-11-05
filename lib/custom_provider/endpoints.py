@@ -39,6 +39,7 @@ from lib.backends.image_backends.openrouter import IMAGES_PATH as OPENROUTER_IMA
 from lib.backends.image_backends.openrouter import MODELS_PATH as OPENROUTER_MODELS_PATH
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.image_backends.registry import reference_limit_of
+from lib.backends.kling_shared import kling_model_path_base_url
 from lib.backends.minimax_shared import minimax_text_base_url
 from lib.backends.provider_assets import InferenceCredentialRef
 from lib.backends.text_backends.anthropic import AnthropicTextBackend
@@ -49,6 +50,7 @@ from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 from lib.backends.video_backends.dashscope import DASHSCOPE_VIDEO_BACKENDS, classify_wan_model
 from lib.backends.video_backends.gemini import GeminiVideoBackend
 from lib.backends.video_backends.kling import KLING_BACKENDS
+from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
 from lib.backends.video_backends.openai import OpenAIVideoBackend
 from lib.backends.video_backends.vidu import VIDU_BACKENDS
 from lib.config.url_utils import (
@@ -569,6 +571,13 @@ _KLING_VIDEO_REQUESTS = _python_requests(
     ("submit_multi_image2video", "cp_request_submit_multi_image2video", "/videos/multi-image2video"),
     ("poll_multi_image2video", "cp_request_poll_multi_image2video", "/videos/multi-image2video/{{ task_id }}"),
 )
+# 可灵新版 API：模型名写在路径里，域名后不带 /v1；轮询的任务 id 走 query（task_ids），覆盖路径不带 query 时原样保留它。
+_KLING_MODEL_PATH_VIDEO_REQUESTS = _python_requests(
+    "strip_version",
+    ("submit_text2video", "cp_request_submit_text2video", "/text-to-video/{{ model }}"),
+    ("submit_image2video", "cp_request_submit_img2video", "/image-to-video/{{ model }}"),
+    ("poll", "cp_request_poll", "/tasks"),
+)
 _DASHSCOPE_GENERATION_REQUESTS = _python_requests(
     "dashscope_api_v1", ("generate", "cp_request_generate", "/services/aigc/multimodal-generation/generation")
 )
@@ -786,6 +795,22 @@ def _build_kling_video(
         model=model_id,
         transport_layer=path_override_layer(
             _KLING_VIDEO_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_kling_model_path_video(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomVideoBackend:
+    # 新版 API 只收 API Key；base_url 剥去末尾版本段（中转站照抄旧版地址时常带 /v1）。
+    base_url = kling_model_path_base_url(provider.base_url)
+    delegate = KlingModelPathVideoBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _KLING_MODEL_PATH_VIDEO_REQUESTS, path_overrides, provider.base_url, base_url, model_id
         ),
     )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
@@ -1101,6 +1126,19 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         )
         for key, backend in KLING_BACKENDS.items()
     },
+    "kling-video-model-path": EndpointSpec(
+        key="kling-video-model-path",
+        media_type="video",
+        family="kling",
+        display_name_key="endpoint_kling_video_model_path_display",
+        request_method="POST",
+        request_path_template="/{text-to-video,image-to-video}/{model}",
+        build_backend=_build_kling_model_path_video,
+        requests=_KLING_MODEL_PATH_VIDEO_REQUESTS,
+        metering_backend=KlingModelPathVideoBackend,
+        video_caps_for_model=KlingModelPathVideoBackend.video_capabilities_for_model,
+        end_image_capable=True,
+    ),
 }
 
 

@@ -1766,6 +1766,7 @@ export default {
   'endpoint_kling_video_pro_audio_display': 'Kling Video (Khung cuối và âm thanh Pro)',
   'endpoint_kling_video_audio_display': 'Kling Video (Điều khiển âm thanh)',
   'endpoint_kling_video_silent_display': 'Kling Video (Im lặng)',
+  'endpoint_kling_video_model_path_display': 'Kling Video (API mới, luôn có âm thanh)',
   'endpoint_gemini_video_display': 'Video Google Gemini (Veo)',
   'endpoint_minimax_tts_display': 'MiniMax (Giọng nói)',
   'endpoint_openai_tts_display': 'OpenAI Giọng nói (TTS)',
