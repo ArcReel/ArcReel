@@ -207,11 +207,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         return await self._collect_video(done_operation, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """接续已 submit 的 Gemini operation：用 name 重建 GenerateVideosOperation 走 poll + 下载。
-
-        Operation 是 ABC，不可实例化；具体 LRO 子类 GenerateVideosOperation 通过
-        Pydantic v2 ``model_validate`` 接收 dict 构造（pyright 对 Pydantic 多继承的
-        字段推断不全，用 model_validate 绕开）。
+        """接续已 submit 的 Gemini 任务：按任务 ID 轮询并取件（见 :meth:`_resume_on_current_client`）。
 
         过期判定只覆盖按 job_id 查询 operation 的阶段：远端 GC 了 LRO 时，初次
         ``operations.get`` 与 mid-poll 的查询都会收到 NOT_FOUND，归类为 ResumeExpiredError
@@ -223,7 +219,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         """
         submitted = normalize_base_url(request.submitted_base_url)
         if submitted and self._backend_type != "vertex" and submitted != self._request_base_url:
-            replay = GeminiVideoBackend(
+            replay = type(self)(
                 backend_type=self._backend_type,
                 api_key=self._api_key,
                 rate_limiter=self._rate_limiter,
@@ -237,6 +233,14 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
                 await replay._client.aio.aclose()
                 replay._client.close()
                 await replay._close_injected_http_clients()
+        return await self._resume_on_current_client(job_id, request)
+
+    async def _resume_on_current_client(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """在当前客户端上按 ``job_id`` 轮询并取件；提交域名的回放由 :meth:`resume_video` 处理。
+
+        用 name 重建 GenerateVideosOperation：Operation 是 ABC，不可实例化；具体 LRO 子类通过
+        Pydantic v2 ``model_validate`` 接收 dict 构造（pyright 对 Pydantic 多继承的字段推断不全，用 model_validate 绕开）。
+        """
         op = self._types.GenerateVideosOperation.model_validate({"name": job_id, "done": False})
         try:
             refreshed = await self._client.aio.operations.get(op)
@@ -406,7 +410,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         if self._backend_type == "vertex" and video_ref and getattr(video_ref, "video_bytes", None):
             # 已有字节只需落盘，不进入网络取件的超时与重试预算。
             await run_noninterruptible_sync(
-                _write_atomically, output_path, lambda target: target.write_bytes(video_ref.video_bytes)
+                write_atomically, output_path, lambda target: target.write_bytes(video_ref.video_bytes)
             )
             return
         # 线程里写 .part 再替换成片：取消须等这次写盘结束、结果确定后再传播，否则调用方清理后线程才落盘。
@@ -422,7 +426,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     def _download_video(self, video_ref, output_path: Path, *, deadline: float) -> None:
         """下载视频到本地文件 — 提取自 GeminiClient。
 
-        三条落盘路径都经 ``_write_atomically``：先写同目录 ``.part``，成功后原子改名，
+        三条落盘路径都经 ``write_atomically``：先写同目录 ``.part``，成功后原子改名，
         失败时 output_path 上不会出现被当作成品的残片（已有的旧成片也保持原样）。
         两条网络路径都设 I/O 超时并逐块比对 ``deadline``（``time.monotonic()`` 时刻），
         到期抛 ``TimeoutError``，线程不会比取件预算活得更久。
@@ -430,10 +434,10 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         if self._backend_type == "vertex":
             if video_ref and hasattr(video_ref, "video_bytes") and video_ref.video_bytes:
                 video_bytes = video_ref.video_bytes
-                _write_atomically(output_path, lambda target: target.write_bytes(video_bytes))
+                write_atomically(output_path, lambda target: target.write_bytes(video_bytes))
             elif video_ref and hasattr(video_ref, "uri") and video_ref.uri:
                 uri = video_ref.uri
-                _write_atomically(output_path, lambda target: _fetch_uri(uri, target, deadline))
+                write_atomically(output_path, lambda target: _fetch_uri(uri, target, deadline))
             else:
                 raise RuntimeError("视频生成成功但无法获取视频数据")
         else:
@@ -447,7 +451,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
                         config={"http_options": {"timeout": timeout_ms}},
                     )
 
-            _write_atomically(output_path, write)
+            write_atomically(output_path, write)
 
 
 class _DeadlineWriter(io.RawIOBase):
@@ -499,7 +503,7 @@ def _fetch_uri(uri: str, target: Path, deadline: float) -> None:
             )
 
 
-def _write_atomically(output_path: Path, write: Callable[[Path], object]) -> None:
+def write_atomically(output_path: Path, write: Callable[[Path], object]) -> None:
     """让 ``write`` 把内容写进同目录 ``<name>.part``，成功后 ``os.replace`` 改名为 output_path。
 
     各写入方都以 "wb" 直开目标路径，中途失败会留下截断文件；写 ``.part``

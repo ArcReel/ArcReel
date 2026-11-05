@@ -1780,6 +1780,7 @@ export default {
   'endpoint_kling_video_silent_display': 'Kling Video (Silent)',
   'endpoint_kling_video_model_path_display': 'Kling Video (new API, always with audio)',
   'endpoint_gemini_video_display': 'Google Gemini Video (Veo)',
+  'endpoint_gemini_interactions_video_display': 'Google Gemini Video (Omni)',
   'endpoint_minimax_tts_display': 'MiniMax (Speech)',
   'endpoint_openai_tts_display': 'OpenAI Speech (TTS)',
   'endpoint_dashscope_tts_display': 'Alibaba Model Studio (TTS)',
@@ -1803,6 +1804,7 @@ export default {
   'endpoint_agnes_video_2_display': 'Agnes (Video 2.0)',
   'endpoint_agnes_video_2_5_display': 'Agnes (Video 2.5)',
   'endpoint_gemini_vertex_video_display': 'Vertex AI Video (Veo)',
+  'endpoint_gemini_vertex_interactions_video_display': 'Vertex AI Video (Omni)',
   'endpoint_agnes_video_display': 'Agnes (Video)',
   'endpoint_catalog_loading': 'Loading endpoint catalog…',
   // Image Capability

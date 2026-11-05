@@ -1770,6 +1770,7 @@ export default {
   'endpoint_kling_video_silent_display': 'Kling Video (Im lặng)',
   'endpoint_kling_video_model_path_display': 'Kling Video (API mới, luôn có âm thanh)',
   'endpoint_gemini_video_display': 'Video Google Gemini (Veo)',
+  'endpoint_gemini_interactions_video_display': 'Video Google Gemini (Omni)',
   'endpoint_minimax_tts_display': 'MiniMax (Giọng nói)',
   'endpoint_openai_tts_display': 'OpenAI Giọng nói (TTS)',
   'endpoint_dashscope_tts_display': 'Alibaba Model Studio (Giọng nói TTS)',
@@ -1793,6 +1794,7 @@ export default {
   'endpoint_agnes_video_2_display': 'Agnes (Video 2.0)',
   'endpoint_agnes_video_2_5_display': 'Agnes (Video 2.5)',
   'endpoint_gemini_vertex_video_display': 'Vertex AI Video (Veo)',
+  'endpoint_gemini_vertex_interactions_video_display': 'Vertex AI Video (Omni)',
   'endpoint_agnes_video_display': 'Agnes (Video)',
   'endpoint_catalog_loading': 'Đang tải danh mục endpoint…',
   // Image Capability
