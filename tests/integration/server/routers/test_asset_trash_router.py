@@ -10,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifacts.artifact_registration import register_current_resource_artifact
 from lib.artifacts.version_manager import VersionManager
 from lib.generation.deleted_target import GenerationTargetDeletedError, trash_result_if_target_deleted
 from lib.project import asset_trash, project_trash, trash_restore
@@ -17,10 +18,11 @@ from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.legacy_shapes import normalize_legacy_shapes
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.error_handlers import register_error_handlers
-from server.routers import characters, scenes
+from server.routers import asset_sheets, characters, files, scenes
 from server.routers import project_trash as trash_router
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 from tests.fakes import use_project_manager
+from tests.integration.server.derivative_sheet_support import solid_png_bytes
 
 CHARACTERS = "/api/v1/projects/demo/characters"
 TRASH = "/api/v1/projects/demo/trash"
@@ -42,8 +44,9 @@ def asset_dir(asset_pm: ProjectManager) -> Path:
 def asset_client(asset_pm: ProjectManager, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     use_project_manager(monkeypatch, asset_pm)
     monkeypatch.setattr(scenes, "get_project_manager", lambda: asset_pm)
+    monkeypatch.setattr(asset_sheets, "get_project_manager", lambda: asset_pm)
     app = FastAPI()
-    for module in (characters, scenes, trash_router):
+    for module in (characters, scenes, trash_router, asset_sheets, files):
         app.include_router(module.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(app)
     override_auth(app)
@@ -241,9 +244,32 @@ def test_a_character_restored_under_a_new_name_points_at_files_that_exist(asset_
         assert (asset_dir / characters["阿青"][field]).read_bytes() == f"阿岚:{field}".encode()
 
 
-def test_restore_with_free_name_brings_back_sheet_history_and_name(asset_client, asset_pm, asset_dir):
+@pytest.mark.parametrize("sheet_state", ["current", "stale", "uploaded"])
+@pytest.mark.parametrize("other_sheet", [False, True])
+def test_restore_with_free_name_brings_back_sheet_history_and_name(
+    asset_client, asset_pm, asset_dir, sheet_state, other_sheet
+):
+    asset_pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     _create(asset_client, "阿岚")
-    _with_sheet(asset_pm, asset_dir, "阿岚", b"sheet")
+    sheet = solid_png_bytes((200, 10, 10))
+    _with_sheet(asset_pm, asset_dir, "阿岚", sheet)
+    assert register_current_resource_artifact(asset_dir, resource_type="characters", resource_id="阿岚")
+    if sheet_state == "uploaded":
+        sheet = solid_png_bytes((10, 200, 10))
+        uploaded = asset_client.post(
+            "/api/v1/projects/demo/upload/character?name=阿岚",
+            files={"file": ("sheet.png", sheet, "image/png")},
+        )
+        assert uploaded.status_code == 200, uploaded.text
+    if other_sheet:
+        _create(asset_client, "阿青")
+        _with_sheet(asset_pm, asset_dir, "阿青", sheet)
+        assert register_current_resource_artifact(asset_dir, resource_type="characters", resource_id="阿青")
+    if sheet_state == "stale":
+        asset_pm.update_asset_entry("character", "demo", "阿岚", lambda entry: entry.update(description="新的描述"))
+    status_url = "/api/v1/projects/demo/asset-sheets/status"
+    before = asset_client.get(status_url).json()
+    assert before["assets"][0]["status"] == ("stale" if sheet_state == "stale" else "current")
     asset_client.delete(f"{CHARACTERS}/阿岚")
 
     restored = asset_client.post(f"{TRASH}/{_only_record(asset_client)['id']}/restore")
@@ -251,12 +277,20 @@ def test_restore_with_free_name_brings_back_sheet_history_and_name(asset_client,
     assert restored.status_code == 200, restored.text
     assert restored.json()["object"]["name"] == "阿岚"
     entry = _project(asset_dir)["characters"]["阿岚"]
-    assert (entry["description"], entry["character_sheet"]) == ("少女", "characters/阿岚.png")
-    assert (asset_dir / "characters/阿岚.png").read_bytes() == b"sheet"
+    assert (entry["description"], entry["character_sheet"]) == (
+        "新的描述" if sheet_state == "stale" else "少女",
+        "characters/阿岚.png",
+    )
+    assert (asset_dir / "characters/阿岚.png").read_bytes() == sheet
     history = VersionManager(asset_dir).get_versions("characters", "阿岚")
-    assert (history["current_version"], len(history["versions"])) == (2, 2)
+    version_count = 3 if sheet_state == "uploaded" else 2
+    assert (history["current_version"], len(history["versions"])) == (version_count, version_count)
     assert history["versions"][0]["aspect_ratio"] == "3:4"
     assert asset_client.get(TRASH).json()["records"] == []
+    after = asset_client.get(status_url).json()
+    assert sorted(after["assets"], key=lambda row: row["unit_id"]) == sorted(
+        before["assets"], key=lambda row: row["unit_id"]
+    )
 
 
 @pytest.mark.parametrize("target_first", [False, True])
