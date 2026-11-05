@@ -214,6 +214,54 @@ describe("ProviderModelSheet", () => {
     expect(screen.queryByRole("button", { name: /^修改「/ })).not.toBeInTheDocument();
   });
 
+  it("shows image-to-image as unsupported when the entry records zero reference images, as candidates and execution do", async () => {
+    // 服务端按候选、执行同一个求值结果给出：条目记 0 张时图生图不支持
+    const effective = { text_to_image: true, image_to_image: false, max_reference_images: 0 };
+    vi.spyOn(API, "getProviderModel").mockResolvedValue({
+      ...unmatchedVideo(),
+      model: item({ model_id: "grok-imagine-image", media_type: "image", official: true, endpoint: null, flags: [] }),
+      multiplier: null,
+      capabilities: {
+        media_type: "image",
+        editable: [],
+        displayed: ["text_to_image", "image_to_image", "max_reference_images"],
+        base: effective,
+        overrides: {},
+        effective,
+      },
+      endpoint: null,
+    });
+    renderSheet({ providerId: "grok", providerName: "Grok", custom: undefined, open: { modelId: "grok-imagine-image", key: 1 } });
+
+    await screen.findByText("这个供应商支持的参数");
+    expect(within(rowOf("文生图")).getByText("支持")).toBeInTheDocument();
+    expect(within(rowOf("图生图")).getByText("不支持")).toBeInTheDocument();
+    expect(within(rowOf("参考图上限")).getByText("0")).toBeInTheDocument();
+  });
+
+  it("shows text-to-image and image-to-image of a ComfyUI image model read-only, from its node bindings", async () => {
+    const effective = { text_to_image: true, image_to_image: true, max_reference_images: 2 };
+    vi.spyOn(API, "getProviderModel").mockResolvedValue({
+      ...unmatchedVideo(),
+      model: item({ model_id: "my-flux-workflow", media_type: "image", endpoint: "ce-7" }),
+      capabilities: {
+        media_type: "image",
+        editable: [],
+        displayed: ["text_to_image", "image_to_image", "max_reference_images"],
+        base: effective,
+        overrides: {},
+        effective,
+      },
+      endpoint: "ce-7",
+    });
+    renderSheet({ open: { modelId: "my-flux-workflow", key: 1 } });
+
+    await screen.findByText("这个供应商支持的参数");
+    const rows = within(rowOf("文生图").closest("ul")!).getAllByRole("listitem").map((row) => row.textContent);
+    expect(rows).toEqual(["文生图支持", "图生图支持", "参考图上限2"]);
+    expect(screen.queryByRole("button", { name: /^修改「/ })).not.toBeInTheDocument();
+  });
+
   it("warns that modified request URLs go back to default when the endpoint changes, and saves without them", async () => {
     const user = userEvent.setup();
     const requested = { ...VIDEO_ENDPOINT, requests: [SUBMIT] };

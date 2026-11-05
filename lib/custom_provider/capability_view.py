@@ -5,10 +5,13 @@
 与执行层读到的一致。
 
 图片的参考图上限是两侧求值的结果（``lib.backends.image_capabilities.image_reference_limit``），没有自己的能力覆盖，
-按生效的图生图求值：``None`` 为未收录，``0`` 为不接受参考图（条目记为 0 张，或图生图不在生效能力里）。
+按生效的图生图求值：``None`` 为未收录，``0`` 为不接受参考图（条目记为 0 张，或图生图不在生效能力里）。图生图的原值
+读同一个求值结果：模型事实与调用通道都允许、且参考图上限接受参考图，与任务类型桶的候选、执行时的校验一致；条目把
+参考图上限记为 0 张时图生图为不支持。文生图的原值同样取模型事实与调用通道的交集。
 
 视频的输入模式与数量上限（文生视频、首帧、尾帧、参考图、参考音频）的原值同样是调用通道声明与模型条目两侧求值的
-结果（``lib.backends.video_capabilities``），数量上限 ``None`` 为未收录、``0`` 为不接受；ComfyUI 端点不读条目。
+结果（``lib.backends.video_capabilities``），数量上限 ``None`` 为未收录、``0`` 为不接受。ComfyUI 端点不读条目，
+输入能力只由节点绑定决定；图片同样展示文生图、图生图与参考图上限三维，只读。
 
 只有用户负责的供应商模型可以修改：自定义供应商的模型，以及内置供应商下用户添加的模型。ComfyUI 端点只开放视频
 的可选时长，且端点驱动不了时长时这一维也不开放（docs/adr/0082）。图片的文生图、图生图只开放调用通道实现了的
@@ -43,6 +46,7 @@ from lib.backends.image_capabilities import (
     builtin_channel_reference_limit,
     image_reference_limit,
 )
+from lib.backends.input_limits import InputLimit
 from lib.catalog.query import CatalogModel
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
@@ -193,14 +197,13 @@ def custom_capability_view(
             # 节点绑定决定一切：没有参考图槽位就不接受参考图，有槽位时上限就是槽位数，不读条目。
             return CapabilityView(
                 media_type,
-                base={
-                    "max_reference_images": _image_reference_limit_json(
-                        True,
-                        implemented=spec.image_capabilities or frozenset(),
-                        entry_limit=None,
-                        channel_limit=endpoint_reference_image_limit(spec),
-                    )
-                },
+                base=_image_base(
+                    implemented=spec.image_capabilities or frozenset(),
+                    text_to_image=True,
+                    image_to_image=True,
+                    entry_limit=None,
+                    channel_limit=endpoint_reference_image_limit(spec),
+                ),
             )
         if media_type != "video":
             return CapabilityView(media_type)
@@ -226,16 +229,14 @@ def custom_capability_view(
         case "image":
             image = image_model_facts(model_id, None, entry_binding=entry_binding)
             implemented = spec.image_capabilities or frozenset()
-            base = {
-                "text_to_image": image.text_to_image is not False and ImageCapability.TEXT_TO_IMAGE in implemented,
-                "image_to_image": image.image_to_image is not False and ImageCapability.IMAGE_TO_IMAGE in implemented,
-            }
             editable = {key for key in editable if _IMAGE_CAPABILITY_BY_KEY[key] in implemented}
-            base["max_reference_images"] = _image_reference_limit_json(
-                (applied_overrides or {}).get("image_to_image", image.image_to_image is not False),
+            base = _image_base(
                 implemented=implemented,
+                text_to_image=image.text_to_image is not False,
+                image_to_image=image.image_to_image is not False,
                 entry_limit=image.max_reference_images,
                 channel_limit=endpoint_reference_image_limit(spec),
+                image_to_image_override=(applied_overrides or {}).get("image_to_image"),
             )
         case "video":
             video = video_model_facts(model_id, None, entry_binding=entry_binding)
@@ -264,7 +265,8 @@ def custom_capability_view(
 
 
 def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -> dict[str, object]:
-    """内置供应商模型的目录信息（未叠加覆盖时即运行时采用的值）按维度展开。"""
+    """内置供应商模型的目录信息（未叠加覆盖时即运行时采用的值）按维度展开；图片三维要与调用通道两侧求值，
+    由 :func:`builtin_capability_view` 给出。"""
     caps = set(model.capabilities)
     match model.media_type:
         case "text":
@@ -273,8 +275,6 @@ def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -
                 "structured_output": "structured_output" in caps,
                 "max_output_tokens": model.max_output_tokens,
             }
-        case "image":
-            return {"text_to_image": "text_to_image" in caps, "image_to_image": "image_to_image" in caps}
         case "video":
             facts: dict[str, object] = {
                 "durations": list(model.supported_durations),
@@ -298,22 +298,36 @@ def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -
             return {}
 
 
-def _image_reference_limit_json(
-    image_to_image: object,
+def _image_base(
     *,
     implemented: frozenset[ImageCapability],
+    text_to_image: bool,
+    image_to_image: bool,
     entry_limit: int | None,
     channel_limit: int | None,
-) -> int | None:
-    """参考图上限的生效值按界面形状给出。``image_to_image`` 是模型事实一侧叠加能力覆盖后的图生图。"""
-    capabilities = (
-        {ImageCapability.IMAGE_TO_IMAGE}
-        if image_to_image is True and ImageCapability.IMAGE_TO_IMAGE in implemented
-        else set()
-    )
-    return image_reference_limit(
-        capabilities=capabilities, entry_limit=entry_limit, channel_limit=channel_limit
-    ).to_json()
+    image_to_image_override: object | None = None,
+) -> dict[str, object]:
+    """图片三维的原值，与任务类型桶的候选、执行时的校验读同一个求值结果（``image_reference_limit``）。
+
+    ``text_to_image`` / ``image_to_image`` 是模型事实一侧（条目，对应不上条目时按允许算），与调用通道实现了的
+    ``implemented`` 取交集。图生图另须参考图上限接受参考图：条目记为 0 张时为不支持。参考图上限按生效的图生图求值，
+    ``image_to_image_override`` 是图生图的能力覆盖（没有为 ``None``）。
+    """
+
+    def reference_limit(supported: object) -> InputLimit[int]:
+        path = supported is True and ImageCapability.IMAGE_TO_IMAGE in implemented
+        return image_reference_limit(
+            capabilities={ImageCapability.IMAGE_TO_IMAGE} if path else set(),
+            entry_limit=entry_limit,
+            channel_limit=channel_limit,
+        )
+
+    effective_i2i = image_to_image if image_to_image_override is None else image_to_image_override
+    return {
+        "text_to_image": text_to_image and ImageCapability.TEXT_TO_IMAGE in implemented,
+        "image_to_image": reference_limit(image_to_image).accepts_input,
+        "max_reference_images": reference_limit(effective_i2i).to_json(),
+    }
 
 
 def _image_channel(provider_id: str, model_id: str, endpoint: str | None = None) -> frozenset[ImageCapability]:
@@ -342,11 +356,13 @@ def builtin_capability_view(
             channel_limit = builtin_channel_reference_limit(provider_id, model_id)
         except ValueError:
             channel_limit = None
-        base["max_reference_images"] = _image_reference_limit_json(
-            overrides.get("image_to_image", base["image_to_image"]),
+        base = _image_base(
             implemented=implemented,
+            text_to_image="text_to_image" in base_model.capabilities,
+            image_to_image="image_to_image" in base_model.capabilities,
             entry_limit=base_model.max_reference_images,
             channel_limit=channel_limit,
+            image_to_image_override=overrides.get("image_to_image"),
         )
     if official:
         return CapabilityView(media_type, base=base)
