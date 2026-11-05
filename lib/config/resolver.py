@@ -599,6 +599,10 @@ def duration_endpoint_fixed_reason(fixed: bool) -> str | None:
     return DURATION_ENDPOINT_FIXED_REASON if fixed else None
 
 
+class NoAvailableProviderError(ValueError):
+    """自动推断未找到可用供应商。"""
+
+
 class VisionCapabilityError(ValueError):
     """解析出的文本模型不支持图像输入（vision），无法执行需要 vision 的任务。
 
@@ -1924,4 +1928,6 @@ class ConfigResolver:
         if candidates:
             return make_provider_id(candidates[0].provider_id), candidates[0].model_id
 
-        raise ValueError(f"未找到可用的 {media_type} 供应商。请在「全局设置 → 供应商」页面配置至少一个供应商。")
+        raise NoAvailableProviderError(
+            f"未找到可用的 {media_type} 供应商。请在「全局设置 → 供应商」页面配置至少一个供应商。"
+        )

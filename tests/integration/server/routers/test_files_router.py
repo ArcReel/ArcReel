@@ -1119,6 +1119,37 @@ class TestFilesRouter:
             )
             assert bad_style_ext.status_code == 400
 
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi", "ru"])
+    def test_style_image_without_text_provider(self, tmp_path, monkeypatch, file_db_factory, locale):
+        from lib.backends.text_backends.factory import create_text_backend_for_task
+        from lib.i18n import MESSAGES
+
+        client, pm = _client(monkeypatch, tmp_path)
+        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", create_text_backend_for_task)
+        monkeypatch.setattr("lib.backends.text_backends.factory.async_session_factory", file_db_factory)
+        project_dir = pm.get_project_path("demo")
+        original_image = _img_bytes("PNG", color=(0, 0, 255))
+        (project_dir / "style_reference.png").write_bytes(original_image)
+        pm.update_project(
+            "demo", lambda project: project.update(style_image="style_reference.png", style_description="Original")
+        )
+        before = pm.load_project("demo")
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/style-image",
+                headers={"Accept-Language": locale},
+                files={"file": ("style.png", _img_bytes("PNG"), "image/png")},
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json() == {
+            "detail": MESSAGES[locale]["text_provider_not_configured"],
+            "diagnostic": {"code": "text_provider_not_configured"},
+        }
+        assert pm.load_project("demo") == before
+        assert (project_dir / "style_reference.png").read_bytes() == original_image
+
     def test_security_and_error_paths(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
 
