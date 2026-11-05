@@ -256,6 +256,7 @@ async function main() {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ARCREEL_DATA_DIR: dataDir,
+    ARCREEL_SKIP_CATALOG_SYNC: "1",
     AUTH_ENABLED: "true",
     AUTH_USERNAME: USERNAME,
     AUTH_PASSWORD: PASSWORD,
