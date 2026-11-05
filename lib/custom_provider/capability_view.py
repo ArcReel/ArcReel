@@ -97,6 +97,12 @@ _IMAGE_CAPABILITY_BY_KEY: Mapping[str, ImageCapability] = {
     "image_to_image": ImageCapability.IMAGE_TO_IMAGE,
 }
 
+#: 图片覆盖维度 → 调用通道须实现的能力，未实现时该维度不可编辑：参考图上限只对图生图路径有意义。
+_IMAGE_EDITABLE_REQUIRES: Mapping[str, ImageCapability] = {
+    **_IMAGE_CAPABILITY_BY_KEY,
+    "max_reference_images": ImageCapability.IMAGE_TO_IMAGE,
+}
+
 
 @dataclass(frozen=True)
 class CapabilityView:
@@ -128,6 +134,18 @@ def overridable_keys(media_type: str) -> frozenset[str]:
     """该媒体类型可以覆盖的全部维度：模型事实，视频另有通道事实。"""
     keys = MODEL_FACT_OVERRIDE_KEYS.get(media_type, frozenset())
     return keys | CHANNEL_FACT_OVERRIDE_KEYS if media_type == "video" else keys
+
+
+def override_value_check(media_type: str, key: str, value: object) -> tuple[bool, str]:
+    """覆盖值能否整维替换该维度，以及该维度期望的值形状（写入被拒时的文案参数）。
+
+    视频的通道事实按 ``VideoCapabilities`` 字段校验，其余按模型事实校验；图片的参考图上限与视频通道事实同名，
+    按模型事实校验。自定义供应商与内置用户添加模型的写入校验共用这一判定。
+    """
+    if media_type == "video" and key in CHANNEL_FACT_OVERRIDE_KEYS:
+        expected = CAPABILITY_OVERRIDE_FIELDS[key]
+        return capability_value_matches(value, expected), capability_type_name(expected)
+    return model_fact_value_matches(key, value), model_fact_type_name(key)
 
 
 def _ordered(keys: frozenset[str] | set[str]) -> tuple[str, ...]:
@@ -338,9 +356,7 @@ def _image_view(
     editable: set[str],
     overrides: Mapping[str, object],
 ) -> CapabilityView:
-    editable = {
-        key for key in editable if _IMAGE_CAPABILITY_BY_KEY.get(key, ImageCapability.IMAGE_TO_IMAGE) in implemented
-    }
+    editable = {key for key in editable if _IMAGE_EDITABLE_REQUIRES[key] in implemented}
     base = _image_base(
         implemented=implemented,
         text_to_image=text_to_image,
@@ -453,11 +469,7 @@ def check_user_added_overrides(
                 media_type=media_type,
                 capability=key,
             )
-        if media_type == "video" and key in CHANNEL_FACT_OVERRIDE_KEYS:
-            expected = CAPABILITY_OVERRIDE_FIELDS[key]
-            valid, expected_name = capability_value_matches(value, expected), capability_type_name(expected)
-        else:
-            valid, expected_name = model_fact_value_matches(key, value), model_fact_type_name(key)
+        valid, expected_name = override_value_check(media_type, key, value)
         if not valid:
             raise OverrideRejected(
                 "capability_override_invalid_value", model_id=model_id, capability=key, expected=expected_name

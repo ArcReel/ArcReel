@@ -1,7 +1,6 @@
 """解析模型失败时，任务记录仍属于用户指定的供应商。"""
 
 import asyncio
-from types import SimpleNamespace
 
 import pytest
 
@@ -12,7 +11,12 @@ from lib.generation.generation_worker import GenerationWorker
 from lib.generation.task_failure import parse_failure
 from tests.catalog_support import install_catalog, with_entry_changes
 from tests.fakes import bind_session_factory
-from tests.integration.lib.generation.worker_support import capacity_table, seed_running_task, stub_executors
+from tests.integration.lib.generation.worker_support import (
+    capacity_table,
+    seed_running_task,
+    stub_executors,
+    use_worker_project,
+)
 
 
 @pytest.mark.parametrize("legacy", [False, True], ids=["enqueue", "legacy-null"])
@@ -22,9 +26,7 @@ async def test_bare_provider_without_default_keeps_failure_provider(db_factory, 
     default_model = snapshot.builtin_providers["ark"].defaults["image"]
     install_catalog(monkeypatch, with_entry_changes(snapshot, "ark", default_model, discontinued=True))
     project = {"image_provider_t2i": "ark"}
-    pm = SimpleNamespace(load_project=lambda _name: project)
-    monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
-    monkeypatch.setattr("lib.generation.generation_worker.get_project_manager", lambda: pm)
+    use_worker_project(monkeypatch, project)
     bind_session_factory(monkeypatch, db_factory)
     monkeypatch.setattr("lib.generation.generation_worker.async_session_factory", db_factory)
     queue = GenerationQueue(session_factory=db_factory)

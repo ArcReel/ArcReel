@@ -33,6 +33,13 @@ class _ExecutorStubs:
 stub_executors = _ExecutorStubs()
 
 
+def use_worker_project(monkeypatch, project: dict | None) -> None:
+    """worker 与配置解析经 ``get_project_manager().load_project`` 读到的项目都是 *project*（``None`` 视为空项目）。"""
+    pm = type("PM", (), {"load_project": lambda self, name: project or {}})()
+    for target in ("lib.generation.generation_worker.get_project_manager", "lib.config.resolver.get_project_manager"):
+        monkeypatch.setattr(target, lambda: pm)
+
+
 def capacity_table(limits: dict[str, dict[str, int]] | None = None, *, image: int = 5, video: int = 3) -> CapacityTable:
     """构造一张容量表：显式 per-provider 上限 + 懒默认（默认 image=5 / video=3）。"""
     return CapacityTable(_limits=limits or {}, _defaults={"image": image, "video": video})
