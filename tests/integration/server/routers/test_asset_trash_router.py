@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -44,7 +45,6 @@ def asset_dir(asset_pm: ProjectManager) -> Path:
 def asset_client(asset_pm: ProjectManager, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     use_project_manager(monkeypatch, asset_pm)
     monkeypatch.setattr(scenes, "get_project_manager", lambda: asset_pm)
-    monkeypatch.setattr(asset_sheets, "get_project_manager", lambda: asset_pm)
     app = FastAPI()
     for module in (characters, scenes, trash_router, asset_sheets, files):
         app.include_router(module.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
@@ -107,6 +107,23 @@ def test_deleting_an_asset_moves_its_sheet_and_history_into_one_record(asset_cli
     assert not (asset_dir / "characters/阿岚.png").exists()
     assert not VersionManager(asset_dir).has_versions("characters", "阿岚")
     assert "阿岚" not in _project(asset_dir)["characters"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows 把反斜杠当作路径分隔符，文件名里不会有它")
+def test_a_source_file_with_a_backslash_in_its_name_does_not_block_deletion_or_restore(
+    asset_client, asset_pm, asset_dir
+):
+    asset_pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    created = asset_client.put("/api/v1/projects/demo/source/第一卷%5C序章.txt", content="原文".encode())
+    assert created.status_code == 200, created.text
+    _create(asset_client, "阿岚")
+
+    assert asset_client.delete(f"{CHARACTERS}/阿岚").status_code == 200
+    restored = asset_client.post(f"{TRASH}/{_only_record(asset_client)['id']}/restore")
+
+    assert restored.status_code == 200, restored.text
+    assert "阿岚" in _project(asset_dir)["characters"]
+    assert (asset_dir / "source/第一卷\\序章.txt").read_text(encoding="utf-8") == "原文"
 
 
 def _with_reference_files(asset_pm: ProjectManager, asset_dir: Path, name: str) -> dict[str, str]:

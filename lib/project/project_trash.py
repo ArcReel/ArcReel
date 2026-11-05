@@ -223,7 +223,7 @@ def record_deletion(
             # 最后一条登记被移除时清单文件会消失，删除前的结构文件仍须进入快照。
             for rel in sorted(set(structure_files(project_dir)).union(before or ())):
                 if rel not in deleted and is_structure_file(rel):
-                    target = record_dir / SNAPSHOT_DIRNAME / _checked_rel(rel)
+                    target = record_dir / SNAPSHOT_DIRNAME / rel
                     target.parent.mkdir(parents=True, exist_ok=True)
                     if before is not None and rel in before:
                         target.write_bytes(before[rel])
