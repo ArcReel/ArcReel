@@ -64,3 +64,25 @@ def test_a_provider_missing_from_the_catalog_is_named_generically_and_its_model_
     params = names.apply({"provider": PROVIDER_ID, "model": MODEL_ID, "count": 3})
 
     assert params == {"provider": "Deleted provider", "model": MODEL_ID, "count": 3}
+
+
+def test_a_successor_entry_reference_renders_as_the_entry_display_name():
+    """后继存条目引用（「模型厂商/官方模型名」），渲染时换成条目显示名，与设置页内联提示同一写法。"""
+    names = make_display_names("zh")
+
+    params = names.apply({"successor": "bytedance/doubao-seedream-5-0-pro"})
+
+    assert params == {"successor": "Seedream 5.0 Pro"}
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "acme/never-registered",  # 目录里没有这个条目
+        "kuaishou/kling-v3-omni",  # 两栖条目：图像与视频条目的显示名不同，无从判断指哪一个
+    ],
+)
+def test_a_successor_without_a_single_display_name_keeps_the_entry_reference(ref: str):
+    names = make_display_names("zh")
+
+    assert names.apply({"successor": ref}) == {"successor": ref}
