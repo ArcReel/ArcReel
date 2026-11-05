@@ -8,6 +8,7 @@ import { ProviderCapabilityOverrides } from "./ProviderCapabilityOverrides";
 const VIDEO: ProviderModelCapabilities = {
   media_type: "video",
   editable: ["durations", "duration_constraints", "resolutions", "last_frame", "audio_track"],
+  displayed: ["durations", "duration_constraints", "resolutions", "last_frame", "audio_track"],
   base: {
     durations: [4, 8],
     duration_constraints: null,
@@ -49,13 +50,52 @@ function rowOf(label: string) {
 }
 
 describe("ProviderCapabilityOverrides", () => {
-  it("shows the original value of each dimension, unlimited when it has none", () => {
+  it("shows the original value of each dimension, not recorded when neither side declares it", () => {
     render(<Harness />);
 
     expect(within(rowOf("可选时长")).getByText("4, 8 秒")).toBeInTheDocument();
-    expect(within(rowOf("分辨率")).getByText("不限")).toBeInTheDocument();
+    expect(within(rowOf("分辨率")).getByText("未收录")).toBeInTheDocument();
     expect(within(rowOf("尾帧")).getByText("不支持")).toBeInTheDocument();
     expect(within(rowOf("音轨形态")).getByText("可开关")).toBeInTheDocument();
+  });
+
+  it("shows the effective capabilities of an official model read-only, in the order the server lists them", () => {
+    render(
+      <Harness
+        capabilities={{
+          media_type: "image",
+          editable: [],
+          displayed: ["text_to_image", "image_to_image", "max_reference_images"],
+          base: { max_reference_images: null, image_to_image: true, text_to_image: true },
+          overrides: {},
+          effective: { max_reference_images: null, image_to_image: true, text_to_image: true },
+        }}
+      />,
+    );
+
+    const rows = screen.getAllByRole("listitem").map((row) => row.textContent);
+    expect(rows).toEqual(["文生图支持", "图生图支持", "参考图上限未收录"]);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("shows a dimension that cannot be changed read-only beside the editable ones", () => {
+    render(
+      <Harness
+        capabilities={{
+          media_type: "image",
+          editable: ["image_to_image"],
+          displayed: ["text_to_image", "image_to_image", "max_reference_images"],
+          base: { text_to_image: false, image_to_image: true, max_reference_images: 4 },
+          overrides: {},
+          effective: { text_to_image: false, image_to_image: true, max_reference_images: 4 },
+        }}
+      />,
+    );
+
+    expect(within(rowOf("参考图上限")).getByText("4")).toBeInTheDocument();
+    expect(within(rowOf("参考图上限")).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(rowOf("文生图")).queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "修改「图生图」" })).toBeInTheDocument();
   });
 
   it("replaces a whole dimension when changed, and drops it again on restore", () => {

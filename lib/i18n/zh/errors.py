@@ -326,6 +326,7 @@ MESSAGES = {
     "builtin_model_media_type_required": "无法判断模型「{model}」的类型，请选择模型类型后重试",
     "builtin_model_media_type_unsupported": "这个供应商不支持这类模型（{media_type}）",
     "builtin_model_binding_invalid": "对应模型「{binding}」的格式不正确，应为「厂商/模型名」",
+    "builtin_model_endpoint_unavailable": "这个供应商的 {media_type} 模型不能挂接调用端点「{endpoint}」",
     "comfyui_model_endpoint_missing": "还没有 ComfyUI 端点。先导入 ComfyUI 端点，再添加模型",
     "discovery_not_applicable_builtin": "这个供应商没有模型列表接口，请按模型 ID 添加",
     "builtin_model_official_settings": "「{model}」是官方收录的模型，只能启用或停用，其他设置由官方维护",
@@ -486,7 +487,9 @@ MESSAGES = {
     "ref_too_many_images": "参考图数量 {count} 超出 {model} 上限 {max_count}，已取前 {max_count} 张",
     "ref_payload_too_large": "参考图请求体超出供应商限制，已二次压缩重试",
     "ref_payload_floor_exceeded": "参考图过大或过多，压缩到最低画质仍超出供应商请求体上限，请减少参考图数量或降低分辨率后重试",
-    "ref_sora_single_ref": "Sora 参考生视频暂不支持多图，已降级为单图",
+    # 兼容键：只用于读取历史任务结果，新代码不再产出（改用 ref_single_ref_only）。
+    "ref_sora_single_ref": "该模型只接受一张参考图，已取第一张",
+    "ref_single_ref_only": "{model} 只接受一张参考图，已取第一张",
     "ref_episode_not_found": "集（id={episode}）不存在",
     "ref_not_reference_video_mode": "该集脚本不是参考生视频",
     "ref_unit_not_found": "视频单元「{unit_id}」不存在",
@@ -596,7 +599,7 @@ MESSAGES = {
     # Image Capability
     "image_endpoint_mismatch_no_i2i": "模型 {model} 仅支持文生图（不支持 /v1/images/edits）；请去掉参考图或换一个支持图生图的模型",
     "image_endpoint_mismatch_no_t2i": "模型 {model} 仅支持图生图（必须传参考图）；请提供参考图或换一个支持文生图的模型",
-    "image_seedream_edits_unavailable": "模型 {model} 当前的调用端点不支持带参考图生成；请在模型设置里把调用端点改为「火山方舟 (Seedream)」后重试",
+    "image_seedream_edits_unavailable": "模型 {model} 当前的调用端点不支持带参考图生成；请在模型设置里把调用端点改为「Seedream (1K) / Seedream (2K)」后重试",
     "image_capability_missing_i2i": "{provider}/{model} 不支持图生图；请配置一个支持图生图的默认模型",
     "image_capability_missing_t2i": "{provider}/{model} 不支持文生图；请配置一个支持文生图的默认模型",
     "image_dashscope_4k_t2i_only": "模型 {model} 的 4K 输出仅 wan2.7-image-pro 文生图支持；请改用 2K 或更低分辨率",

@@ -113,9 +113,9 @@ class VideoRequestFacts:
     计价所需的事实是执行模型、``resolution``、请求秒数与 ``generate_audio``。
 
     请求形态能力取自同一次能力合成，请求组装与投影直接读取：``max_reference_images`` 是每请求
-    参考图上限（None = 不裁剪），``text_to_video`` / ``first_frame`` 是无图请求的能力位，
+    参考图上限的生效值（None = 未收录，不裁剪；0 = 不接受），``text_to_video`` / ``first_frame`` 是无图请求的能力位，
     ``voice_consistency`` 是声音一致性档位，``max_reference_audio_count`` 与
-    ``reference_audio_per_image`` 描述参考音频的段数上限与是否逐段挂在参考图上。
+    ``reference_audio_per_image`` 描述参考音频的段数上限（None = 未收录）与是否逐段挂在参考图上。
     """
 
     route: VideoRoute
@@ -135,7 +135,7 @@ class VideoRequestFacts:
     text_to_video: bool
     first_frame: bool
     voice_consistency: VoiceConsistency
-    max_reference_audio_count: int
+    max_reference_audio_count: int | None
     reference_audio_per_image: bool
 
 
@@ -297,11 +297,13 @@ async def evaluate_video_request_facts(
     identity: VideoRequestIdentity,
     resolver: ConfigResolver,
     resolution_override: ResolutionOverride | None = None,
+    builtin_endpoint: str | None = None,
 ) -> VideoRequestFacts | VideoRequestFactsFailure:
     """对一次视频请求求值执行事实；解析不出时返回带类型的失败，不抛出、不回退。
 
     ``resolution_override`` 只供预览未保存的分辨率（见 :class:`ResolutionOverride`）；缺省时按
-    项目已保存配置解析请求分辨率。
+    项目已保存配置解析请求分辨率。``builtin_endpoint`` 传执行侧构造后端时选定的端点，
+    能力、音轨与音频计价按它求值；缺省时读当前配置。
     """
 
     codes = _ROUTE_FAILURE_CODES[route]
@@ -318,7 +320,7 @@ async def evaluate_video_request_facts(
 
     try:
         caps = await resolver.video_capabilities_for_model(
-            provider_id, model_id, project, generation_type=generation_type
+            provider_id, model_id, project, generation_type=generation_type, builtin_endpoint=builtin_endpoint
         )
     except VideoSupportedDurationsError as exc:
         return VideoRequestFactsFailure(codes[exc.kind], (("provider", exc.provider_id), ("model", exc.model_id)))
@@ -384,7 +386,9 @@ async def evaluate_video_request_facts(
 
     voice_consistency: VoiceConsistency = caps.get("voice_consistency") or "soft"
     try:
-        audio_track = await resolver.video_audio_track(provider_id, model_id, generation_type=generation_type)
+        audio_track = await resolver.video_audio_track(
+            provider_id, model_id, generation_type=generation_type, builtin_endpoint=builtin_endpoint
+        )
     except SQLAlchemyError:
         return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
     has_audio_track, audio_switch_controllable = video_audio_model_facts(
@@ -405,10 +409,17 @@ async def evaluate_video_request_facts(
         generate_audio=bool(caps.get("generate_audio")) and has_audio_track,
         has_audio_track=has_audio_track,
         audio_switch_controllable=audio_switch_controllable,
-        max_reference_images=int(max_reference_images) if max_reference_images is not None else None,
+        max_reference_images=_optional_count(max_reference_images),
         text_to_video=bool(caps.get("text_to_video", True)),
         first_frame=bool(caps.get("first_frame")),
         voice_consistency=voice_consistency,
-        max_reference_audio_count=int(caps.get("max_reference_audio_count") or 0),
+        max_reference_audio_count=_optional_count(caps.get("max_reference_audio_count", 0)),
         reference_audio_per_image=bool(caps.get("reference_audio_per_image")),
     )
+
+
+def _optional_count(value: object) -> int | None:
+    """能力 dict 里的数量上限：``None`` 为未收录，其余按整数读（读不出时按 0，即不接受）。"""
+    if value is None:
+        return None
+    return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0

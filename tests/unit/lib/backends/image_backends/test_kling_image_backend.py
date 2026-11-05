@@ -168,12 +168,13 @@ class TestPayloadBuilding:
         # 纯 base64，无 data URI 前缀
         assert all(isinstance(u, str) and u and not u.startswith("data:") for u in payload["image"])
 
-    def test_reference_over_limit_truncated(self, tmp_path):
+    def test_channel_sends_every_reference_without_a_model_name_limit(self, tmp_path):
         refs = [_ref(tmp_path, f"r{i}.png") for i in range(12)]
         backend = _jwt_backend()
         payload = backend._build_payload(_request(tmp_path, reference_images=refs))
-        # o1 上限 10 张，超出截断；声明的上限即实际下传张数，编排层按它裁剪后编号。
-        assert len(payload["image"]) == asyncio.run(backend.reference_image_limit()) == 10
+        # 各图像模型的参考图上限记在条目上，由编排层按生效上限裁剪；通道不按型号名截断。
+        assert len(payload["image"]) == 12
+        assert asyncio.run(backend.reference_image_limit()) is None
 
     def test_missing_reference_raises(self, tmp_path):
         bad = ReferenceImage(path=str(tmp_path / "nope.png"))

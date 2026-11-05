@@ -344,8 +344,9 @@ export interface VideoCapabilities {
   /** 型号声明的时长全集，不随约束上下文变化；收窄结果见 duration_constraints。 */
   supported_durations: number[];
   max_duration: number;
-  max_reference_images: number;
-  /** 生效值（系统判定 ⊕ 用户覆盖），与执行层注入 backend 的能力同源。 */
+  /** 参考图上限的生效值（模型条目与调用通道两侧求值 ⊕ 用户覆盖）：null 为未收录，0 为不接受参考图。 */
+  max_reference_images: number | null;
+  /** 生效值（模型条目与调用通道两侧求值 ⊕ 用户覆盖），与执行层注入 backend 的能力同源。 */
   first_frame: boolean;
   last_frame: boolean;
   source: "registry" | "custom";

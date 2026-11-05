@@ -11,13 +11,12 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Buffer, Callable
-from dataclasses import replace
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, ClassVar
 
 from PIL import Image
 
-from arcreel_catalog_core import CatalogEntry, normalize_model_name
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
@@ -46,12 +45,7 @@ from lib.backends.gemini_shared import (
 from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import (
-    UNRECOGNIZED_MODEL_CAPABILITIES,
-    EntryBoundCapabilities,
-    capabilities_by_names,
-    capability_names,
-)
+from lib.backends.video_backends.name_family import EntryBoundCapabilities
 from lib.billing.metering import Usage
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
@@ -67,29 +61,17 @@ _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 #: 未配置 base_url 时 google-genai 发往的 AI Studio 域名（SDK 缺省值），续跑回放据此比对提交域名。
 _AISTUDIO_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/"
 
-# 官方声明音轨可控的 Veo 型号（即 Vertex 目录）：`_create_task` 只在 backend_type == "vertex"
-# 时下发 generate_audio，AI Studio 的请求没有这个字段。只决定能力声明，计费跟随实际请求。两家目录的 model 命名不重叠，一致性由
-# tests/unit/lib/backends/video_backends/test_video_backend_capabilities.py 的音轨立场守卫锁定（新增型号漏登记会在那里暴露）。
-_AUDIO_SWITCH_MODELS: frozenset[str] = frozenset(
-    {
-        "veo-3.1-generate-001",
-        "veo-3.1-fast-generate-001",
-    }
-)
-
-
-def _is_veo_3_1(name: str) -> bool:
-    """名字属于 Veo 3.1 系列（含 fast / lite 与日期、preview 变体）；中转命名空间与点号写法一并认。"""
-    return normalize_model_name(name).startswith("veo-3-1-")
-
 
 class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """Gemini (Veo) 视频生成后端。"""
 
+    audio_track: ClassVar[VideoAudioMode] = VideoAudioMode.ALWAYS_ON
+    default_backend_type: ClassVar[str] = "aistudio"
+
     def __init__(
         self,
         *,
-        backend_type: str = "aistudio",
+        backend_type: str | None = None,
         api_key: str | None = None,
         rate_limiter: RateLimiter | None = None,
         video_model: str | None = None,
@@ -102,7 +84,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
         self._types = _types
         self._rate_limiter = rate_limiter or get_shared_rate_limiter()
-        self._backend_type = backend_type.strip().lower()
+        self._backend_type = (backend_type or self.default_backend_type).strip().lower()
         self._credentials = None
         self._project_id = None
         self._api_key: str | None = None
@@ -183,35 +165,19 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             audio=request.generate_audio,
         )
 
-    @staticmethod
-    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """按模型名纯计算 caps —— 不构造 SDK client（无需 api_key）。``entry`` 是模型对应的条目。
-
-        Veo 官方文档（docs/api-docs/providers/gemini-aistudio.md）把 Image-to-video 与 Reference images
-        列为并列模式。Veo 3.1 系列的首帧/尾帧/参考图三维一致，按名字族认定；其余名字取 name_family 的
-        统一回落。instance property 委托至此，保持 backend 为单一真相源。
-
-        音轨形态按对应条目的名字分派：Veo 成片恒带音轨，只有 Vertex 的请求带 ``generate_audio`` 开关
-        （见 ``_create_task``），AI Studio 的不带、开关无处可下发。registry 名 ``gemini`` 同时服务
-        gemini-vertex 与 gemini-aistudio，静态查询按两家互不重叠的条目名字判定；无对应条目时回落 API 名，
-        未登记的 Veo model 保守按「有音轨、无开关」声明。
-        """
-        # 显式绑定优先于 API 名；实际是否下发开关仍由 backend_type 决定，AI Studio 不会因此发出静音请求。
-        names = set(capability_names(model, entry))
-        audio_track = VideoAudioMode.CONTROLLABLE if names & _AUDIO_SWITCH_MODELS else VideoAudioMode.ALWAYS_ON
-
-        def match(name: str) -> VideoCapabilities | None:
-            if not _is_veo_3_1(name):
-                return None
-            return VideoCapabilities(last_frame=True, max_reference_images=3, audio_track=audio_track)
-
-        return capabilities_by_names(
-            model, match, fallback=replace(UNRECOGNIZED_MODEL_CAPABILITIES, audio_track=audio_track), entry=entry
-        )
+    @classmethod
+    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
+        """AI Studio 不带音轨开关；Vertex 调用端点可下发 generate_audio。"""
+        return VideoCapabilities(last_frame=True, max_reference_images=None, audio_track=cls.audio_track)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._video_model, self._catalog_entry)
+        caps = self.video_capabilities_for_model(self._video_model)
+        if self._backend_type == "vertex":
+            from dataclasses import replace
+
+            return replace(caps, audio_track=VideoAudioMode.CONTROLLABLE)
+        return caps
 
     @property
     def _request_base_url(self) -> str | None:
@@ -572,3 +538,10 @@ def _is_gemini_not_found(exc: BaseException) -> bool:
     from google.genai import errors as genai_errors
 
     return isinstance(exc, genai_errors.APIError) and exc.code == 404
+
+
+class VertexVideoBackend(GeminiVideoBackend):
+    """以 Vertex 服务账号调用 Veo，可控制音轨。"""
+
+    audio_track = VideoAudioMode.CONTROLLABLE
+    default_backend_type = "vertex"

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lib.backends.image_capabilities import custom_image_model_capabilities
+from arcreel_market_core.endpoint_definition import COMFYUI_KIND
+from lib.backends.image_capabilities import custom_image_model_capabilities, entry_reference_limit
+from lib.backends.video_capabilities import entry_video_facts
 from lib.custom_provider.backends import (
     CustomAudioBackend,
     CustomImageBackend,
@@ -32,9 +34,9 @@ def create_custom_backend(
 ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend:
     """按 endpoint 查 ENDPOINT_REGISTRY 并构造 Backend。
 
-    视频后端额外注入生效能力（endpoint spec 系统判定 ⊕ 模型级用户覆盖），执行层据此门控，
+    视频后端额外注入生效能力（endpoint spec 系统判定与模型条目两侧求值 ⊕ 模型级用户覆盖），执行层据此门控，
     不直接读被包装 backend 的声明。图片后端注入模型事实一侧的文生图 / 图生图（条目 ⊕ 能力覆盖，
-    ComfyUI 端点不加约束），执行层取它与通道声明的交集。
+    ComfyUI 端点不加约束）与条目的参考图上限，执行层取它们与通道声明两侧求值的结果。
 
     Args:
         provider: 自定义供应商 ORM 对象（需 base_url / api_key / provider_id 属性）
@@ -61,15 +63,21 @@ def create_custom_backend(
         # 一并记住 endpoint 与路径覆盖：两者都是 backend 构造的真正输入粒度，已提交任务的续跑
         # 据此比对协议是否已被换掉（docs/adr/0054、docs/adr/0101）。通道能力与参考图槽位是否接受素材引用都按
         # 模型对应的条目认定（条目绑定优先），与读侧合成、内置供应商同一判定；请求里仍发 model_id。
+        entry = model_entry(model_id, spec.media_type, entry_binding)
+        # 档位查询在协议 backend 的档位感知声明上与同一份条目事实求值；ComfyUI 端点不读条目。
+        entry_facts = None if spec.kind == COMFYUI_KIND else entry_video_facts(entry)
         return (
             backend.with_endpoint(endpoint, path_overrides=paths)
-            .with_video_capabilities(merged, overrides=applied)
-            .with_catalog_entry(model_entry(model_id, spec.media_type, entry_binding))
+            .with_video_capabilities(merged, overrides=applied, entry_facts=entry_facts)
+            .with_catalog_entry(entry)
         )
     if isinstance(backend, CustomImageBackend):
-        return backend.with_model_capabilities(
+        return backend.with_model_facts(
             custom_image_model_capabilities(
                 model_id, overrides=capability_overrides, endpoint_kind=spec.kind, entry_binding=entry_binding
-            )
+            ),
+            entry_reference_limit=entry_reference_limit(
+                model_id, builtin_provider=None, endpoint_kind=spec.kind, entry_binding=entry_binding
+            ),
         )
     return backend

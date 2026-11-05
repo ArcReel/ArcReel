@@ -28,9 +28,11 @@ from lib.app_version import PYPROJECT_PATH, load_app_version
 from lib.backends.audio_backends.base import AudioCapability
 from lib.backends.generation_type_buckets import (
     BUCKETS_BY_MEDIA_TYPE,
+    BucketDimension,
+    BucketFit,
     GenerationTypeBucket,
-    builtin_model_buckets,
-    custom_model_buckets,
+    builtin_model_bucket_fit,
+    custom_model_bucket_fit,
 )
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.catalog import query as catalog
@@ -165,13 +167,17 @@ class _ModelCandidate:
 
     option: str  # "provider_id/model_id"
     media_type: str
-    buckets: frozenset[GenerationTypeBucket]
+    fit: BucketFit  # 各任务类型桶的判定，连同不进桶的原因
     display_name: str  # 按请求语言成文的模型名
     entry: str | None = None  # 所对应条目的引用（「模型厂商/官方模型名」）；对应不上条目时为 None
 
     @property
     def provider(self) -> str:
         return self.option.split("/", 1)[0]
+
+    @property
+    def buckets(self) -> frozenset[GenerationTypeBucket]:
+        return self.fit.buckets
 
 
 @dataclass(frozen=True)
@@ -213,7 +219,7 @@ async def _enumerate_candidates(
                 _ModelCandidate(
                     option=f"{provider_id}/{model_id}",
                     media_type=model_info.media_type,
-                    buckets=builtin_model_buckets(provider_id, model_id, model_info),
+                    fit=builtin_model_bucket_fit(provider_id, model_id, model_info),
                     display_name=model_info.display_name,
                     entry=entry.key.ref if entry is not None else None,
                 )
@@ -242,7 +248,7 @@ async def _enumerate_candidates(
                 _ModelCandidate(
                     option=f"{pid}/{model.model_id}",
                     media_type=endpoint_spec.media_type,
-                    buckets=custom_model_buckets(
+                    fit=custom_model_bucket_fit(
                         endpoint=model.endpoint,
                         model_id=model.model_id,
                         capability_overrides=model.capability_overrides,
@@ -429,11 +435,21 @@ async def _build_options(svc: ConfigService, session: AsyncSession, locale: str 
 # ---------------------------------------------------------------------------
 
 
+class FilteredCandidate(BaseModel):
+    """默认层里有、某个任务类型桶因能力不满足而没有列出的模型。"""
+
+    option: str  # "provider_id/model_id"
+    # 不满足的能力维度，键与能力接口同名；为空表示判定不出（调用端点已下线、调用通道没有声明能力）。
+    unmet: list[BucketDimension]
+
+
 class MediaCandidates(BaseModel):
-    """单一 media_type 的候选：默认层全量 + 各任务类型桶过滤后的子集。"""
+    """单一 media_type 的候选：默认层全量 + 各任务类型桶过滤后的子集，以及各桶滤掉的模型与原因。"""
 
     default: list[str]
     buckets: dict[GenerationTypeBucket, list[str]]
+    # 只收默认层里的模型：停用、已下线或低于最低应用版本的模型不在默认层，也就不在这里。
+    filtered: dict[GenerationTypeBucket, list[FilteredCandidate]]
 
 
 class ModelCandidatesResponse(BaseModel):
@@ -574,7 +590,8 @@ async def get_model_candidates(
     """任务类型桶下拉的候选数据源：默认层全量 + 每个任务类型桶按能力过滤后的模型列表。
 
     默认层不过滤 —— 默认层不承诺能力，能力不满足由解析闸报错兜底；只有桶层承诺「配进去的
-    组合执行得了」，故按桶过滤。
+    组合执行得了」，故按桶过滤。被某个桶滤掉的默认层模型连同不满足的能力维度列在 ``filtered``，原因与进桶判定
+    同一个求值结果（:class:`BucketFit`）。
 
     另带引用处的下线提示（``lifecycle``），一键切换的目标从同一份候选里挑。设置与项目里引用了清单之外的模型时，
     按被引用的值对应本地保留的条目补上提示（:func:`_unlisted_references`）。
@@ -588,6 +605,14 @@ async def get_model_candidates(
         media[media_type] = MediaCandidates(
             default=[c.option for c in same_media],
             buckets={bucket: [c.option for c in same_media if bucket in c.buckets] for bucket in buckets},
+            filtered={
+                bucket: [
+                    FilteredCandidate(option=c.option, unmet=list(c.fit.unmet[bucket]))
+                    for c in same_media
+                    if bucket in c.fit.unmet
+                ]
+                for bucket in buckets
+            },
         )
 
     return ModelCandidatesResponse(

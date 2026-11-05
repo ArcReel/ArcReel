@@ -346,6 +346,7 @@ MESSAGES = {
     "builtin_model_media_type_required": 'Không xác định được loại của mô hình "{model}". Hãy chọn loại mô hình rồi thử lại',
     "builtin_model_media_type_unsupported": "Nhà cung cấp này không hỗ trợ loại mô hình này ({media_type})",
     "builtin_model_binding_invalid": 'Mô hình tương ứng "{binding}" sai định dạng, cần có dạng "nhà-sản-xuất/tên-mô-hình"',
+    "builtin_model_endpoint_unavailable": 'Mô hình {media_type} của nhà cung cấp này không thể dùng endpoint gọi "{endpoint}"',
     "comfyui_model_endpoint_missing": "Chưa có endpoint ComfyUI nào. Hãy nhập một endpoint ComfyUI rồi thêm mô hình",
     "discovery_not_applicable_builtin": "Nhà cung cấp này không có API danh sách mô hình. Hãy thêm mô hình theo ID mô hình",
     "builtin_model_official_settings": '"{model}" là mô hình được liệt kê chính thức, chỉ có thể bật hoặc tắt; các thiết lập khác do phía chính thức duy trì',
@@ -517,7 +518,9 @@ MESSAGES = {
     "ref_too_many_images": "Số lượng ảnh tham chiếu {count} vượt giới hạn {max_count} của {model}, đã giữ {max_count} ảnh đầu tiên",
     "ref_payload_too_large": "Dữ liệu ảnh tham chiếu vượt giới hạn của nhà cung cấp, đã thử lại với mức nén bổ sung",
     "ref_payload_floor_exceeded": "Ảnh tham chiếu quá lớn hoặc quá nhiều; ngay cả khi nén ở mức chất lượng thấp nhất vẫn vượt giới hạn kích thước yêu cầu của nhà cung cấp. Vui lòng giảm số lượng ảnh tham chiếu hoặc độ phân giải rồi thử lại",
-    "ref_sora_single_ref": "Chế độ tham chiếu Sora hiện không hỗ trợ nhiều ảnh, đã hạ về một ảnh",
+    # 兼容键：只用于读取历史任务结果，新代码不再产出（改用 ref_single_ref_only）。
+    "ref_sora_single_ref": "Mô hình này chỉ nhận một ảnh tham chiếu, đã dùng ảnh đầu tiên",
+    "ref_single_ref_only": "{model} chỉ nhận một ảnh tham chiếu, đã dùng ảnh đầu tiên",
     "ref_episode_not_found": "Không tìm thấy tập (id={episode})",
     "ref_not_reference_video_mode": "Kịch bản của tập này không ở chế độ video tham chiếu",
     "ref_unit_not_found": "Không tìm thấy đơn vị video '{unit_id}'",
@@ -659,7 +662,7 @@ MESSAGES = {
     # Image Capability
     "image_endpoint_mismatch_no_i2i": "Mô hình {model} chỉ hỗ trợ text-to-image (không có /v1/images/edits); hãy bỏ ảnh tham chiếu hoặc chọn mô hình hỗ trợ chỉnh sửa ảnh",
     "image_endpoint_mismatch_no_t2i": "Mô hình {model} chỉ hỗ trợ image-to-image (cần ảnh tham chiếu); hãy cung cấp ảnh tham chiếu hoặc chọn mô hình hỗ trợ text-to-image",
-    "image_seedream_edits_unavailable": "Endpoint gọi hiện tại của mô hình {model} không hỗ trợ tạo ảnh có ảnh tham chiếu; hãy đổi thành «Volcengine Ark (Seedream)» trong cài đặt mô hình rồi thử lại",
+    "image_seedream_edits_unavailable": "Endpoint gọi hiện tại của mô hình {model} không hỗ trợ tạo ảnh có ảnh tham chiếu; hãy đổi thành «Seedream (1K) / Seedream (2K)» trong cài đặt mô hình rồi thử lại",
     "image_capability_missing_i2i": "{provider}/{model} không hỗ trợ image-to-image; hãy cấu hình mô hình mặc định có hỗ trợ chỉnh sửa ảnh",
     "image_capability_missing_t2i": "{provider}/{model} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
     "image_dashscope_4k_t2i_only": "Mô hình {model}: đầu ra 4K chỉ được wan2.7-image-pro hỗ trợ cho text-to-image; hãy dùng 2K hoặc thấp hơn",

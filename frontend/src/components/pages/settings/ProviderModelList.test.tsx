@@ -30,11 +30,12 @@ function detailOf(model: ProviderModelItem): ProviderModelDetail {
     provider_multiplier: 1,
     entry: null,
     entry_binding: null,
-    capabilities: { media_type: model.media_type, editable: [], base: {}, overrides: {}, effective: {} },
+    capabilities: { media_type: model.media_type, editable: [], displayed: [], base: {}, overrides: {}, effective: {} },
     endpoint: null,
     resolution: null,
     path_overrides: null,
     requests: [],
+    endpoint_options: [],
   };
 }
 
@@ -318,11 +319,12 @@ describe("ProviderModelList", () => {
       provider_multiplier: 1,
       entry: null,
       entry_binding: null,
-      capabilities: { media_type: "text" as const, editable: [], base: {}, overrides: {}, effective: {} },
+      capabilities: { media_type: "text" as const, editable: [], displayed: [], base: {}, overrides: {}, effective: {} },
       endpoint: null,
       resolution: null,
       path_overrides: null,
       requests: [],
+      endpoint_options: [],
     };
     vi.spyOn(API, "getProviderModel").mockResolvedValue(detail);
     const update = vi

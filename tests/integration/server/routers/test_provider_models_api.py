@@ -249,6 +249,28 @@ def _add_user_model(client: TestClient, provider_id: str, model_id: str, media_t
     assert resp.status_code == 201
 
 
+@pytest.mark.parametrize(
+    ("provider_id", "model_id", "expected"),
+    [
+        ("ark", "doubao-seedream-4-5-251128", 14),  # 条目记 14 张，通道不限
+        ("grok", "grok-imagine-image", 5),  # 条目未收录，通道一次收 5 张
+        ("agnes", "agnes-image-2.5-flash", None),  # 两侧都没有声明：未收录
+    ],
+)
+def test_official_image_models_show_the_effective_reference_limit(
+    models_client: TestClient, provider_id: str, model_id: str, expected: int | None
+) -> None:
+    caps = models_client.get(f"/api/v1/providers/{provider_id}/models/{model_id}").json()["capabilities"]
+    assert caps["editable"] == []
+    assert caps["effective"]["max_reference_images"] == expected
+
+
+def test_capabilities_list_every_dimension_to_display_in_interface_order(models_client: TestClient) -> None:
+    caps = models_client.get("/api/v1/providers/ark/models/doubao-seedream-4-5-251128").json()["capabilities"]
+
+    assert caps["displayed"] == ["text_to_image", "image_to_image", "max_reference_images"]
+
+
 def test_user_added_video_model_overrides_take_effect_at_runtime(models_client: TestClient) -> None:
     from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 
@@ -819,6 +841,80 @@ async def test_custom_add_by_id_infers_endpoint_and_takes_default(
     )
 
 
+def test_builtin_user_added_model_prefills_and_switches_its_endpoint(models_client: TestClient) -> None:
+    """内置供应商下添加的模型按名字预填调用端点，候选只有这个供应商的端点；换端点后调用通道随之改变。"""
+    from lib.backends.backend_assembly.specs import declared_builtin_video_capabilities
+
+    _add_user_model(models_client, "minimax", "MiniMax-H3-Preview", "video")
+    url = "/api/v1/providers/minimax/models/MiniMax-H3-Preview"
+    detail = models_client.get(url).json()
+    assert detail["endpoint"] == "minimax-h3"
+    assert [option["key"] for option in detail["endpoint_options"]] == [
+        "minimax-hailuo-v1",
+        "minimax-hailuo-v1-fast",
+        "minimax-s2v-01",
+        "minimax-h3",
+    ]
+    assert declared_builtin_video_capabilities("minimax", "MiniMax-H3-Preview").text_to_video is True
+
+    rejected = models_client.patch(url, json={"endpoint": "ark-seedance-2"})
+    assert rejected.status_code == 422
+    assert "ark-seedance-2" in rejected.json()["detail"]
+
+    switched = models_client.patch(url, json={"endpoint": "minimax-hailuo-v1-fast"})
+    assert switched.status_code == 200
+    assert switched.json()["endpoint"] == "minimax-hailuo-v1-fast"
+    # Fast 只接受图生视频
+    assert switched.json()["capabilities"]["base"]["text_to_video"] is False
+    assert declared_builtin_video_capabilities("minimax", "MiniMax-H3-Preview").text_to_video is False
+
+
+def test_switching_the_endpoint_alone_clears_overrides_checked_against_the_old_one(models_client: TestClient) -> None:
+    """能力覆盖按端点校验后保存；只换端点不一并提交覆盖时，旧端点下的覆盖不套到新端点上。"""
+    _add_user_model(models_client, "ark", "my-switch-ep", "video")
+    url = "/api/v1/providers/ark/models/my-switch-ep"
+    assert models_client.patch(url, json={"endpoint": "ark-seedance-1"}).status_code == 200
+    overridden = models_client.patch(url, json={"capability_overrides": {"durations": [5]}})
+    assert overridden.json()["capabilities"]["effective"]["durations"] == [5]
+
+    same = models_client.patch(url, json={"endpoint": "ark-seedance-1"})
+    assert same.json()["capabilities"]["effective"]["durations"] == [5]
+
+    switched = models_client.patch(url, json={"endpoint": "ark-seedance-2"}).json()
+    assert switched["endpoint"] == "ark-seedance-2"
+    assert switched["capabilities"]["effective"]["durations"] == switched["capabilities"]["base"]["durations"]
+
+    resubmitted = models_client.patch(
+        url, json={"endpoint": "ark-seedance-1", "capability_overrides": {"durations": [5]}}
+    ).json()
+    assert resubmitted["capabilities"]["effective"]["durations"] == [5]
+
+
+def test_builtin_add_rejects_an_endpoint_of_another_provider(models_client: TestClient) -> None:
+    resp = models_client.post(
+        "/api/v1/providers/grok/models",
+        json={"model_id": "grok-imagine-video-2", "media_type": "video", "endpoint": "openai-video"},
+    )
+    assert resp.status_code == 422
+    accepted = models_client.post(
+        "/api/v1/providers/grok/models",
+        json={"model_id": "grok-imagine-video-2", "media_type": "video"},
+    )
+    assert accepted.status_code == 201
+    detail = models_client.get("/api/v1/providers/grok/models/grok-imagine-video-2").json()
+    assert (detail["endpoint"], [o["key"] for o in detail["endpoint_options"]]) == (
+        "grok-video-classic",
+        ["grok-video-classic", "grok-video-mixed"],
+    )
+
+
+def test_official_builtin_models_have_no_endpoint_setting(models_client: TestClient) -> None:
+    detail = models_client.get("/api/v1/providers/minimax/models/MiniMax-H3").json()
+    assert (detail["endpoint"], detail["endpoint_options"]) == (None, [])
+    resp = models_client.patch("/api/v1/providers/minimax/models/MiniMax-H3", json={"endpoint": "minimax-h3"})
+    assert resp.status_code == 422
+
+
 # 供应商模型 Sheet：关联其他模型、手动填写模型信息
 # ---------------------------------------------------------------------------
 
@@ -907,7 +1003,7 @@ async def test_manual_entry_rejects_a_name_the_catalog_already_has(
     models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     _, url = await _house_model(db_factory)
-    clash = {**_NEW_IMAGE, "maker": "my-relay", "name": "gemini-3.1-flash-image-preview"}
+    clash = {**_NEW_IMAGE, "maker": "my-relay", "name": "gemini-3.1-flash-image"}
     assert catalog.find_entry(clash["name"], media_type="image") is not None
 
     resp = models_client.patch(url, json={"new_entry": clash})
@@ -923,7 +1019,7 @@ async def test_link_to_another_entry_then_unlink(
     models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     _, url = await _house_model(db_factory)
-    target = catalog.find_entry("gemini-3.1-flash-image-preview", media_type="image")
+    target = catalog.find_entry("gemini-3.1-flash-image", media_type="image")
     assert target is not None
 
     resp = models_client.patch(url, json={"entry_binding": target.key.ref})
@@ -957,7 +1053,7 @@ async def test_link_is_validated_against_the_catalog_and_the_media_type(
     assert models_client.get(url).json()["entry_binding"] is None
 
     # 已关联的模型换到另一种媒体类型的调用端点：原绑定不再成立，要求同一次保存里重新关联或解除
-    image_entry = catalog.find_entry("gemini-3.1-flash-image-preview", media_type="image")
+    image_entry = catalog.find_entry("gemini-3.1-flash-image", media_type="image")
     assert image_entry is not None
     assert models_client.patch(url, json={"entry_binding": image_entry.key.ref}).status_code == 200
     switched = models_client.patch(url, json={"endpoint": "openai-chat"})

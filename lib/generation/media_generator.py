@@ -712,8 +712,6 @@ class MediaGenerator:
         # 先归一化 reference_images，PIL 等不支持的类型在此被丢弃，
         # 因此 capability 判定要基于归一化后的结果，避免「传了无效引用图」被
         # 误判为 I2I 后又落到 T2I 调用，造成 image_capability_missing_i2i 误报。
-        from lib.backends.image_backends.base import ImageCapability, ImageCapabilityError
-
         ref_images: list[ReferenceImage] = []
         if reference_images:
             for ref in reference_images:
@@ -723,32 +721,15 @@ class MediaGenerator:
                     ref_images.append(ReferenceImage(path=str(ref)))
                 # PIL Image 等不支持的类型忽略
 
-        # Capability gating：调用通道实现了、且模型条目接受的才放行，与任务类型桶的候选同一个结果
-        # （lib.backends.image_capabilities）。上层 resolver 选桶时已按同一口径筛过，这里按实际请求形态把关。
-        from lib.backends.image_capabilities import effective_image_capabilities
-        from lib.custom_provider import is_custom_provider
-        from lib.custom_provider.backends import CustomImageBackend
+        # Capability gating：调用通道实现了、且模型条目接受的才放行，与任务类型桶的候选同一个结果；参考图上限与
+        # 编排层裁剪读同一个生效值（lib.backends.image_capabilities）。上层 resolver 选桶时已按同一口径筛过，
+        # 这里按实际请求形态把关。
+        from lib.backends.image_capabilities import gate_image_request
 
         # 成对不变量保证 backend 非 None 时 provider_id 亦非 None。
-        provider_id = cast(str, self._image_provider_id)
-        if isinstance(self._image_backend, CustomImageBackend):
-            # 自定义供应商：工厂已按模型行注入模型事实一侧（条目 ⊕ 能力覆盖，ComfyUI 端点不加约束）。
-            available = self._image_backend.effective_capabilities
-        else:
-            available = effective_image_capabilities(
-                self._image_backend.capabilities,
-                model_id=self._image_backend.model,
-                builtin_provider=None if is_custom_provider(provider_id) else provider_id,
-            )
-        needed = ImageCapability.IMAGE_TO_IMAGE if ref_images else ImageCapability.TEXT_TO_IMAGE
-        if needed not in available:
-            raise ImageCapabilityError(
-                "image_capability_missing_i2i"
-                if needed == ImageCapability.IMAGE_TO_IMAGE
-                else "image_capability_missing_t2i",
-                provider=self._image_backend.name,
-                model=self._image_backend.model,
-            )
+        await gate_image_request(
+            self._image_backend, provider_id=cast(str, self._image_provider_id), reference_count=len(ref_images)
+        )
 
         # 2. 记账括号：进入落 pending，成功以 call.success(result) 递交 backend 结果对象，
         #    Exception 自动翻 failed 后重抛，CancelledError 结算 cancelled 后重抛。
@@ -1046,7 +1027,7 @@ class MediaGenerator:
 
         # 能力校验与槽位组装先于记账括号：能力不被支持时硬失败要"不扣费"，
         # 在括号内抛虽也不结算，却会留一条 failed ApiCall 行；两者均无副作用，前置最干净。
-        from lib.backends.backend_assembly.specs import apply_user_added_video_overrides
+        from lib.backends.backend_assembly.specs import effective_builtin_video_capabilities
         from lib.backends.video_frame_slots import (
             gate_video_request,
             plan_frame_slots,
@@ -1062,10 +1043,10 @@ class MediaGenerator:
             service_tier=version_metadata.get("service_tier", "default"),
             resolution=resolution,
         )
-        # 内置供应商下用户添加的模型：在档位感知基底上叠加通道事实覆盖，与规划层同一口径（docs/adr/0104）。
-        # 自定义供应商的覆盖已由 CustomVideoBackend 自己叠加。
+        # 内置供应商：档位感知的通道声明与模型条目两侧求值，用户添加的模型再叠加能力覆盖，与规划层同一口径
+        # （docs/adr/0104）。自定义供应商的生效能力已由 CustomVideoBackend 按同一规则求得。
         if self._video_provider_id is not None and not is_custom_provider(self._video_provider_id):
-            video_caps = apply_user_added_video_overrides(video_caps, self._video_provider_id, model_name)
+            video_caps = effective_builtin_video_capabilities(video_caps, self._video_provider_id, model_name)
         # 总时长校验需要读音频元数据，只能在这层（拿得到文件路径）探测好再传给纯函数的
         # gate_video_request；探测失败（随包 ffmpeg 不可用等）按 None 传入，由其按既有降级口径跳过
         # 该项校验，不阻断请求。仅当 caps 声明了总时长约束才探测——未声明该约束的后端

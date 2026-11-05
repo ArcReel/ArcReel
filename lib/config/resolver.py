@@ -26,6 +26,7 @@ from lib.backends.backend_assembly.specs import (
     builtin_effective_generate_audio_for_model,
     builtin_video_capabilities_for_model,
 )
+from lib.backends.input_limits import InputLimit
 from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
 from lib.catalog import builtin_models
 from lib.catalog import query as catalog
@@ -342,7 +343,7 @@ def video_capability_satisfied(
     *,
     generation_type: VideoGenerationType,
     first_frame: bool,
-    max_reference_images: int,
+    max_reference_images: int | None,
     text_to_video: bool = True,
     has_image: bool = True,
 ) -> bool:
@@ -352,14 +353,17 @@ def video_capability_satisfied(
     函数，不各写一份布尔式：下拉挡掉的组合解析层必然也挡，反之亦然。``has_image`` 区分
     i2v 桶内的纯文生与带首帧请求。取标量参数而非
     ``VideoCapabilities``，一是不在 lib.config 层导入 arcreel_market_core.video_backend_contract（分层契约），二是让
-    内置（backend 声明）与自定义供应商（endpoint ⊕ 模型级覆盖的合成）两条来源都能直接喂进来。
+    内置与自定义供应商的生效能力（条目与通道两侧求值 ⊕ 能力覆盖）都能直接喂进来。``max_reference_images`` 是参考图
+    上限的生效值：``None`` 为未收录（接受参考图、不限张数），``0`` 为不接受。
     """
     if generation_type == "i2v":
         return first_frame if has_image else text_to_video
-    return max_reference_images > 0
+    return InputLimit.from_json(max_reference_images).accepts_input
 
 
-def builtin_video_audio_track(provider_id: str, model_id: str, *, generation_type: VideoGenerationType) -> str | None:
+def builtin_video_audio_track(
+    provider_id: str, model_id: str, *, generation_type: VideoGenerationType, builtin_endpoint: str | None = None
+) -> str | None:
     """内置视频 model 在该任务类型桶上的成片音轨形态；无法解析时 None（调用方按「无信号不收紧」处理）。
 
     真相源是 backend 的 ``VideoCapabilities``——backend 是执行期真正构造请求的一方，「请求体里
@@ -377,7 +381,7 @@ def builtin_video_audio_track(provider_id: str, model_id: str, *, generation_typ
     if catalog.get_model(provider_id, model_id, media_type="video") is None:
         return None
     try:
-        caps = builtin_video_capabilities_for_model(provider_id, model_id)
+        caps = builtin_video_capabilities_for_model(provider_id, model_id, endpoint=builtin_endpoint)
     except ValueError:
         return None
     return caps.audio_track_for_route(generation_type).value
@@ -935,12 +939,12 @@ class ConfigResolver:
               "model": str,
               "supported_durations": list[int],    # 来自 model (单一真相源)；ComfyUI 端点上可为空集
               "max_duration": int,                 # max(supported_durations) 派生；空集时为 0
-              "max_reference_images": int,         # backend 声明；custom: 合成后的生效值
-              "first_frame": bool,                 # 生效值（系统判定 ⊕ 用户覆盖），与执行层同源
+              "max_reference_images": int | None,  # 生效值（条目与通道两侧求值 ⊕ 能力覆盖）；None 未收录，0 不接受
+              "first_frame": bool,                 # 生效值（两侧求值 ⊕ 能力覆盖），与执行层同源
               "last_frame": bool,                  # 同上
               "generate_audio": bool,              # backend 默认执行档生效后的计价参数
               "requested_generate_audio": bool,    # 用户在 project.json/全局设置里的无声意图请求值，非计价口径
-              "max_reference_audio_count": int,    # 每请求可携带的参考音频段数上限（backend 声明）
+              "max_reference_audio_count": int | None,  # 每请求参考音频段数上限的生效值；None 未收录
               "reference_audio_per_image": bool,   # 音频是否须逐段挂在具体参考素材项上（backend 声明）
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
@@ -991,7 +995,12 @@ class ConfigResolver:
             ).duration_constraints
 
     async def video_audio_track(
-        self, provider_id: str, model_id: str, *, generation_type: VideoGenerationType
+        self,
+        provider_id: str,
+        model_id: str,
+        *,
+        generation_type: VideoGenerationType,
+        builtin_endpoint: str | None = None,
     ) -> str | None:
         """视频模型在该任务类型桶上的成片音轨形态（``VideoAudioMode`` 的字面量）；没有信号时为 None。
 
@@ -1000,7 +1009,9 @@ class ConfigResolver:
         调用方按「无信号不收紧」处理，引用失效由能力解析报错，这里不重复。
         """
         if not is_custom_provider(provider_id):
-            return builtin_video_audio_track(provider_id, model_id, generation_type=generation_type)
+            return builtin_video_audio_track(
+                provider_id, model_id, generation_type=generation_type, builtin_endpoint=builtin_endpoint
+            )
         from lib.custom_provider.capabilities import (
             overridden_audio_track,
             synthesize_video_capabilities_with_overrides,
@@ -1034,6 +1045,7 @@ class ConfigResolver:
         project: dict | None = None,
         *,
         generation_type: VideoGenerationType | None = None,
+        builtin_endpoint: str | None = None,
     ) -> dict:
         """读取指定 provider/model 的视频能力，不再二次解析 provider。
 
@@ -1048,10 +1060,17 @@ class ConfigResolver:
         声音一致性等二维值按 ``project`` 的生成模式派生；``generation_type`` 显式给定时按该任务类型桶派生
         逐路径的能力位（音轨形态按执行子路径分叉，见 :func:`builtin_video_audio_track`）——
         执行层已知任务落在哪个桶，传进来才能拿到与实际请求同形的结果。
+        ``builtin_endpoint`` 为构造后端时选定的内置调用端点；缺省时读模型当前挂接的端点。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_caps_for_model(
-                svc, session, provider_id, model_id, project, generation_type=generation_type
+                svc,
+                session,
+                provider_id,
+                model_id,
+                project,
+                generation_type=generation_type,
+                builtin_endpoint=builtin_endpoint,
             )
 
     async def video_pricing_generate_audio(
@@ -1396,8 +1415,7 @@ class ConfigResolver:
         """能力闸：校验解析出的模型具备该桶所需能力，不满足直接报错、不静默换模型。
 
         判定经 ``video_capability_satisfied`` 与桶候选下拉（``lib.backends.generation_type_buckets``）共用一份
-        口径：内置模型两维都取 backend ``VideoCapabilities``（与请求构造同源，也是这两维唯一的
-        声明处；目录的模型信息不声明视频能力位）。身份先过
+        口径：两维都取调用通道声明与模型条目两侧求值的生效能力（docs/adr/0104），与执行闸门同一个结果。身份先过
         ``_ensure_video_identity_resolvable``，悬空引用（模型被删 /
         能力被事后修改 / 供应商被删 / endpoint 变更）在此统一报错兜底，写入侧不拦截、不级联清理
         （``docs/adr/0054``）。
@@ -1543,6 +1561,7 @@ class ConfigResolver:
         project: dict | None,
         *,
         generation_type: VideoGenerationType | None = None,
+        builtin_endpoint: str | None = None,
     ) -> dict:
         # 音轨形态按执行子路径分叉（可灵 v3-omni 的多图主体子路径不带音轨开关），故能力解析需要
         # 知道落哪个桶；未显式给定时按项目路线定桶，与 `_resolve_video_capabilities_from_project`
@@ -1630,11 +1649,11 @@ class ConfigResolver:
             if model_info is None:
                 raise ValueError(f"model not found in registry: {provider_id}/{model_id}")
             supported_durations = list(model_info.supported_durations or [])
-            # 视频能力位与参考图上限只在 backend 声明：backend 是执行期真正构造请求的一方，
-            # 也是能力闸（`_ensure_video_bucket_capability`）与桶候选下拉
-            # （`lib.backends.generation_type_buckets`）的口径，展示层与执行层因此严格同源。
+            # 视频能力位与参考图上限取调用通道声明与模型条目两侧求值的生效值，与执行闸门、能力闸
+            # （`_ensure_video_bucket_capability`）与桶候选下拉（`lib.backends.generation_type_buckets`）同一求值规则；
+            # 给出 `builtin_endpoint` 时按构造后端的端点求值，其余读点读模型当前挂接的端点。
             try:
-                builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id)
+                builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id, endpoint=builtin_endpoint)
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
             max_reference_images = builtin_caps.max_reference_images
@@ -1648,7 +1667,9 @@ class ConfigResolver:
             # 路线无音轨的子路径（可灵 v3-omni 多图主体）据此如实派生出 voice_consistency=none。
             has_audio = builtin_caps.audio_track_for_route(generation_type) != "always_off"
             try:
-                default_tier_generates_audio = builtin_effective_generate_audio_for_model(provider_id, model_id)
+                default_tier_generates_audio = builtin_effective_generate_audio_for_model(
+                    provider_id, model_id, endpoint=builtin_endpoint
+                )
             except ValueError as exc:
                 raise ValueError(
                     f"cannot resolve video pricing capabilities for {provider_id}/{model_id}: {exc}"

@@ -75,7 +75,7 @@ class CatalogModel:
     """供应商名下一个模型键在目录中的信息：模型条目的事实，加上这个供应商模型自己的事实。
 
     条目事实：``display_name``、``media_type``、``capabilities``、可选时长与时长约束、
-    ``resolutions``、``max_output_tokens``、``hidden``（条目已下线，不出现在候选里，按当天日期现算）。供应商模型事实：
+    ``resolutions``、``max_output_tokens``、``max_reference_images``（图片与视频的参考图上限，``None`` 为未收录）、``hidden``（条目已下线，不出现在候选里，按当天日期现算）。供应商模型事实：
     ``default``（这个供应商在该媒体类型下的默认模型；已下线时为假）、``api_model_name``（发给供应商的模型名，``None``
     时用模型键）。价格不在这里，经 :func:`provider_model_price` 取。
 
@@ -93,6 +93,7 @@ class CatalogModel:
     hidden: bool = False
     api_model_name: str | None = None
     max_output_tokens: int | None = None
+    max_reference_images: int | None = None
 
 
 @functools.cache
@@ -136,6 +137,7 @@ def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, defaul
     reference_durations: list[int] = []
     resolutions: list[str] = []
     max_output_tokens: int | None = None
+    max_reference_images: int | None = None
     facts = entry.facts
     match facts:
         case TextFacts():
@@ -151,7 +153,9 @@ def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, defaul
             if facts.image_to_image:
                 capabilities.append("image_to_image")
             resolutions = list(facts.resolutions)
+            max_reference_images = facts.max_reference_images
         case VideoFacts():
+            max_reference_images = facts.max_reference_images
             durations = list(facts.durations)
             resolutions = list(facts.resolutions)
             constraints = facts.duration_constraints
@@ -172,6 +176,7 @@ def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, defaul
         resolutions=resolutions,
         api_model_name=None if key == api_model_name else api_model_name,
         max_output_tokens=max_output_tokens,
+        max_reference_images=max_reference_images,
     )
 
 
@@ -209,6 +214,7 @@ class UserAddedModel:
     ``fallback_durations`` 是对应不上条目的视频模型在运行时回落的可选时长（按名字推断的时长预设），由装入方给出。
     ``capability_overrides`` 是用户的能力覆盖（docs/adr/0104），装入方已按媒体类型滤掉不合法的键值：模型事实维度
     在这里整维替换目录信息，通道事实维度经 :func:`user_added_capability_overrides` 交给调用通道一侧合并。
+    ``endpoint`` 是用户为它选的内置调用端点，``None`` 表示没有记下（装配取供应商在这个媒体类型下的默认端点）。
     """
 
     provider_id: str
@@ -218,6 +224,7 @@ class UserAddedModel:
     entry_binding: str | None = None
     fallback_durations: tuple[int, ...] = ()
     capability_overrides: Mapping[str, object] = field(default_factory=dict)
+    endpoint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -234,6 +241,7 @@ class _IndexedModel:
     official: bool
     base_model: CatalogModel | None = None
     capability_overrides: Mapping[str, object] = field(default_factory=dict)
+    endpoint: str | None = None
 
 
 def meets_min_app_version(required: str | None, current: str) -> bool:
@@ -273,6 +281,7 @@ def _official_models(data: CatalogData, provider_id: str, current_version: str) 
             model.multiplier,
             model.api_model_name,
             official=True,
+            endpoint=model.endpoint,
         )
     return models
 
@@ -338,6 +347,7 @@ def _user_added_model(data: CatalogData, user: UserAddedModel) -> _IndexedModel:
         official=False,
         base_model=base,
         capability_overrides=user.capability_overrides,
+        endpoint=user.endpoint,
     )
 
 
@@ -558,6 +568,8 @@ class ProviderModelView:
     capability_overrides: Mapping[str, object] = field(default_factory=dict)
     #: 所对应条目在今天的生命周期；对应不上条目时为可用。
     lifecycle: Lifecycle = AVAILABLE
+    #: 用户添加的模型记下的内置调用端点；官方收录的模型与没有记下端点的为 ``None``。
+    endpoint: str | None = None
 
 
 def provider_models(provider_id: str) -> list[ProviderModelView]:
@@ -577,6 +589,7 @@ def provider_models(provider_id: str) -> list[ProviderModelView]:
             base_model=indexed.base_model or indexed.model,
             capability_overrides=indexed.capability_overrides,
             lifecycle=entry_lifecycle(indexed.entry),
+            endpoint=indexed.endpoint if not indexed.official else None,
         )
         for key, indexed in _indexed_models(provider_id).items()
     ]
@@ -585,11 +598,17 @@ def provider_models(provider_id: str) -> list[ProviderModelView]:
 def user_added_capability_overrides(provider_id: str, model_id: str) -> Mapping[str, object]:
     """内置供应商下用户添加的模型的能力覆盖；官方收录的模型、不在目录中的模型为空。
 
-    模型事实维度已并进 :func:`get_model` 的目录信息；通道事实维度（输入模式、参考上限、音轨形态等）由调用通道
-    一侧的能力声明合并（``lib.backends.backend_assembly.specs.builtin_video_capabilities_for_model``）。
+    模型事实维度已并进 :func:`get_model` 的目录信息；通道事实维度（输入模式、参考上限、音轨形态等）在调用通道
+    的声明与模型条目两侧求值之后整维替换（``lib.backends.backend_assembly.specs.builtin_video_capabilities_for_model``）。
     """
     indexed = _indexed_models(provider_id).get(model_id)
     return indexed.capability_overrides if indexed is not None else {}
+
+
+def provider_model_endpoint(provider_id: str, model_id: str, media_type: str) -> str | None:
+    """内置供应商模型声明或用户选择的调用端点；没有声明、不在目录中或不是这一媒体类型时为 ``None``。"""
+    indexed = _indexed_model(provider_id, model_id, media_type)
+    return indexed.endpoint if indexed is not None else None
 
 
 def default_model(provider_id: str, media_type: str) -> str | None:

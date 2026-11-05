@@ -49,7 +49,7 @@ _CALLS: dict[str, Call] = {
     "agnes-image": lambda tmp_path: AgnesImageBackend(api_key="k", base_url=METADATA_BASE_URL).generate(
         _image(tmp_path)
     ),
-    "dashscope-image": lambda tmp_path: DashScopeImageBackend(api_key="k", base_url=METADATA_BASE_URL).generate(
+    "dashscope-qwen-image": lambda tmp_path: DashScopeImageBackend(api_key="k", base_url=METADATA_BASE_URL).generate(
         _image(tmp_path)
     ),
     "kling-image": lambda tmp_path: KlingImageBackend(
@@ -73,9 +73,9 @@ _CALLS: dict[str, Call] = {
     "dashscope-video-resume": lambda tmp_path: DashScopeVideoBackend(
         api_key="k", base_url=METADATA_BASE_URL
     ).resume_video("job-1", _video(tmp_path)),
-    "vidu-video": lambda tmp_path: ViduVideoBackend(api_key="k", base_url=f"{METADATA_BASE_URL}/ent/v2").generate(
-        _video(tmp_path)
-    ),
+    "vidu-video-q3-turbo": lambda tmp_path: ViduVideoBackend(
+        api_key="k", base_url=f"{METADATA_BASE_URL}/ent/v2"
+    ).generate(_video(tmp_path)),
 }
 
 

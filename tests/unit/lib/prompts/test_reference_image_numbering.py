@@ -89,9 +89,9 @@ class TestClampReferenceImages:
         clamp = clamp_reference_images(references, 7, model="viduq2")
         assert (clamp.kept, clamp.total, clamp.clamped) == (7, 8, True)
 
-    def test_limit_zero_means_the_backend_does_not_clamp(self):
+    def test_no_recorded_limit_keeps_every_reference(self):
         references = [_sheet("character", f"角色{i}") for i in range(20)]
-        clamp = clamp_reference_images(references, 0, model="gemini-image")
+        clamp = clamp_reference_images(references, None, model="gemini-image")
         assert (clamp.kept, clamp.clamped, clamp.warning()) == (20, False, None)
 
     def test_sequence_within_the_limit_is_untouched(self):

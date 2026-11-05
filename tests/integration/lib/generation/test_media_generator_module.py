@@ -41,6 +41,9 @@ class _FakeImageBackend:
     model = "img-model"
     capabilities: ClassVar[set[ImageCapability]] = {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
+    async def reference_image_limit(self) -> int | None:
+        return None
+
     def __init__(self):
         self.calls = []
 
@@ -1281,9 +1284,17 @@ class TestMediaGenerator:
         """在内置供应商下装入一个用户添加的视频模型（模型键与 _FakeVideoBackend.model 一致），按参数给能力覆盖。"""
         from lib.catalog import query as catalog
 
-        def install(provider_id: str, overrides: dict[str, object]) -> None:
+        def install(provider_id: str, overrides: dict[str, object], *, entry_binding: str | None = None) -> None:
             catalog.install_user_added_models(
-                [catalog.UserAddedModel(provider_id, _FakeVideoBackend.model, "video", capability_overrides=overrides)]
+                [
+                    catalog.UserAddedModel(
+                        provider_id,
+                        _FakeVideoBackend.model,
+                        "video",
+                        entry_binding=entry_binding,
+                        capability_overrides=overrides,
+                    )
+                ]
             )
 
         yield install
@@ -1358,14 +1369,15 @@ class TestMediaGenerator:
         assert gen.ledger.started == []
 
     async def test_user_override_keeps_tier_aware_base(self, tmp_path, user_added_video_model):
-        """覆盖叠在按档位解析的能力上：未覆盖的尾帧仍随档位放行，覆盖的参考图上限同时生效。"""
+        """覆盖叠在按档位解析的能力与条目两侧求值的结果上：未覆盖的尾帧仍随档位放行（条目接受尾帧），
+        覆盖的参考图上限同时生效。"""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         class _TierAwareVideoBackend(_FakeVideoBackend):
             def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None):
                 return VideoCapabilities(last_frame=service_tier == "pro")
 
-        user_added_video_model("kling", {"max_reference_images": 2})
+        user_added_video_model("kling", {"max_reference_images": 2}, entry_binding="kuaishou/kling-v3")
         gen = _build_generator(tmp_path)
         gen._video_provider_id = "kling"
         gen._video_backend = _TierAwareVideoBackend(video_capabilities=VideoCapabilities())
@@ -1475,6 +1487,9 @@ class _ConfigurableImageBackend:
     name = "fake-image"
     model = "img-model"
     capabilities: ClassVar[set[ImageCapability]] = {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
+
+    async def reference_image_limit(self) -> int | None:
+        return None
 
     def __init__(self, fail_413_times: int = 0):
         self.calls = []
@@ -1780,8 +1795,7 @@ class TestReferenceCompressionSeam:
         """以素材引用发出的参考图不读内容、不压缩，在请求、序位与记账输入里都与原图片位置一一对应。"""
         from unittest.mock import MagicMock
 
-        from lib.backends.video_backends.ark import ArkVideoBackend
-        from lib.catalog import query as catalog
+        from lib.backends.video_backends.ark import Seedance2VideoBackend
         from tests.fakes import captured_ark_clients
 
         gen = _build_generator(tmp_path)
@@ -1789,11 +1803,7 @@ class TestReferenceCompressionSeam:
         client.content_generation.tasks.create.return_value = MagicMock(id="cgt-asset")
         client.content_generation.tasks.get.side_effect = RuntimeError("stop after submit")
         with captured_ark_clients("lib.backends.video_backends.ark", client):
-            gen._video_backend = ArkVideoBackend(
-                api_key="TEST-ark-key",
-                model="doubao-seedance-2-0-260128",
-                catalog_entry=catalog.provider_model_entry("ark", "doubao-seedance-2-0-260128", "video"),
-            )
+            gen._video_backend = Seedance2VideoBackend(api_key="TEST-ark-key", model="doubao-seedance-2-0-260128")
         # 一张大到必须压缩的角色图以素材引用发出，场景图照常压缩后内嵌。
         character = _noise_png(gen.project_path, "character.png", 3000, 3000)
         scene = _noise_png(gen.project_path, "scene.png", 3000, 3000)
@@ -2218,8 +2228,8 @@ class TestEntryBoundVideoRequests:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "kuaishou/kling-v2-6"), ("kling-v2-6", None)])
     async def test_kling_720p_audio_follows_the_bound_entry(self, tmp_path, model, binding):
-        """可灵 v2-6 有声只支持 1080P：绑定 v2-6 的不透明 ID 在 720p 档同样发 ``sound=off``。"""
-        gen = self._generator(tmp_path, _custom_video_backend("kling-video", model, binding), "custom-9")
+        """可灵 v2-6 有声只支持 1080P：绑定 v2-6 的不透明 ID 在 720p 档同样不发送有声音轨。"""
+        gen = self._generator(tmp_path, _custom_video_backend("kling-video-pro-audio", model, binding), "custom-9")
 
         with capture_http() as router:
             submit = router.post(url__startswith="https://relay.test/v1/videos/").mock(
@@ -2232,7 +2242,7 @@ class TestEntryBoundVideoRequests:
 
         body = request_json(only_request(submit))
         assert body["model_name"] == model
-        assert body["sound"] == "off"
+        assert "sound" not in body
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "agnes/agnes-video-2.5"), ("agnes-video-2.5", None)])
@@ -2308,8 +2318,8 @@ class TestEntryBoundVideoRequests:
         assert f'name="model"\r\n\r\n{model}'.encode() in request.content
         assert b"1080x1920" in request.content
 
-    def test_gemini_vertex_bound_entry_keeps_the_audio_switch(self):
-        """Vertex 下绑定可控音轨条目的不透明 ID 与官方型号同为可控，未绑定的仍按恒有声保守声明。"""
+    def test_gemini_vertex_endpoint_keeps_the_audio_switch_with_or_without_a_bound_entry(self):
+        """Vertex 端点声明音轨可控，绑定条目、官方型号与未收录的模型按同一规则求值。"""
         from lib.catalog import query as catalog
         from lib.config.resolver import builtin_video_audio_track
 
@@ -2323,16 +2333,16 @@ class TestEntryBoundVideoRequests:
         assert (
             builtin_video_audio_track("gemini-vertex", "veo-3.1-generate-001", generation_type="i2v") == "controllable"
         )
-        assert builtin_video_audio_track("gemini-vertex", "veo-unbound-relay", generation_type="i2v") == "always_on"
+        assert builtin_video_audio_track("gemini-vertex", "veo-unbound-relay", generation_type="i2v") == "controllable"
 
     @pytest.mark.parametrize("model", [_OPAQUE, "veo-3.1-generate-001"])
-    def test_gemini_audio_uses_explicit_binding_before_api_name(self, model):
-        """显式绑定 preview 条目时，API 名恰好与 Vertex 型号相同也不能重新打开音轨开关。"""
+    def test_gemini_aistudio_endpoint_keeps_audio_on_even_with_a_vertex_entry(self, model):
+        """AI Studio 端点声明恒有声，绑定 Vertex 条目或使用其 API 型号名都不会改变音轨形态。"""
         from lib.catalog import query as catalog
         from lib.config.resolver import builtin_video_audio_track
 
         catalog.install_user_added_models(
-            [catalog.UserAddedModel("gemini-aistudio", model, "video", entry_binding="google/veo-3.1-generate-preview")]
+            [catalog.UserAddedModel("gemini-aistudio", model, "video", entry_binding="google/veo-3.1-generate-001")]
         )
 
         assert builtin_video_audio_track("gemini-aistudio", model, generation_type="i2v") == "always_on"

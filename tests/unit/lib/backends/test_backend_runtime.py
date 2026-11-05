@@ -1038,13 +1038,13 @@ class TestProviderJobIdPersistenceMixin:
     async def test_execution_endpoint_and_backend_domain_land_in_separate_columns(self):
         """自定义供应商：协议标识走 endpoint 位供比对，域名走 base_url 位供回放，互不覆盖。"""
         request = self._request(task_id="local-task-1")
-        request.execution_endpoint = "dashscope-async-video"
+        request.execution_endpoint = "dashscope-video"
         with captured_provider_job_ids() as persisted:
             await self._backend()._persist_provider_job_id(
                 request, "job-1", provider="dashscope", endpoint="https://maas.example.com/api/v1"
             )
         assert [(r["endpoint"], r["base_url"]) for r in persisted] == [
-            ("dashscope-async-video", "https://maas.example.com/api/v1")
+            ("dashscope-video", "https://maas.example.com/api/v1")
         ]
 
     async def test_non_worker_path_skips_persist(self):

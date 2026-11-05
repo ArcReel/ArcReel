@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 from urllib.parse import urlsplit
@@ -26,9 +27,9 @@ from lib.backends.audio_backends.gemini import GeminiAudioBackend
 from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
 from lib.backends.dashscope_shared import dashscope_native_base_url
-from lib.backends.image_backends.ark import ArkImageBackend
+from lib.backends.image_backends.ark import SEEDREAM_BACKENDS
 from lib.backends.image_backends.base import ImageCapability
-from lib.backends.image_backends.dashscope import DashScopeImageBackend
+from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS
 from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
@@ -37,18 +38,19 @@ from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
 from lib.backends.image_backends.openrouter import IMAGES_PATH as OPENROUTER_IMAGES_PATH
 from lib.backends.image_backends.openrouter import MODELS_PATH as OPENROUTER_MODELS_PATH
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend
+from lib.backends.image_backends.registry import reference_limit_of
 from lib.backends.minimax_shared import minimax_text_base_url
 from lib.backends.provider_assets import InferenceCredentialRef
 from lib.backends.text_backends.anthropic import AnthropicTextBackend
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
 from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBackend
-from lib.backends.video_backends.ark import ArkVideoBackend
-from lib.backends.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
+from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
+from lib.backends.video_backends.dashscope import DASHSCOPE_VIDEO_BACKENDS, classify_wan_model
 from lib.backends.video_backends.gemini import GeminiVideoBackend
-from lib.backends.video_backends.kling import KlingVideoBackend
+from lib.backends.video_backends.kling import KLING_BACKENDS
 from lib.backends.video_backends.openai import OpenAIVideoBackend
-from lib.backends.video_backends.vidu import ViduVideoBackend
+from lib.backends.video_backends.vidu import VIDU_BACKENDS
 from lib.config.url_utils import (
     ANTHROPIC_MESSAGES_PATH,
     ensure_google_base_url,
@@ -78,7 +80,11 @@ from lib.custom_provider.comfyui.capabilities import (
     size_is_fixed,
 )
 from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend, binding_video_capabilities
-from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend, binding_image_capabilities
+from lib.custom_provider.comfyui.comfyui_image_backend import (
+    ComfyuiImageBackend,
+    binding_image_capabilities,
+    binding_reference_limit,
+)
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import (
     REQUEST_SECTIONS,
@@ -86,7 +92,11 @@ from lib.custom_provider.declarative_backend import (
     request_urls,
     strips_base_url_version,
 )
-from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend, image_capabilities_from_definition
+from lib.custom_provider.declarative_image_backend import (
+    DeclarativeImageBackend,
+    definition_reference_limit,
+    image_capabilities_from_definition,
+)
 from lib.custom_provider.path_overrides import (
     NO_PATH_OVERRIDES,
     BaseUrlRule,
@@ -654,11 +664,16 @@ def _custom_inference_credential(provider) -> InferenceCredentialRef | None:
 
 
 def _build_ark_seedance(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider,
+    model_id: str,
+    path_overrides: PathOverrides = NO_PATH_OVERRIDES,
+    *,
+    endpoint: str,
 ) -> CustomVideoBackend:
+    """Seedance 各代端点共用的构造：``endpoint`` 选实现这一代请求结构与计量的调用通道。"""
     base_url = _ensure_url_path_suffix(provider.base_url, "/api/v3")
     layer = path_override_layer(_ARK_SEEDANCE_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
-    delegate = ArkVideoBackend(
+    delegate = SEEDANCE_BACKENDS[endpoint](
         api_key=provider.api_key,
         base_url=base_url,
         model=model_id,
@@ -669,24 +684,30 @@ def _build_ark_seedance(
 
 
 def _build_ark_seedream(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES, *, endpoint: str
 ) -> CustomImageBackend:
     # 直接包装内置 ArkImageBackend：尺寸推导、参考图上限与编码、计量都与预置方舟供应商同一份
     base_url = _ensure_url_path_suffix(provider.base_url, "/api/v3")
     layer = path_override_layer(_ARK_SEEDREAM_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
-    delegate = ArkImageBackend(api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer)
+    delegate = SEEDREAM_BACKENDS[endpoint](
+        api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer
+    )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_vidu_video(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomVideoBackend:
+def _build_vidu_video(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES, *, endpoint: str
+) -> CustomVideoBackend:
     base_url = _ensure_url_path_suffix(provider.base_url, "/ent/v2")
     layer = path_override_layer(_VIDU_VIDEO_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
-    delegate = ViduVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer)
+    delegate = VIDU_BACKENDS[endpoint](
+        api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer
+    )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_dashscope_image(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES, *, endpoint: str
 ) -> CustomImageBackend:
     # backend 内部由 host 派生 /api/v1（容忍带/不带后缀），此处传原始 base_url 即可，不重复归一化
     layer = path_override_layer(
@@ -696,14 +717,14 @@ def _build_dashscope_image(
         dashscope_native_base_url(provider.base_url),
         model_id,
     )
-    delegate = DashScopeImageBackend(
+    delegate = DASHSCOPE_IMAGE_BACKENDS[endpoint](
         api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
     )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_dashscope_async_video(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES, *, endpoint: str
 ) -> CustomVideoBackend:
     layer = path_override_layer(
         _DASHSCOPE_ASYNC_VIDEO_REQUESTS,
@@ -712,7 +733,7 @@ def _build_dashscope_async_video(
         dashscope_native_base_url(provider.base_url),
         model_id,
     )
-    delegate = DashScopeVideoBackend(
+    delegate = DASHSCOPE_VIDEO_BACKENDS[endpoint](
         api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
     )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
@@ -754,11 +775,11 @@ def _build_kling_image(
 
 
 def _build_kling_video(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES, *, endpoint: str
 ) -> CustomVideoBackend:
     # 中转站「原样代理可灵」：bearer 模式旁路 JWT 管理器，用静态 api_key 直发可灵原生异步视频端点。
     base_url = _ensure_url_path_suffix(provider.base_url, "/v1")
-    delegate = KlingVideoBackend(
+    delegate = KLING_BACKENDS[endpoint](
         auth_mode="bearer",
         api_key=provider.api_key,
         base_url=base_url,
@@ -902,59 +923,72 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         # OpenAI Sora input_reference 为单张首帧图。
         video_max_reference_images=1,
     ),
-    "ark-seedance": EndpointSpec(
-        key="ark-seedance",
-        media_type="video",
-        family="ark",
-        display_name_key="endpoint_ark_seedance_display",
-        request_method="POST",
-        request_path_template="/api/v3/contents/generations/tasks",
-        build_backend=_build_ark_seedance,
-        requests=_ARK_SEEDANCE_REQUESTS,
-        metering_backend=ArkVideoBackend,
-        video_caps_for_model=ArkVideoBackend.video_capabilities_for_model,
-        end_image_capable=True,
-        # _create_task 为 reference_audio_files 逐段组装 audio_url + role: reference_audio
-        reference_audio_capable=True,
-    ),
-    "ark-seedream": EndpointSpec(
-        key="ark-seedream",
-        media_type="image",
-        family="ark",
-        display_name_key="endpoint_ark_seedream_display",
-        request_method="POST",
-        # 文生图与带参考图生成同走 /images/generations，参考图按方舟格式放进 JSON 的 image 字段
-        request_path_template="/api/v3/images/generations",
-        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
-        build_backend=_build_ark_seedream,
-        requests=_ARK_SEEDREAM_REQUESTS,
-        metering_backend=ArkImageBackend,
-    ),
-    "vidu-video": EndpointSpec(
-        key="vidu-video",
-        media_type="video",
-        family="vidu",
-        display_name_key="endpoint_vidu_video_display",
-        request_method="POST",
-        request_path_template="/ent/v2/img2video",
-        build_backend=_build_vidu_video,
-        requests=_VIDU_VIDEO_REQUESTS,
-        metering_backend=ViduVideoBackend,
-        video_caps_for_model=ViduVideoBackend.video_capabilities_for_model,
-        end_image_capable=True,
-    ),
-    "dashscope-image": EndpointSpec(
-        key="dashscope-image",
-        media_type="image",
-        family="dashscope",
-        display_name_key="endpoint_dashscope_image_display",
-        request_method="POST",
-        request_path_template="/api/v1/services/aigc/multimodal-generation/generation",
-        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
-        build_backend=_build_dashscope_image,
-        requests=_DASHSCOPE_GENERATION_REQUESTS,
-        metering_backend=DashScopeImageBackend,
-    ),
+    # Seedance 1、2、2.5 共用创建任务与轮询接口，请求体与计量不同，各是一个端点（见 ark.SeedanceEndpoint）
+    **{
+        key: EndpointSpec(
+            key=key,
+            media_type="video",
+            family="ark",
+            display_name_key=f"endpoint_{key.replace('-', '_')}_display",
+            request_method="POST",
+            request_path_template="/api/v3/contents/generations/tasks",
+            build_backend=partial(_build_ark_seedance, endpoint=key),
+            requests=_ARK_SEEDANCE_REQUESTS,
+            metering_backend=backend_class,
+            video_caps_for_model=backend_class.video_capabilities_for_model,
+            end_image_capable=True,
+            # _create_task 为 reference_audio_files 逐段组装 audio_url + role: reference_audio
+            reference_audio_capable=True,
+        )
+        for key, backend_class in SEEDANCE_BACKENDS.items()
+    },
+    **{
+        key: EndpointSpec(
+            key=key,
+            media_type="image",
+            family="ark",
+            display_name_key=f"endpoint_{key.replace('-', '_')}_display",
+            request_method="POST",
+            # 文生图与带参考图生成同走 /images/generations，参考图按方舟格式放进 JSON 的 image 字段
+            request_path_template="/api/v3/images/generations",
+            image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+            build_backend=partial(_build_ark_seedream, endpoint=key),
+            requests=_ARK_SEEDREAM_REQUESTS,
+            metering_backend=backend_class,
+        )
+        for key, backend_class in SEEDREAM_BACKENDS.items()
+    },
+    **{
+        key: EndpointSpec(
+            key=key,
+            media_type="video",
+            family="vidu",
+            display_name_key="endpoint_" + key.replace("-", "_") + "_display",
+            request_method="POST",
+            request_path_template="/ent/v2/img2video",
+            build_backend=partial(_build_vidu_video, endpoint=key),
+            requests=_VIDU_VIDEO_REQUESTS,
+            metering_backend=backend,
+            video_caps_for_model=backend.video_capabilities_for_model,
+            end_image_capable=True,
+        )
+        for key, backend in VIDU_BACKENDS.items()
+    },
+    **{
+        key: EndpointSpec(
+            key=key,
+            media_type="image",
+            family="dashscope",
+            display_name_key=f"endpoint_{key.replace('-', '_')}_display",
+            request_method="POST",
+            request_path_template="/api/v1/services/aigc/multimodal-generation/generation",
+            image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+            build_backend=partial(_build_dashscope_image, endpoint=key),
+            requests=_DASHSCOPE_GENERATION_REQUESTS,
+            metering_backend=backend_class,
+        )
+        for key, backend_class in DASHSCOPE_IMAGE_BACKENDS.items()
+    },
     "openai-tts": EndpointSpec(
         key="openai-tts",
         media_type="audio",
@@ -1010,22 +1044,23 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_gemini_tts,
         requests=_GEMINI_GENERATE_REQUESTS,
     ),
-    "dashscope-async-video": EndpointSpec(
-        key="dashscope-async-video",
-        media_type="video",
-        family="dashscope",
-        display_name_key="endpoint_dashscope_async_video_display",
-        request_method="POST",
-        request_path_template="/api/v1/services/aigc/video-generation/video-synthesis",
-        build_backend=_build_dashscope_async_video,
-        requests=_DASHSCOPE_ASYNC_VIDEO_REQUESTS,
-        metering_backend=DashScopeVideoBackend,
-        # 多 model（happyhorse-r2v=9 / wan2.7-r2v=5）容量不同 → endpoint 维度不声明 int cap，
-        # 按 model 读 backend caps（不构造 client）。
-        video_caps_for_model=DashScopeVideoBackend.video_capabilities_for_model,
-        # _build_media 把 reference_audio_files 逐段挂到参考素材项的 reference_voice 上
-        reference_audio_capable=True,
-    ),
+    **{
+        endpoint: EndpointSpec(
+            key=endpoint,
+            media_type="video",
+            family="dashscope",
+            display_name_key="endpoint_" + endpoint.replace("-", "_") + "_display",
+            request_method="POST",
+            request_path_template="/api/v1/services/aigc/video-generation/video-synthesis",
+            build_backend=partial(_build_dashscope_async_video, endpoint=endpoint),
+            requests=_DASHSCOPE_ASYNC_VIDEO_REQUESTS,
+            metering_backend=backend,
+            video_caps_for_model=backend.video_capabilities_for_model,
+            end_image_capable=True,
+            reference_audio_capable=True,
+        )
+        for endpoint, backend in DASHSCOPE_VIDEO_BACKENDS.items()
+    },
     "minimax-image": EndpointSpec(
         key="minimax-image",
         media_type="image",
@@ -1050,22 +1085,22 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         requests=_KLING_IMAGE_REQUESTS,
         metering_backend=KlingImageBackend,
     ),
-    "kling-video": EndpointSpec(
-        key="kling-video",
-        media_type="video",
-        family="kling",
-        display_name_key="endpoint_kling_video_display",
-        request_method="POST",
-        # 无首帧走 text2video、有首帧走 image2video（含可选尾帧）、有多图主体走 multi-image2video（R2V）
-        request_path_template="/v1/videos/{text2video,image2video,multi-image2video}",
-        build_backend=_build_kling_video,
-        requests=_KLING_VIDEO_REQUESTS,
-        metering_backend=KlingVideoBackend,
-        # 参考图上限随 model 异质（v3-omni / video-o1 多图主体 R2V max=4，其余首尾帧无参考为 0）→ 不在
-        # endpoint 维度声明 int cap，按 model 读 backend 纯 caps 函数。
-        video_caps_for_model=KlingVideoBackend.video_capabilities_for_model,
-        end_image_capable=True,
-    ),
+    **{
+        key: EndpointSpec(
+            key=key,
+            media_type="video",
+            family="kling",
+            display_name_key="endpoint_" + key.replace("-", "_") + "_display",
+            request_method="POST",
+            request_path_template="/v1/videos/{text2video,image2video,multi-image2video}",
+            build_backend=partial(_build_kling_video, endpoint=key),
+            requests=_KLING_VIDEO_REQUESTS,
+            metering_backend=backend,
+            video_caps_for_model=backend.video_capabilities_for_model,
+            end_image_capable=True,
+        )
+        for key, backend in KLING_BACKENDS.items()
+    },
 }
 
 
@@ -1393,6 +1428,16 @@ def _validate_registry() -> None:
 _validate_registry()
 
 
+def _validate_builtin_provider_endpoints() -> None:
+    """import 期校验内置供应商声明的可选端点与本注册表一致：共用的端点名都是这里的内置端点，媒体类型相同。"""
+    from lib.backends.backend_assembly.specs import validate_endpoint_declarations
+
+    validate_endpoint_declarations()
+
+
+_validate_builtin_provider_endpoints()
+
+
 # ── 工具函数 ───────────────────────────────────────────────────────
 
 
@@ -1431,6 +1476,22 @@ def endpoint_to_image_capabilities(endpoint: str) -> frozenset[ImageCapability]:
     if spec.image_capabilities is None:
         raise ValueError(f"endpoint {endpoint!r} is not an image endpoint")
     return spec.image_capabilities
+
+
+def endpoint_reference_image_limit(spec: EndpointSpec) -> int | None:
+    """图片端点静态声明的参考图上限（通道事实），与端点构造出的 backend 的 ``reference_image_limit()`` 同源。
+
+    ComfyUI 端点取节点绑定的参考图槽位数，声明式端点取定义里的声明，Python 端点取被包装调用通道类上的
+    ``CHANNEL_REFERENCE_LIMIT``；``None`` 表示通道本身不限张数。按模型运行时查询的通道（OpenRouter）这里只给出
+    端点上限，执行时可能再收窄。
+    """
+    if spec.definition is not None:
+        if spec.kind == COMFYUI_KIND:
+            return binding_reference_limit(spec.definition)
+        return definition_reference_limit(spec.definition)
+    if spec.metering_backend is None:
+        return None
+    return reference_limit_of(spec.metering_backend)
 
 
 def list_endpoints_by_media_type(media_type: str) -> list[EndpointSpec]:
@@ -1482,8 +1543,7 @@ _ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNOREC
 
 #: MiniMax 输入受限端点的精确型号名（小写；剥离命名空间前缀后比较）。Fast 只接受图生视频、
 #: S2V 必须带参考图——把一个别名建到这两键等于给它加上无从核实的输入要求，故只认表列的
-#: 官方型号 id，与 alembic ``8c2b1e7d4a90`` 和 backend_assembly.specs._minimax_video_endpoint
-#: 同源（三处各存一份字面量，改其一须同改另两处）。S2V 另收 "minimax-s2v-01"：聚合商把厂商名
+#: 官方型号 id，仅用于添加时预填；历史迁移保留升级时的规则。S2V 另收 "minimax-s2v-01"：聚合商把厂商名
 #: 前缀直接粘进 id 的常见别名形态，语义仍是那一个精确型号。
 _MINIMAX_FAST_MODELS = frozenset({"minimax-hailuo-2.3-fast"})
 _MINIMAX_S2V_MODELS = frozenset({"s2v-01", "minimax-s2v-01"})
@@ -1493,11 +1553,13 @@ _MINIMAX_S2V_MODELS = frozenset({"s2v-01", "minimax-s2v-01"})
 #: 只收一个名字可能落在多种媒体类型上的厂商（两栖模型、名字不带媒体语义的型号），其余厂商的名字规则
 #: 本身已经给出唯一的媒体类型。
 _FAMILY_ENDPOINTS: tuple[tuple[str, Mapping[str, str]], ...] = (
-    ("kling", {"image": "kling-image", "video": "kling-video"}),
+    ("kling", {"image": "kling-image", "video": "kling-video-pro-silent"}),
     ("gemini", {"text": "gemini-generate", "image": "gemini-image", "audio": "gemini-tts"}),
-    ("seedance", {"video": "ark-seedance"}),
-    ("seedream", {"image": "ark-seedream"}),
-    ("viduq3", {"video": "vidu-video"}),
+    # Seedance 的代际按名字再细分，见 _seedance_endpoint
+    ("seedance", {"video": "ark-seedance-1"}),
+    ("seedream", {"image": "ark-seedream-4"}),
+    ("viduq", {"video": "vidu-video-q3-turbo"}),
+    ("vidu2", {"video": "vidu-video-2"}),
     ("hailuo", {"video": "minimax-hailuo-v1"}),
 )
 
@@ -1508,6 +1570,29 @@ _DEFAULT_ENDPOINTS: Mapping[str, tuple[str, str]] = {
     "video": ("gemini-video", "openai-video"),
     "audio": ("gemini-tts", "openai-tts"),
 }
+
+
+def _request_profile_endpoint(provider: str, model_id: str) -> str:
+    from lib.backends.backend_assembly.specs import request_profile_endpoint_for_name
+    from lib.catalog.query import find_entry
+
+    entry = find_entry(model_id, media_type="video")
+    names = (entry.name, *entry.aliases) if entry is not None else (model_id,)
+    for name in names:
+        endpoint = request_profile_endpoint_for_name(provider, name)
+        if endpoint is not None:
+            return endpoint
+    return {
+        "vidu": "vidu-video-generic",
+        "kling": "kling-video-silent",
+    }[provider]
+
+
+def _seedance_endpoint(model_id: str) -> str:
+    """名字含 seedance 的视频模型预填的端点：名字写明 2.5 / 2.0 时取对应代际，否则取 1.x 端点。"""
+    from lib.backends.backend_assembly.specs import seedance_endpoint_for_name
+
+    return seedance_endpoint_for_name(model_id) or "ark-seedance-1"
 
 
 def infer_endpoint(model_id: str, discovery_format: str, media_type: str | None = None) -> str:
@@ -1522,6 +1607,14 @@ def infer_endpoint(model_id: str, discovery_format: str, media_type: str | None 
     lowered = model_id.lower()
     for token, endpoints in _FAMILY_ENDPOINTS:
         if token in lowered and media_type in endpoints:
+            if endpoints[media_type] in SEEDANCE_BACKENDS:
+                return _seedance_endpoint(model_id)
+            if endpoints[media_type] in SEEDREAM_BACKENDS:
+                from lib.backends.backend_assembly.specs import image_endpoint_for_name
+
+                return image_endpoint_for_name("ark", model_id)
+            if media_type == "video" and ("kling" in token or "vidu" in token):
+                return _request_profile_endpoint("kling" if "kling" in token else "vidu", model_id)
             return endpoints[media_type]
     google_default, other_default = _DEFAULT_ENDPOINTS[media_type]
     return google_default if discovery_format == "google" else other_default
@@ -1540,7 +1633,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     openai-chat/openai-images，每次都要手动改回。
 
     1) 阿里百炼视频 → happyhorse / wan2.7 / wan3 家族（含 wan-2.7-xxx / wan-3-xxx 连字符形态、
-       image-to-video 续接别名）走 "dashscope-async-video"（原生异步端点）。happyhorse 不在
+       image-to-video 续接别名）走 "百炼异步视频端点"（原生异步端点）。happyhorse 不在
        _VIDEO_PATTERN 须显式；万相视频抢在通用 is_video 前拦截。真正的图像变体不自动推 dashscope
        （中转可能是 OpenAI 兼容）：qwen-image / wan2.7-image / wan-2.7-image / wan3.0-video-image
        及带版本/日期后缀的同类 id 落到图像家族推断；wan-3-turbo-image-to-video /
@@ -1561,9 +1654,9 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
        默认归视频、图像手动选。
     3) gemini 原生模型（非 video）→ TTS 走 "gemini-tts"，image 形态走 "gemini-image"，否则文本走
        "gemini-generate"（不分 discovery_format）
-    4) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、Veo 且 discovery_format=google→
-       "gemini-video"、否则 "openai-video"
-    5) 图像家族 → seedream→"ark-seedream"（不分 discovery_format），其余 discovery_format=google 走
+    4) 视频家族 → seedance 按名字里的代际取 "ark-seedance-2-5" / "ark-seedance-2"，没写明代际取
+       "ark-seedance-1"；viduq3→"vidu-video"、Veo 且 discovery_format=google→"gemini-video"、否则 "openai-video"
+    5) 图像家族 → seedream→"ark-seedream-3" / "ark-seedream-4"（不分 discovery_format），其余 discovery_format=google 走
        "gemini-image" 否则 "openai-images"（imagen 随图像家族推断，不再单独拦截）
     6) TTS 家族（tts/speech/cosyvoice）→ qwen-tts / qwen3-tts 走 "dashscope-tts"，MiniMax 的
        speech-<版本>-hd|turbo 走 "minimax-tts"，其余 "openai-tts"
@@ -1591,7 +1684,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     # "swan2.7-image" / "vendorwan2.7-image" 这类不满足家族边界的 id 依然会命中 _VIDEO_PATTERN，
     # 若排除逻辑要求先通过严格家族判定，这类 id 就会被 is_video 误判为视频而不是落到图像家族推断。
     # 因此排除只看"是否含 wan 子串"（与 _VIDEO_PATTERN 的宽度一致），不要求满足家族标识符边界；
-    # 家族边界只用于下面原生路由（dashscope-async-video）的资格判定。
+    # 家族边界只用于下面原生路由（百炼异步视频端点）的资格判定。
     contains_wan_token = "wan" in lowered
     # wan2.7 家族已确认属于视频模态（t2v/i2v/r2v/s2v/v2v/videoedit 任一，即便部分未实现请求构造，
     # 见 classify_wan_model 的 is_known_video_modality 处的说明）时，该 profile 本身已确立视频
@@ -1617,9 +1710,13 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
 
     # 阿里百炼视频先于通用 is_video 拦截到原生异步端点
     if classification.family == "happyhorse":
-        return "dashscope-async-video"
+        from lib.backends.backend_assembly.specs import dashscope_video_endpoint_for_name
+
+        return dashscope_video_endpoint_for_name(model_id)
     if is_wan_family and not wan_image_variant and not wan_unsupported_modality:
-        return "dashscope-async-video"
+        from lib.backends.backend_assembly.specs import dashscope_video_endpoint_for_name
+
+        return dashscope_video_endpoint_for_name(model_id)
 
     # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V / H3 → 两步或单步取回的视频端点；
     # image-01 → 单步图像端点。先于通用 is_video/is_image：s2v 与 h3 均不被 _VIDEO_PATTERN 覆盖，
@@ -1635,8 +1732,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     # "wan2.7-s2v"）不再被误吞成 MiniMax S2V 协议，落下方 4) 的通用视频端点。
     canonical = re.split(r"[/:]", lowered)[-1]
     if "hailuo" in lowered:
-        # Fast 只接受图生视频，端点级能力据此分居两键（见 backend_assembly.specs
-        # ._minimax_video_endpoint 的同源口径），不能与 2.3 共用一个定义。
+        # Fast 只接受图生视频，端点级能力据此分居两键，不能与 2.3 共用一个定义。
         return "minimax-hailuo-v1-fast" if canonical in _MINIMAX_FAST_MODELS else "minimax-hailuo-v1"
     if canonical in _MINIMAX_S2V_MODELS:
         return "minimax-s2v-01"
@@ -1653,8 +1749,8 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     # 默认归视频、图像手动选；不分 discovery_format（可灵端点各自唯一）。
     if "kling" in lowered:
         if "video" in lowered:
-            return "kling-video"
-        return "kling-image" if is_image else "kling-video"
+            return _request_profile_endpoint("kling", model_id)
+        return "kling-image" if is_image else _request_profile_endpoint("kling", model_id)
 
     # wan2.x-image / wan3.0-video-image 含 "wan" 会被 _VIDEO_PATTERN 误判为视频；显式排除让它落到
     # 图像家族推断。复用上面的 wan_image_variant（排除 image-to-video 续接别名后的图像判定）。
@@ -1666,9 +1762,9 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
         return "gemini-image" if is_image else "gemini-generate"
     if is_video:
         if "seedance" in lowered:
-            return "ark-seedance"
+            return _seedance_endpoint(model_id)
         if "viduq3" in lowered:
-            return "vidu-video"
+            return _request_profile_endpoint("vidu", model_id)
         # Veo 的 OpenAI 兼容层沿用 /v1/videos，只有 google 发现协议才是原生 predictLongRunning
         if "veo" in lowered and discovery_format == "google":
             return "gemini-video"
@@ -1676,7 +1772,9 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     if is_image:
         # 方舟 Seedream 没有 /images/edits，带参考图的生成也走 /images/generations；不分 discovery_format
         if "seedream" in lowered:
-            return "ark-seedream"
+            from lib.backends.backend_assembly.specs import image_endpoint_for_name
+
+            return image_endpoint_for_name("ark", model_id)
         return "gemini-image" if discovery_format == "google" else "openai-images"
     if _AUDIO_PATTERN.search(model_id) and not _ASR_PATTERN.search(model_id):
         if _QWEN_TTS_PATTERN.search(model_id):

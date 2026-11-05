@@ -346,6 +346,7 @@ MESSAGES = {
     "builtin_model_media_type_required": 'Can\'t tell the type of model "{model}". Choose a model type and try again',
     "builtin_model_media_type_unsupported": "This provider doesn't support this type of model ({media_type})",
     "builtin_model_binding_invalid": 'Matched model "{binding}" is malformed. Use "maker/model-name"',
+    "builtin_model_endpoint_unavailable": "This provider's {media_type} models can't use call endpoint \"{endpoint}\"",
     "comfyui_model_endpoint_missing": "There are no ComfyUI endpoints yet. Import a ComfyUI endpoint, then add the model",
     "discovery_not_applicable_builtin": "This provider has no model list API. Add models by model ID instead",
     "builtin_model_official_settings": '"{model}" is an officially listed model. You can only enable or disable it; its other settings are maintained officially',
@@ -518,7 +519,9 @@ MESSAGES = {
     "ref_too_many_images": "Reference image count {count} exceeds {model} limit of {max_count}, kept the first {max_count}",
     "ref_payload_too_large": "Reference image payload exceeded provider limits, retried with extra compression",
     "ref_payload_floor_exceeded": "Reference images are too large or too many; even compressed to the lowest quality they still exceed the provider's request size limit. Please reduce the number of reference images or their resolution and try again",
-    "ref_sora_single_ref": "Sora reference mode does not currently support multiple images, downgraded to single image",
+    # 兼容键：只用于读取历史任务结果，新代码不再产出（改用 ref_single_ref_only）。
+    "ref_sora_single_ref": "This model accepts only one reference image; the first one was used",
+    "ref_single_ref_only": "{model} accepts only one reference image; the first one was used",
     "ref_episode_not_found": "Episode (id={episode}) not found",
     "ref_not_reference_video_mode": "Episode script is not in reference-video mode",
     "ref_unit_not_found": "Video unit '{unit_id}' not found",
@@ -657,7 +660,7 @@ MESSAGES = {
     # Image Capability
     "image_endpoint_mismatch_no_i2i": "Model {model} only supports text-to-image (no /v1/images/edits); remove reference images or pick a model that supports image edits",
     "image_endpoint_mismatch_no_t2i": "Model {model} only supports image-to-image (reference images required); supply reference images or pick a model that supports text-to-image",
-    "image_seedream_edits_unavailable": "The current call endpoint for model {model} does not support generation with reference images; change it to “Volcengine Ark (Seedream)” in model settings and try again",
+    "image_seedream_edits_unavailable": "The current call endpoint for model {model} does not support generation with reference images; change it to “Seedream (1K) / Seedream (2K)” in model settings and try again",
     "image_capability_missing_i2i": "{provider}/{model} does not support image-to-image; configure a default model that supports image edits",
     "image_capability_missing_t2i": "{provider}/{model} does not support text-to-image; configure a default model that supports text-to-image",
     "image_dashscope_4k_t2i_only": "Model {model}: 4K output is only supported by wan2.7-image-pro for text-to-image; use 2K or lower",

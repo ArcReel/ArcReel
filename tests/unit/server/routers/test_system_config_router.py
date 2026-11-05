@@ -177,14 +177,14 @@ class TestGetSystemConfig:
         assert set(settings.keys()) == expected_keys
 
     def test_options_contain_backend_lists(self):
-        mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio"])
+        mock_svc = _make_mock_svc(ready_providers=["gemini-vertex"])
         with TestClient(_make_app_with_mock(mock_svc)) as client:
             res = client.get("/api/v1/system/config")
         options = res.json()["options"]
         assert "video_backends" in options
         assert "image_backends" in options
-        assert "gemini-aistudio/veo-3.1-generate-preview" in options["video_backends"]
-        assert "gemini-aistudio/gemini-3.1-flash-image" in options["image_backends"]
+        assert "gemini-vertex/veo-3.1-generate-001" in options["video_backends"]
+        assert "gemini-vertex/gemini-3.1-flash-image" in options["image_backends"]
 
     def test_options_exclude_unconfigured_providers(self):
         mock_svc = _make_mock_svc(ready_providers=[])
@@ -200,20 +200,20 @@ class TestGetSystemConfig:
         from lib.catalog.query import factory_snapshot
         from tests.catalog_support import install_catalog, with_entry_changes
 
-        data = with_entry_changes(factory_snapshot(), "gemini-aistudio", "veo-3.1-generate-preview", discontinued=True)
+        data = with_entry_changes(factory_snapshot(), "gemini-vertex", "veo-3.1-generate-001", discontinued=True)
         install_catalog(monkeypatch, data)
-        mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio"])
+        mock_svc = _make_mock_svc(ready_providers=["gemini-vertex"])
         with TestClient(_make_app_with_mock(mock_svc)) as client:
             options = client.get("/api/v1/system/config").json()["options"]
-        assert "gemini-aistudio/veo-3.1-generate-preview" not in options["video_backends"]
-        assert "gemini-aistudio/veo-3.1-fast-generate-preview" in options["video_backends"]
+        assert "gemini-vertex/veo-3.1-generate-001" not in options["video_backends"]
+        assert "gemini-vertex/veo-3.1-fast-generate-001" in options["video_backends"]
 
     def test_options_include_multiple_ready_providers(self):
-        mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio", "ark"])
+        mock_svc = _make_mock_svc(ready_providers=["gemini-vertex", "ark"])
         with TestClient(_make_app_with_mock(mock_svc)) as client:
             res = client.get("/api/v1/system/config")
         options = res.json()["options"]
-        assert "gemini-aistudio/veo-3.1-generate-preview" in options["video_backends"]
+        assert "gemini-vertex/veo-3.1-generate-001" in options["video_backends"]
         assert "ark/doubao-seedance-2-0-260128" in options["video_backends"]
 
     def test_anthropic_key_masked(self):

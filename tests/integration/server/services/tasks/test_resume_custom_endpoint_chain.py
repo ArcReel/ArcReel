@@ -549,3 +549,203 @@ async def test_custom_job_submitted_before_shutdown_still_resumes_after_it(
     assert row.status == "succeeded", row.error_message
 
     await _assert_new_submission_rejected(rows["provider_id"])
+
+
+#: 端点拆分前的方舟 Seedance 端点名：升级前提交的任务把它冻结在检查点里。
+LEGACY_SEEDANCE_ENDPOINT = "ark-seedance"
+SEEDANCE_MODEL = "doubao-seedance-2-0-260128"
+
+
+async def _seed_relay_model(session_factory, *, endpoint: str, model_id: str) -> str:
+    """落一个经内置调用端点 ``endpoint`` 调用 ``model_id`` 的自定义供应商，返回供应商 ID。"""
+    async with session_factory() as session:
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="方舟中转",
+            discovery_format="openai",
+            base_url="https://ark-relay.test",
+            api_key="sk-secret-key-1234",
+            models=[
+                {
+                    "model_id": model_id,
+                    "display_name": model_id,
+                    "endpoint": endpoint,
+                    "is_enabled": True,
+                    "is_default": True,
+                }
+            ],
+        )
+        await session.commit()
+        return make_provider_id(provider.id)
+
+
+async def test_seedance_job_submitted_before_endpoint_split_resumes(chain_project: Path, session_factory):
+    """升级前经 ``ark-seedance`` 提交的任务：模型行已回填为协议等价的 ``ark-seedance-2``，续跑照常取回结果、不重新提交。"""
+    provider_id = await _seed_relay_model(session_factory, endpoint="ark-seedance-2", model_id=SEEDANCE_MODEL)
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-seedance-legacy",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-seedance-legacy",
+            provider_id=provider_id,
+            endpoint_guard=LEGACY_SEEDANCE_ENDPOINT,
+            model_id=SEEDANCE_MODEL,
+        ),
+    )
+
+    with capture_http() as router:
+        submit = router.post("https://ark-relay.test/api/v3/contents/generations/tasks")
+        poll = router.get("https://ark-relay.test/api/v3/contents/generations/tasks/job-old").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "job-old",
+                    "model": SEEDANCE_MODEL,
+                    "status": "succeeded",
+                    "content": {"video_url": "https://cdn.ark.test/job-old.mp4"},
+                    "usage": {"completion_tokens": 10, "total_tokens": 10},
+                    "created_at": 1,
+                    "updated_at": 2,
+                },
+            )
+        )
+        download = router.get("https://cdn.ark.test/job-old.mp4").mock(
+            return_value=httpx.Response(200, content=b"resumed")
+        )
+
+        await _run_orphan_recovery(session_factory)
+
+    assert submit.call_count == 0
+    assert (poll.call_count, download.call_count) == (1, 1)
+    row = await _load_task_row(session_factory, "T-seedance-legacy")
+    assert row.status == "succeeded", row.error_message
+    paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
+    assert [path.read_bytes() for path in paid_files] == [b"resumed"]
+
+
+async def test_seedance_job_rejected_after_switching_protocol(chain_project: Path, session_factory):
+    """升级前经 ``ark-seedance`` 提交的任务：模型行在途改挂了别的协议，续跑在发出任何请求前失败。"""
+    provider_id = await _seed_relay_model(session_factory, endpoint="openai-video", model_id=SEEDANCE_MODEL)
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-seedance-switched",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-seedance-switched",
+            provider_id=provider_id,
+            endpoint_guard=LEGACY_SEEDANCE_ENDPOINT,
+            model_id=SEEDANCE_MODEL,
+        ),
+    )
+
+    with capture_http() as router:
+        ark = router.route(host="ark-relay.test")
+
+        await _run_orphan_recovery(session_factory)
+
+    assert ark.call_count == 0
+    row = await _load_task_row(session_factory, "T-seedance-switched")
+    assert row.status == "failed"
+    assert row.error_message is not None
+    assert "resume_endpoint_changed" in row.error_message
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ["kling-video-pro-silent", "kling-video-pro-audio", "kling-video-audio", "kling-video-silent"],
+)
+async def test_kling_job_submitted_before_split_resumes(chain_project: Path, session_factory, endpoint: str):
+    """旧可灵任务可经协议等价后继取回结果，零次重新提交。"""
+    model = "kling-v2-6"
+    provider_id = await _seed_relay_model(session_factory, endpoint=endpoint, model_id=model)
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-kling-legacy",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-kling-legacy", provider_id=provider_id, endpoint_guard="kling-video", model_id=model
+        ),
+    )
+    with capture_http() as router:
+        submit = router.post("https://ark-relay.test/v1/videos/text2video")
+        poll = router.get("https://ark-relay.test/v1/videos/text2video/job-old").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "task_status": "succeed",
+                        "task_result": {"videos": [{"url": "https://cdn.kling.test/old.mp4"}]},
+                    },
+                },
+            )
+        )
+        download = router.get("https://cdn.kling.test/old.mp4").mock(
+            return_value=httpx.Response(200, content=b"resumed-kling")
+        )
+        await _run_orphan_recovery(session_factory)
+
+    assert submit.call_count == 0
+    assert (poll.call_count, download.call_count) == (1, 1)
+    row = await _load_task_row(session_factory, "T-kling-legacy")
+    assert row.status == "succeeded", row.error_message
+    paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
+    assert [path.read_bytes() for path in paid_files] == [b"resumed-kling"]
+
+
+async def test_old_kling_job_rejects_a_different_protocol(chain_project: Path, session_factory):
+    provider_id = await _seed_relay_model(session_factory, endpoint="openai-video", model_id="kling-v2-6")
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-kling-switched",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-kling-switched", provider_id=provider_id, endpoint_guard="kling-video", model_id="kling-v2-6"
+        ),
+    )
+    with capture_http() as router:
+        outbound = router.route(host="ark-relay.test")
+        await _run_orphan_recovery(session_factory)
+    assert outbound.call_count == 0
+    row = await _load_task_row(session_factory, "T-kling-switched")
+    assert row.status == "failed"
+    assert "resume_endpoint_changed" in (row.error_message or "")
+
+
+@pytest.mark.parametrize("endpoint", ["dashscope-wan3-video", "openai-video"])
+async def test_dashscope_legacy_job_resumes_only_on_successor(chain_project: Path, session_factory, endpoint: str):
+    provider_id = await _seed_relay_model(session_factory, endpoint=endpoint, model_id="wan3.0-video")
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-dashscope-legacy",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-dashscope-legacy",
+            provider_id=provider_id,
+            endpoint_guard="dashscope-async-video",
+            model_id="wan3.0-video",
+        ),
+    )
+    with capture_http() as router:
+        submit = router.post("https://ark-relay.test/api/v1/services/aigc/video-generation/video-synthesis")
+        poll = router.get("https://ark-relay.test/api/v1/tasks/job-old").respond(
+            200,
+            json={
+                "output": {"task_status": "SUCCEEDED", "video_url": "https://cdn.test/legacy.mp4"},
+                "usage": {"duration": 5},
+            },
+        )
+        download = router.get("https://cdn.test/legacy.mp4").respond(200, content=b"resumed")
+        await _run_orphan_recovery(session_factory)
+    row = await _load_task_row(session_factory, "T-dashscope-legacy")
+    assert submit.call_count == 0
+    if endpoint == "dashscope-wan3-video":
+        assert row.status == "succeeded", row.error_message
+        assert (poll.call_count, download.call_count) == (1, 1)
+        paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
+        assert [path.read_bytes() for path in paid_files] == [b"resumed"]
+    else:
+        assert row.status == "failed"
+        assert row.error_message
+        assert "resume_endpoint_changed" in row.error_message
+        assert len(router.calls) == 0

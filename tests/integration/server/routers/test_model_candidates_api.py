@@ -5,7 +5,7 @@
 在 lib.backends.generation_type_buckets 层单独覆盖。
 
 dashscope 被选作内置侧的样本供应商：它同时提供 i2v-only、t2v-only、r2v 三类视频模型与
-t2i+i2i、i2i-only 两类图片模型，一个 ready 供应商就能把四个桶的过滤差异全部区分出来。
+t2i+i2i 图片模型。出厂目录里仍可用的 i2i-only 图片模型只有 Vidu 的 viduq1，图片桶的用例另把 vidu 设为 ready。
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
 from server.routers import system_config as system_config_router
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes
+from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes, with_entry_facts
 from tests.fakes import use_project_manager
 
 CANDIDATES_URL = "/api/v1/system/config/model-candidates"
@@ -52,9 +52,9 @@ def _custom_option(body: dict, model_id: str) -> str:
 DS_I2V_ONLY = "dashscope/wan2.7-i2v"  # i2v ✓ / r2v ✗
 DS_T2V_ONLY = "dashscope/wan2.7-t2v"  # i2v ✗ / r2v ✗
 DS_R2V = "dashscope/wan2.7-r2v"  # i2v ✓ / r2v ✓
-# dashscope 图片模型
+# 图片模型：dashscope 的 t2i+i2i 样本，vidu 的 i2i-only 样本
 DS_IMAGE_BOTH = "dashscope/qwen-image-2.0"
-DS_IMAGE_I2I_ONLY = "dashscope/qwen-image-edit-plus"
+DS_IMAGE_I2I_ONLY = "vidu/viduq1"
 # 无桶维度的媒体类型样本（audio 不设桶）
 DS_AUDIO = "dashscope/qwen3-tts-flash"
 
@@ -177,7 +177,7 @@ class TestBuiltinBucketFiltering:
         assert DS_T2V_ONLY not in i2v
 
     def test_image_buckets_split_by_declared_capabilities(self, make_client):
-        with make_client(["dashscope"]) as client:
+        with make_client(["dashscope", "vidu"]) as client:
             body = client.get(CANDIDATES_URL).json()
         assert DS_IMAGE_BOTH in body["image"]["buckets"]["t2i"]
         assert DS_IMAGE_BOTH in body["image"]["buckets"]["i2i"]
@@ -185,7 +185,7 @@ class TestBuiltinBucketFiltering:
         assert DS_IMAGE_I2I_ONLY not in body["image"]["buckets"]["t2i"]
 
     def test_default_tier_is_unfiltered(self, make_client):
-        with make_client(["dashscope"]) as client:
+        with make_client(["dashscope", "vidu"]) as client:
             body = client.get(CANDIDATES_URL).json()
         # 默认层不承诺能力：无 i2v、无 r2v 的模型照样在列
         assert DS_T2V_ONLY in body["video"]["default"]
@@ -253,8 +253,8 @@ class TestBuiltinBucketFiltering:
 
         all_candidates = {option for media in ("image", "video") for option in body[media]["default"]}
         all_candidates.update(body["model_names"])
+        # 出厂目录中已下线的 agnes 旧模型；agnes-image-2.1-flash 在目录中仍可用，只由迁移给老用户停用
         assert "agnes/agnes-2.0-flash" not in all_candidates
-        assert "agnes/agnes-image-2.1-flash" not in all_candidates
         assert "agnes/agnes-video-v2.0" not in all_candidates
 
 
@@ -327,11 +327,11 @@ class TestCustomProviderBucketFiltering:
         ("endpoint", "model_id", "buckets"),
         [
             # 端点两者都实现，条目只接受图生图
-            ("dashscope-image", "qwen-image-edit-plus", {"i2i"}),
+            ("dashscope-qwen-image", "viduq1", {"i2i"}),
             # 端点只实现文生图，条目只接受图生图：没有两者都满足的组合
-            ("openai-images-generations", "qwen-image-edit-plus", set()),
+            ("openai-images-generations", "viduq1", set()),
             # 对应不上条目：模型事实不加约束，按端点声明
-            ("dashscope-image", "relay-image-x", {"t2i", "i2i"}),
+            ("dashscope-qwen-image", "relay-image-x", {"t2i", "i2i"}),
         ],
     )
     async def test_custom_image_buckets_need_both_entry_and_endpoint(
@@ -401,6 +401,57 @@ class TestCustomProviderBucketFiltering:
             )
             body = client.get(CANDIDATES_URL).json()
         assert body["video"]["default"] == []
+
+
+# ---------------------------------------------------------------------------
+# 被任务类型桶滤掉的模型与原因
+# ---------------------------------------------------------------------------
+
+
+def _filtered(body: dict, media_type: str, bucket: str) -> dict[str, list[str]]:
+    return {item["option"]: item["unmet"] for item in body[media_type]["filtered"][bucket]}
+
+
+class TestFilteredCandidates:
+    async def test_each_bucket_lists_the_default_layer_models_it_filters_out_with_the_unmet_dimension(
+        self, make_client, session_factory_and_engine, monkeypatch
+    ):
+        """滤掉的模型带着不满足的能力维度；进了桶的不列；不在默认层的（已下线）也不列，不报为能力不满足。"""
+        factory, _engine = session_factory_and_engine
+        data = with_entry_facts(factory_snapshot(), "grok", "grok-imagine-image", max_reference_images=0)
+        install_catalog(monkeypatch, with_entry_changes(data, "dashscope", "wan2.7-t2v", discontinued=True))
+        with make_client(["dashscope", "grok", "vidu"]) as client:
+            await _seed_custom_models(
+                factory,
+                [
+                    {
+                        "model_id": "relay-image",
+                        "display_name": "Relay Image",
+                        "endpoint": "openai-images-generations",
+                        "is_enabled": True,
+                    }
+                ],
+            )
+            body = client.get(CANDIDATES_URL).json()
+        relay_image = _custom_option(body, "relay-image")
+
+        i2v, r2v = _filtered(body, "video", "i2v"), _filtered(body, "video", "r2v")
+        assert r2v[DS_I2V_ONLY] == ["max_reference_images"]
+        assert DS_R2V not in r2v
+        assert DS_I2V_ONLY not in i2v
+        assert DS_T2V_ONLY not in i2v
+        assert DS_T2V_ONLY not in r2v
+        t2i, i2i = _filtered(body, "image", "t2i"), _filtered(body, "image", "i2i")
+        assert t2i[DS_IMAGE_I2I_ONLY] == ["text_to_image"]
+        assert i2i[relay_image] == ["image_to_image"]
+        assert i2i["grok/grok-imagine-image"] == ["max_reference_images"]
+        assert DS_IMAGE_BOTH not in t2i
+        assert DS_IMAGE_BOTH not in i2i
+        # 滤掉的与列出的合起来正好是默认层
+        for media_type, bucket in (("video", "i2v"), ("video", "r2v"), ("image", "t2i"), ("image", "i2i")):
+            listed = set(body[media_type]["buckets"][bucket])
+            assert listed.isdisjoint(_filtered(body, media_type, bucket))
+            assert listed | set(_filtered(body, media_type, bucket)) == set(body[media_type]["default"])
 
 
 # ---------------------------------------------------------------------------

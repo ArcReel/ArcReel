@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES, ProviderResponseStage
 from lib.backends.artifact_download_guard import IMAGE_ARTIFACT_MAX_BYTES, artifact_http_client
@@ -15,6 +15,9 @@ from lib.backends.backend_runtime import stream_to_file
 from lib.backends.data_uri import image_to_data_uri as _image_to_data_uri
 from lib.billing.metering import Usage
 from lib.infra.async_thread import run_noninterruptible_sync
+
+if TYPE_CHECKING:
+    from arcreel_catalog_core import CatalogEntry
 
 
 def image_to_base64_data_uri(image_path: Path) -> str:
@@ -97,13 +100,17 @@ class ImageGenerationRequest:
 class ImageRequestFacts:
     """提交前可知的请求事实，供调用通道推出预估用量（见各内置调用通道的 ``estimate_usage``）。
 
-    ``reference_count`` 是参考图张数；整批预估只知道走图生图、不知道几张时为 ``None``。
+    ``reference_count`` 是参考图张数；整批预估只知道走图生图、不知道几张时为 ``None``。``entry`` 是模型对应的条目
+    （对应不上时为 ``None``），调用通道从它读估算要用的模型事实，例如输出 token 的估算基数；由预估入口
+    :func:`lib.backends.image_usage.estimate_builtin_image_usage` 与
+    :meth:`lib.custom_provider.metering.CustomPriceSource.image_usage` 按与执行时同一个来源填入。
     """
 
     model: str
     aspect_ratio: str
     image_size: str | None = None
     reference_count: int | None = 0
+    entry: CatalogEntry | None = None
 
 
 #: 内置调用通道的预估函数：按请求事实推出会发送的请求字段与用量，与 ``generate`` 构造请求用同一套变换。
@@ -162,11 +169,12 @@ class ImageBackend(Protocol):
         """这条调用通道实现了文生图还是图生图（通道事实，不含模型事实）。"""
         ...
 
-    async def reference_image_limit(self) -> int:
-        """这个模型单请求可携带的参考图上限；``0`` = 该后端不按数量裁剪。
+    async def reference_image_limit(self) -> int | None:
+        """这条调用通道单请求可携带的参考图上限（通道事实）；``None`` = 通道本身不限张数。
 
-        与 ``generate`` 内的截断同源。编排层解析图片通道时读一次，据此在渲染「图N」编号前裁剪参考图序列
-        （见 ``lib.prompts.reference_image_numbering.clamp_reference_images``），后端内的截断退为兜底。
+        内置调用通道在类属性 ``CHANNEL_REFERENCE_LIMIT`` 上静态声明，这里返回同一个值；模型本身的上限记在条目上，
+        不在调用通道里按型号名区分。生效值由两侧取较小值得出（``lib.backends.image_capabilities``），编排层据此在
+        渲染「图N」编号前裁剪参考图序列（见 ``lib.prompts.reference_image_numbering.clamp_reference_images``）。
         异步：上限可能要向供应商的模型目录查询才知道（如 OpenRouter 按模型声明的 ``input_references``）。
         """
         ...

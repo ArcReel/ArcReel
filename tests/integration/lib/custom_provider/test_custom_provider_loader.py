@@ -13,7 +13,7 @@ import pytest
 from lib.backends.image_backends.base import ImageCapability
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.backends import CustomImageBackend
-from lib.custom_provider.capabilities import system_video_capabilities
+from lib.custom_provider.capabilities import two_sided_video_capabilities
 from lib.custom_provider.loader import custom_model_max_output_tokens, load_custom_backend
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
@@ -166,17 +166,21 @@ class TestVideoCapabilityOverridesReachExecution:
     @patch("lib.custom_provider.endpoints.OpenAIVideoBackend", new=MagicMock())
     async def test_null_overrides_follow_system_judgement(self, db_session):
         backend = await self._load_video_backend(db_session, overrides=None)
-        assert backend.video_capabilities == system_video_capabilities(endpoint="openai-video", model_id="relay-sora")
+        assert backend.video_capabilities == two_sided_video_capabilities(
+            endpoint="openai-video", model_id="relay-sora"
+        )
 
-    @patch("lib.custom_provider.endpoints.ArkVideoBackend", new=MagicMock())
+    @patch.dict("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", {"ark-seedance-2": MagicMock()})
     async def test_override_forces_capability_on(self, db_session):
-        # 系统判定 last_frame=False；覆盖强制开启后执行层看到 True，且不再转发被包装 backend
+        # 对应不上条目时尾帧按保守回落为 False；覆盖强制开启后执行层看到 True，且不再转发被包装 backend
         # endpoint 须支持尾帧（end_image_capable）覆盖才会生效，openai-video 不满足此前提
         backend = await self._load_video_backend(
-            db_session, overrides={"last_frame": True}, endpoint="ark-seedance", model_id="seedance-1-pro"
+            db_session, overrides={"last_frame": True}, endpoint="ark-seedance-2", model_id="seedance-1-pro"
         )
+        assert two_sided_video_capabilities(endpoint="ark-seedance-2", model_id="seedance-1-pro").last_frame is False
         assert backend.video_capabilities.last_frame is True
-        assert backend.video_capabilities.max_reference_images == 0
+        # 未覆盖的维度跟随两侧求值：参考图上限未收录
+        assert backend.video_capabilities.max_reference_images is None
 
     @patch("lib.custom_provider.endpoints.OpenAIVideoBackend", new=MagicMock())
     async def test_override_forces_capability_off(self, db_session):
@@ -184,13 +188,13 @@ class TestVideoCapabilityOverridesReachExecution:
         assert backend.video_capabilities.max_reference_images == 0
         assert backend.video_capabilities.first_frame is True
 
-    @patch("lib.custom_provider.endpoints.ArkVideoBackend", new=MagicMock())
+    @patch.dict("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", {"ark-seedance-2": MagicMock()})
     async def test_unknown_key_in_stored_overrides_does_not_break_loading(self, db_session):
         # 存量行可能带已下线的键，装载不得失败，该维度按系统判定走
         backend = await self._load_video_backend(
             db_session,
             overrides={"retired_dimension": True, "last_frame": True},
-            endpoint="ark-seedance",
+            endpoint="ark-seedance-2",
             model_id="seedance-1-pro",
         )
         assert backend.video_capabilities.last_frame is True

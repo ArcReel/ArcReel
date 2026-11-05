@@ -77,7 +77,7 @@ class TestRequireAudioSwitchSupported:
                     provider_id=provider.id,
                     model_id="relay-video-x1",
                     display_name="relay-video-x1",
-                    endpoint="ark-seedance",
+                    endpoint="ark-seedance-2",
                     capability_overrides={"audio_track": audio_track},
                 )
             )

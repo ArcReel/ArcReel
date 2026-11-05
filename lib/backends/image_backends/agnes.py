@@ -75,9 +75,14 @@ def _safe_body_for_log(body: dict) -> dict:
 
 
 class AgnesImageBackend:
-    """Agnes 图像后端（单步同步 OpenAI 兼容 images/generations 端点）。"""
+    """Agnes 像素尺寸请求与按短边档位计量。"""
+
+    DEFAULT_MODEL = "agnes-image-2.1-flash"
+    SENDS_RATIO = False
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+    # Agnes 通道不按数量裁剪参考图，全量随请求发出。
+    CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
         self,
@@ -89,7 +94,7 @@ class AgnesImageBackend:
     ) -> None:
         self._api_key = resolve_agnes_api_key(api_key)
         self._base_url = agnes_base_url(base_url)
-        self._model = model or DEFAULT_MODEL
+        self._model = model or self.DEFAULT_MODEL
         self._http_timeout = http_timeout
 
     @property
@@ -104,19 +109,12 @@ class AgnesImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return set(self.CHANNEL_CAPABILITIES)
 
-    async def reference_image_limit(self) -> int:
-        # Agnes 不按数量裁剪参考图，全量随请求发出。
-        return 0
+    async def reference_image_limit(self) -> int | None:
+        return self.CHANNEL_REFERENCE_LIMIT
 
-    @staticmethod
-    def _uses_v25(model: str) -> bool:
-        return model.startswith("agnes-image-2.5")
-
-    @staticmethod
-    def _request_size(model: str, image_size: str | None, aspect_ratio: str) -> str:
-        """请求的 ``size`` 字段：2.5 发档位词，其余发按比例算出的宽高。"""
-        if AgnesImageBackend._uses_v25(model):
-            return (image_size or "1K").upper()
+    @classmethod
+    def _request_size(cls, image_size: str | None, aspect_ratio: str) -> str:
+        """像素端点发送按比例算出的宽高。"""
         short = resolution_to_short_edge(
             image_size or None, tier_map=IMAGE_TIER_SHORT_EDGE, default_short=_DEFAULT_SHORT
         )
@@ -124,24 +122,22 @@ class AgnesImageBackend:
         return f"{width}x{height}"
 
     @staticmethod
-    def _billing_resolution(model: str, size: str) -> str:
-        """Agnes 按输出分辨率档计费：2.5 的 ``size`` 就是档位词；其余发的是宽高，按短边换算成档位。
+    def _billing_resolution(size: str) -> str:
+        """像素端点按输出分辨率档计费：发出的宽高按短边换算成档位。
 
         宽高由档位短边推出（``IMAGE_TIER_SHORT_EDGE``），长边又收口在 2048 以内，所以短边不超过 1K 档短边的
         记 1K，其余记 2K。
         """
-        if AgnesImageBackend._uses_v25(model):
-            return size
         width, height = (int(edge) for edge in size.split("x"))
         return "1K" if min(width, height) <= IMAGE_TIER_SHORT_EDGE["1K"] else "2K"
 
-    @staticmethod
-    def estimate_usage(facts: ImageRequestFacts) -> Usage:
-        size = AgnesImageBackend._request_size(facts.model, facts.image_size, facts.aspect_ratio)
+    @classmethod
+    def estimate_usage(cls, facts: ImageRequestFacts) -> Usage:
+        size = cls._request_size(facts.image_size, facts.aspect_ratio)
         return per_image_usage(
             output_images=1,
             input_images=facts.reference_count,
-            dimensions={"resolution": AgnesImageBackend._billing_resolution(facts.model, size)},
+            dimensions={"resolution": cls._billing_resolution(size)},
         )
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -154,8 +150,8 @@ class AgnesImageBackend:
             "prompt": request.prompt,
             "n": 1,
         }
-        payload["size"] = self._request_size(self._model, request.image_size, request.aspect_ratio)
-        if self._uses_v25(self._model):
+        payload["size"] = self._request_size(request.image_size, request.aspect_ratio)
+        if self.SENDS_RATIO:
             payload["ratio"] = request.aspect_ratio
         if request.reference_images:
             # I2I 参考图随同一请求体下发 data-URI 列表（image 字段）。读盘 + base64 编码
@@ -174,7 +170,7 @@ class AgnesImageBackend:
             usage=per_image_usage(
                 output_images=1,
                 input_images=len(payload.get("image", [])),
-                dimensions={"resolution": self._billing_resolution(self._model, payload["size"])},
+                dimensions={"resolution": self._billing_resolution(payload["size"])},
             ),
         )
 
@@ -284,3 +280,24 @@ async def _write_base64_image(b64: str, output_path: Path) -> None:
         output_path.write_bytes(image_bytes)
 
     await run_noninterruptible_sync(_decode_and_save)
+
+
+class AgnesTierImageBackend(AgnesImageBackend):
+    """档位 size + ratio 请求与按档位计量。"""
+
+    DEFAULT_MODEL = DEFAULT_MODEL
+    SENDS_RATIO = True
+
+    @classmethod
+    def _request_size(cls, image_size: str | None, aspect_ratio: str) -> str:
+        return (image_size or "1K").upper()
+
+    @staticmethod
+    def _billing_resolution(size: str) -> str:
+        return size
+
+
+AGNES_IMAGE_BACKENDS = {
+    "agnes-image-pixels": AgnesImageBackend,
+    "agnes-image-tier": AgnesTierImageBackend,
+}

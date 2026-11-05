@@ -62,8 +62,8 @@ function manyModelsOverrides(): ApiOverrides {
     "GET /api/v1/system/config/model-candidates": {
       status: 200,
       body: {
-        image: { default: image, buckets: { t2i: image, i2i: image } },
-        video: { default: video, buckets: { i2v: video, r2v: video } },
+        image: { default: image, buckets: { t2i: image, i2i: image }, filtered: {} },
+        video: { default: video, buckets: { i2v: video, r2v: video }, filtered: {} },
         provider_names: Object.fromEntries(LONG_PROVIDERS),
         model_names: modelNames,
         lifecycle: {},

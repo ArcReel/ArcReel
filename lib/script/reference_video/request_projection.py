@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
+from lib.backends.input_limits import InputLimit
 from lib.config.resolver import (
     VideoGenerationType,
     video_capability_satisfied,
@@ -545,11 +546,16 @@ def _original_image_paths(entry: dict, spec: AssetSpec) -> list[object]:
 def clamp_reference_assets(
     assets: Sequence[ResolvedReferenceAsset], max_references: int | None
 ) -> tuple[ResolvedReferenceAsset, ...]:
-    """超过上限时按正文的提及顺序保留前若干张——没有类型优先级。"""
+    """超过上限时按正文的提及顺序保留前若干张——没有类型优先级。
 
-    if max_references is None or len(assets) <= max_references:
+    ``max_references`` 是参考图上限的生效值（``lib.backends.video_capabilities``）：``None`` 为未收录，不裁剪；
+    ``0`` 为不接受参考图，同样不裁剪，原样交给执行时的校验拒绝，而不是裁成 0 张后静默改走无参考图的请求。
+    """
+
+    bound = InputLimit.from_json(max_references).clamp_bound()
+    if bound is None or len(assets) <= bound:
         return tuple(assets)
-    return tuple(assets[: max(0, max_references)])
+    return tuple(assets[:bound])
 
 
 _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] = {
@@ -666,7 +672,7 @@ class ReferenceUnitRequestProjector:
                 and not video_capability_satisfied(
                     generation_type=hydrated_generation_type,
                     first_frame=facts.first_frame,
-                    max_reference_images=facts.max_reference_images or 0,
+                    max_reference_images=facts.max_reference_images,
                     text_to_video=facts.text_to_video,
                     has_image=False,
                 )

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
-from lib.backends.backend_assembly.specs import get_provider_spec
+from lib.backends.backend_assembly.specs import PROVIDER_ENDPOINT_SPECS, builtin_model_endpoint, get_provider_endpoints
 from lib.catalog import builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
@@ -48,6 +48,7 @@ async def assemble_backend(
     rate_limiter: Any | None = None,
     generation_type: str | None = None,
     submitted_job: bool = False,
+    builtin_endpoint: str | None = None,
 ) -> Any:
     """统一构造入口。按 provider_id 是否自定义分流；未登记的内置 provider × media fail-loud。
 
@@ -56,6 +57,9 @@ async def assemble_backend(
 
     ``submitted_job`` 为真表示构造出的 backend 只用于续跑已提交给厂商的任务（只轮询、不发起新的生成）：模型已下线
     也照常构造，其余检查不变。新调用恒为假。
+
+    ``builtin_endpoint`` 是调用方已经定下的内置调用端点：传入时内置供应商按它构造，调用方据同一次读取冻结的续跑守卫
+    与构造出的实例一致；为 None 时这里按模型挂接的端点现定（:func:`builtin_model_endpoint`）。自定义供应商不读它。
     """
     if is_custom_provider(provider_id):
         from lib.custom_provider.loader import load_custom_backend
@@ -71,8 +75,11 @@ async def assemble_backend(
                 generation_type=generation_type,
                 submitted_job=submitted_job,
             )
-    spec = get_provider_spec(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
+    get_provider_endpoints(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
     model_id = await _callable_builtin_model(provider_id, media_type, model_id, resolver, submitted_job=submitted_job)
+    # 先定下供应商模型挂接的内置调用端点，再由端点构造：供应商给凭证，端点决定请求
+    endpoint = builtin_endpoint or builtin_model_endpoint(provider_id, media_type, model_id)
+    spec = PROVIDER_ENDPOINT_SPECS[(provider_id, endpoint)]
     config = await _load_builtin_config(resolver, provider_id, rate_limiter)
     # 构造闭包可能读凭证文件（Vertex 服务账号 JSON），放线程里跑，不阻塞事件循环。工作线程里没有事件循环，
     # backend 构造时不能创建要求事件循环的 SDK 客户端（xai_sdk.AsyncClient 的做法见 grok_shared.LazyGrokClient）。
@@ -162,10 +169,10 @@ async def _callable_builtin_model(
 
 
 def _with_model_entry(backend: Any, provider_id: str, model_id: str) -> Any:
-    """让视频调用通道按模型对应的条目认定通道能力，与读侧 ``builtin_video_capabilities_for_model`` 同一个条目。
+    """让视频调用通道按模型对应的条目的名字认定请求形态，与读侧 ``builtin_video_capabilities_for_model`` 同一个条目。
 
-    官方收录的模型取清单所引的条目，用户添加的取条目绑定或按名字现查的结果（docs/adr/0104、0105）。调用通道
-    不按条目认定能力时（声明式定义与模型无关）原样返回。
+    官方收录的模型取清单所引的条目，用户添加的取条目绑定或按名字现查的结果（docs/adr/0104、0105）。输入能力
+    不在这里认定：执行闸门把通道声明与同一个条目两侧求值。调用通道不读条目时（声明式定义与模型无关）原样返回。
     """
     rebind = getattr(backend, "with_catalog_entry", None)
     if not callable(rebind):

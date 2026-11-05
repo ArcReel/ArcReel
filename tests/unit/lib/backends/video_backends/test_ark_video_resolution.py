@@ -1,18 +1,17 @@
-"""测试 ArkVideoBackend 对 resolution=None 的处理。"""
+"""测试方舟视频通道对 resolution=None 的处理。"""
 
 from unittest.mock import MagicMock
 
 import pytest
 
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
-from lib.backends.video_backends.ark import ArkVideoBackend
+from lib.backends.video_backends.ark import Seedance2VideoBackend
 
 
 def _make_backend():
-    backend = ArkVideoBackend.__new__(ArkVideoBackend)
+    backend = Seedance2VideoBackend.__new__(Seedance2VideoBackend)
     backend._client = MagicMock()
     backend._model = "doubao-seedance-1-5-pro-251215"
-    backend._supports_service_tier = False
     return backend
 
 

@@ -38,14 +38,14 @@ from arcreel_market_core.video_backend_contract import (
     VideoCapabilityError,
     VideoGenerationRequest,
 )
-from lib.backends.backend_assembly.specs import apply_user_added_video_overrides
+from lib.backends.backend_assembly.specs import effective_builtin_video_capabilities
 from lib.backends.container_sniff import CONTAINER_HEAD_BYTES, sniff_container
 from lib.backends.image_backends.base import (
-    ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
     ReferenceImage,
 )
+from lib.backends.image_capabilities import gate_image_request
 from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
 from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio, resolve_video_capabilities
 from lib.billing.ledger import Ledger
@@ -117,9 +117,9 @@ class TrialRunTarget:
     #: 固定 0，且能力由节点绑定推导而内联定义这条入口拿不到推导结果，跑闸只会把「绑定漏了首帧」
     #: 说成一条能力拒绝——而用户点测试连接正是为了看 ComfyUI 自己怎么说。
     gate_capabilities: bool = True
-    #: 解析出的视频能力上要不要叠加内置供应商下用户添加的模型的能力覆盖（docs/adr/0104）。
-    #: 只有内置供应商的模型行为真；自定义供应商的覆盖由 CustomVideoBackend 自己叠加，内联定义没有模型行。
-    user_added_overrides: bool = False
+    #: 解析出的视频能力是否按内置供应商模型求生效值：与模型条目两侧求值，用户添加的模型再叠加能力覆盖
+    #: （docs/adr/0104）。只有内置供应商的模型行为真；自定义供应商由 CustomVideoBackend 自己求值，内联定义没有模型行。
+    builtin_model_row: bool = False
 
 
 def _as_float(value: object) -> float | None:
@@ -454,14 +454,16 @@ class TrialRunManager:
             # ``video_capabilities_for_tier`` 的端点按分辨率收窄，读未收窄的属性会比生产放得更宽。
             # 测试请求不带 ``service_tier``，下发的就是请求缺省档，解析也取缺省档。
             video_caps = resolve_video_capabilities(backend, resolution=parameters.resolution) if is_video else None
-            # 与生产执行闸门同一口径：叠加后的能力既过闸，也随请求带给后端。
-            if video_caps is not None and target.user_added_overrides:
-                video_caps = apply_user_added_video_overrides(video_caps, target.provider, target.model)
+            # 与生产执行闸门同一口径：求得的生效能力既过闸，也随请求带给后端。
+            if video_caps is not None and target.builtin_model_row:
+                video_caps = effective_builtin_video_capabilities(video_caps, target.provider, target.model)
             # 生产路径在记账括号前跑同一道能力闸（声明的违约在付费前拒绝，不发给供应商）；
             # 测试连接跑的是生产那条路，闸也一致。免闸的目标见 ``TrialRunTarget.gate_capabilities``。
             if target.gate_capabilities:
                 if video_caps is None:
-                    _gate_trial_image_request(backend, target, assets)
+                    await gate_image_request(
+                        backend, provider_id=target.provider, reference_count=_reference_image_count(assets)
+                    )
                 else:
                     await _gate_trial_video_request(video_caps, target, parameters, assets)
             # 声明 first_frame_ratio_adaptive_only 的端点在带首帧的请求上只接受 adaptive；
@@ -731,29 +733,6 @@ async def _gate_trial_video_request(
     )
 
 
-def _gate_trial_image_request(
-    backend: Any,
-    target: TrialRunTarget,
-    assets: Mapping[str, Path | list[Path] | None],
-) -> None:
-    """图像这一笔的能力闸：判据与 ``MediaGenerator`` 出图前那道同一条。
-
-    图像通道没有 ``gate_video_request`` 的对应物：文生图 / 图生图之外没有别的可选输入路径，判的
-    就是「这次带不带参考图」对不对得上 backend 声明的能力。图像 backend 没有 ``video_capabilities``，
-    而视频那道闸在 caps 为 ``None`` 时把带输入的请求一律按不支持拒掉——图像请求走那道闸，每一次
-    带参考图的测试连接都会被判成 ``video_reference_images_unsupported``。
-    """
-    reference_images = assets.get("reference_images")
-    has_references = bool(reference_images) if isinstance(reference_images, list) else False
-    needed = ImageCapability.IMAGE_TO_IMAGE if has_references else ImageCapability.TEXT_TO_IMAGE
-    if needed not in backend.capabilities:
-        raise ImageCapabilityError(
-            "image_capability_missing_i2i" if has_references else "image_capability_missing_t2i",
-            provider=target.provider,
-            model=target.model,
-        )
-
-
 def declarative_target(
     definition: Mapping[str, Any],
     credentials: EndpointTestCredentials,
@@ -818,7 +797,7 @@ def model_ref_target(
         build_backend=build,
         definition=definition,
         media_type=media_type,
-        user_added_overrides=not is_custom_provider(provider_id),
+        builtin_model_row=not is_custom_provider(provider_id),
     )
 
 
@@ -843,6 +822,11 @@ def provider_from_base_url(base_url: str) -> str:
 
 def _definition_host(definition: Mapping[str, Any]) -> str:
     return urlsplit(str(definition.get("submit", {}).get("url", ""))).hostname or ""
+
+
+def _reference_image_count(assets: Mapping[str, Path | list[Path] | None]) -> int:
+    reference_images = assets.get("reference_images")
+    return len(reference_images) if isinstance(reference_images, list) else 0
 
 
 def _single(value: Path | list[Path] | None) -> Path | None:

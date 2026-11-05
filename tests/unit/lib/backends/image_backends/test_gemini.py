@@ -94,15 +94,15 @@ class TestProperties:
         assert ImageCapability.TEXT_TO_IMAGE in caps
         assert ImageCapability.IMAGE_TO_IMAGE in caps
 
-    @pytest.mark.parametrize("model", ["gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview"])
-    def test_declares_gemini_3_reference_image_limit(self, fake_rate_limiter, patch_genai, model):
-        # Gemini 3 图像模型官方上限：单请求最多混合 14 张参考图。
+    @pytest.mark.parametrize("model", ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"])
+    def test_channel_declares_no_reference_limit_by_model_name(self, fake_rate_limiter, patch_genai, model):
+        # 各代 Gemini 图像模型的参考图上限是模型事实，记在条目上；通道本身不限张数。
         from lib.backends.image_backends.gemini import GeminiImageBackend
 
         backend = GeminiImageBackend(
             backend_type="aistudio", api_key="fake-key", rate_limiter=fake_rate_limiter, image_model=model
         )
-        assert asyncio.run(backend.reference_image_limit()) == 14
+        assert asyncio.run(backend.reference_image_limit()) is None
 
 
 # ---------------------------------------------------------------------------
@@ -202,8 +202,8 @@ class TestGenerate:
         assert isinstance(contents[0], PILImage.Image)
         assert contents[1] == "draw character"
 
-    async def test_generate_truncates_references_over_the_declared_limit(self, backend_aistudio, tmp_path):
-        """编排层未裁剪时的兜底：只把前 reference_image_limit() 张送入 SDK，prompt 仍在末尾。"""
+    async def test_generate_sends_every_reference_before_the_prompt(self, backend_aistudio, tmp_path):
+        """裁剪归编排层（按生效上限）：通道把收到的参考图全部送入 SDK，prompt 仍在末尾。"""
         refs = []
         for index in range(16):
             ref_path = tmp_path / f"ref{index}.png"
@@ -221,7 +221,7 @@ class TestGenerate:
         )
 
         contents = backend_aistudio._client.aio.models.generate_content.call_args.kwargs["contents"]
-        assert len(contents) == (await backend_aistudio.reference_image_limit()) + 1 == 15
+        assert len(contents) == 17
         assert contents[-1] == "merge"
 
     async def test_generate_raises_on_empty_response(self, backend_aistudio, tmp_path):

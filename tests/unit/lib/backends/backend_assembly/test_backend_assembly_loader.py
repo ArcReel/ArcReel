@@ -84,7 +84,7 @@ class TestAssembleBuiltinEndToEnd:
         assert built == [
             {
                 "media": "image",
-                "backend": "ark",
+                "backend": "ark-seedream-4",
                 "kwargs": {
                     "api_key": "ark-secret",
                     "model": "doubao-seedream-5-0-lite-260128",
@@ -116,7 +116,7 @@ class TestAssembleBuiltinEndToEnd:
         assert built == []
         assert (excinfo.value.code, excinfo.value.params) == (
             "model_discontinued",
-            {"provider": "openai", "model": "sora-2"},
+            {"provider": "openai", "model": "sora-2", "shutdown_date": "2026-09-24"},
         )
 
     async def test_discontinued_model_is_rejected_with_its_successor(self, db_factory, monkeypatch):
@@ -321,12 +321,17 @@ class TestAssembleBuiltinEndToEnd:
 
 
 def _any_listed_model(provider_id: str, media_type: str) -> str | None:
-    """该供应商该媒体类型的默认模型；目录没指定默认时取清单里第一个同媒体类型的模型，一个都没有时为 None。"""
+    """该供应商该媒体类型的默认模型；目录没指定默认时取清单里第一个未下线的同媒体类型模型，一个都没有时为 None。"""
     default = catalog.default_model(provider_id, media_type)
     if default is not None:
         return default
     return next(
-        (key for key, model in catalog.list_models(provider_id).items() if model.media_type == media_type), None
+        (
+            key
+            for key, model in catalog.list_models(provider_id).items()
+            if model.media_type == media_type and not model.hidden
+        ),
+        None,
     )
 
 

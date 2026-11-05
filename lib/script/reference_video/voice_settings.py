@@ -27,7 +27,7 @@ class VoiceRenderSettings:
 
     ``requested_generate_audio`` 是本集的无声开关（用户意图，非计价口径）。
 
-    ``max_reference_audio`` 是每请求可携带的参考音频段数上限（backend 能力声明），
+    ``max_reference_audio`` 是每请求可携带的参考音频段数上限的生效值（``None`` 为未收录，不截断），
     ``provider_id`` 与 ``model_id`` 只用于降级 warning 的显示名查找。
 
     ``audio_ready`` 是「音频确实可用」的角色名集合：解析预览不碰文件系统、留 None 表示按角色
@@ -39,7 +39,7 @@ class VoiceRenderSettings:
 
     voice_consistency: str = "soft"
     requested_generate_audio: bool = True
-    max_reference_audio: int = 0
+    max_reference_audio: int | None = 0
     provider_id: str = ""
     model_id: str = ""
     audio_ready: Collection[str] | None = None
@@ -59,7 +59,7 @@ class VoiceRenderSettings:
         return cls(
             voice_consistency=str(caps.get("voice_consistency") or "soft"),
             requested_generate_audio=bool(caps.get("requested_generate_audio", True)),
-            max_reference_audio=int(caps.get("max_reference_audio_count") or 0),
+            max_reference_audio=_audio_count(caps.get("max_reference_audio_count", 0)),
             provider_id=str(caps.get("provider_id") or ""),
             model_id=str(caps.get("model") or ""),
             audio_ready=audio_ready,
@@ -90,3 +90,10 @@ class VoiceRenderSettings:
         里台词文本照常下发，供应商可用作口型参考。
         """
         return self.voice_consistency == "none" or not self.requested_generate_audio
+
+
+def _audio_count(value: object) -> int | None:
+    """能力 dict 里的参考音频段数上限：``None`` 为未收录（不截断），其余按整数读，读不出时按 0。"""
+    if value is None:
+        return None
+    return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0

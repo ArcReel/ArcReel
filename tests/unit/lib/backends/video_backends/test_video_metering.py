@@ -9,12 +9,17 @@ import pytest
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest, VideoGenerationResult
 from lib.backends.backend_assembly.specs import builtin_video_metered_usage
 from lib.backends.video_backends.agnes import AgnesVideoBackend
-from lib.backends.video_backends.ark import ArkVideoBackend
+from lib.backends.video_backends.ark import (
+    ArkVideoBackend,
+    Seedance1VideoBackend,
+    Seedance2VideoBackend,
+    Seedance25VideoBackend,
+)
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-from lib.backends.video_backends.kling import KlingVideoBackend
+from lib.backends.video_backends.kling import KlingAudioVideoBackend, KlingProAudioVideoBackend, KlingVideoBackend
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.openai import OpenAIVideoBackend
-from lib.backends.video_backends.vidu import ViduVideoBackend
+from lib.backends.video_backends.vidu import Vidu2VideoBackend, ViduQ3TurboVideoBackend, ViduVideoBackend
 from lib.billing.catalog_pricing import price_builtin_call
 from lib.billing.metering import Priced, Unpriced, UnpricedReason
 from lib.catalog import query as catalog
@@ -81,57 +86,63 @@ class TestVideoUsage:
 
 
 class TestArkVideoTokens:
+    """视频 token 估算与服务档随 Seedance 端点声明，与型号名无关。"""
+
     @pytest.mark.parametrize(
-        ("model", "resolution", "ratio", "seconds", "tokens"),
+        ("backend", "resolution", "ratio", "seconds", "tokens"),
         [
-            ("doubao-seedance-2-0-260128", "720p", "16:9", 5, 5 * 1280 * 720 * 24 / 1024),
-            ("doubao-seedance-2-0-260128", "1080p", "9:16", 8, 8 * 1080 * 1920 * 24 / 1024),
-            ("doubao-seedance-2-0-260128", "4k", "16:9", 5, 5 * 3840 * 2160 * 24 / 1024),
+            (Seedance2VideoBackend, "720p", "16:9", 5, 5 * 1280 * 720 * 24 / 1024),
+            (Seedance2VideoBackend, "1080p", "9:16", 8, 8 * 1080 * 1920 * 24 / 1024),
+            (Seedance2VideoBackend, "4k", "16:9", 5, 5 * 3840 * 2160 * 24 / 1024),
             # 不发送分辨率时方舟按 720p 生成
-            ("doubao-seedance-2-0-fast-260128", None, "1:1", 4, 4 * 960 * 960 * 24 / 1024),
+            (Seedance2VideoBackend, None, "1:1", 4, 4 * 960 * 960 * 24 / 1024),
             # 2.5 的 480p 横竖屏像素与 2.0 不同
-            ("doubao-seedance-2-5-260628", "480p", "16:9", 5, 5 * 854 * 480 * 24 / 1024),
-            ("doubao-seedance-2-5-260628", "480p", "9:16", 5, 5 * 480 * 854 * 24 / 1024),
+            (Seedance25VideoBackend, "480p", "16:9", 5, 5 * 854 * 480 * 24 / 1024),
+            (Seedance25VideoBackend, "480p", "9:16", 5, 5 * 480 * 854 * 24 / 1024),
         ],
     )
     def test_official_formula(
-        self, model: str, resolution: str | None, ratio: str, seconds: int, tokens: float
+        self, backend: type[ArkVideoBackend], resolution: str | None, ratio: str, seconds: int, tokens: float
     ) -> None:
-        assert ArkVideoBackend.estimate_video_tokens(
-            model, resolution=resolution, ratio=ratio, seconds=seconds
-        ) == pytest.approx(tokens)
+        assert backend.estimate_video_tokens(resolution=resolution, ratio=ratio, seconds=seconds) == pytest.approx(
+            tokens
+        )
 
     @pytest.mark.parametrize(
-        ("model", "resolution", "ratio"),
+        ("backend", "resolution", "ratio"),
         [
             # 宽高比交给上游自适应，像素数不可知
-            ("doubao-seedance-2-0-260128", "720p", "adaptive"),
+            (Seedance2VideoBackend, "720p", "adaptive"),
             # 2.5 没有 4k 档
-            ("doubao-seedance-2-5-260628", "4k", "16:9"),
-            # 不在像素表里的型号
-            ("doubao-seedance-1-0-pro-250528", "720p", "16:9"),
+            (Seedance25VideoBackend, "4k", "16:9"),
+            # 1.x 端点不按视频 token 计量
+            (Seedance1VideoBackend, "720p", "16:9"),
         ],
     )
-    def test_no_estimate_when_pixels_are_unknown(self, model: str, resolution: str, ratio: str) -> None:
-        assert ArkVideoBackend.estimate_video_tokens(model, resolution=resolution, ratio=ratio, seconds=5) is None
+    def test_no_estimate_when_pixels_are_unknown(
+        self, backend: type[ArkVideoBackend], resolution: str, ratio: str
+    ) -> None:
+        assert backend.estimate_video_tokens(resolution=resolution, ratio=ratio, seconds=5) is None
 
     def test_settlement_takes_reported_tokens_and_never_the_estimate(self) -> None:
         request = _request(duration_seconds=5, resolution="720p")
         model = "doubao-seedance-2-0-260128"
 
         assert (
-            ArkVideoBackend.metered_usage(model, request, _result(usage_tokens=99_000)).quantities["video_tokens"]
+            Seedance2VideoBackend.metered_usage(model, request, _result(usage_tokens=99_000)).quantities["video_tokens"]
             == 99_000
         )
-        assert "video_tokens" not in ArkVideoBackend.metered_usage(model, request, _result()).quantities
+        assert "video_tokens" not in Seedance2VideoBackend.metered_usage(model, request, _result()).quantities
 
     def test_service_tier_reported_only_where_the_request_carries_it(self) -> None:
         request = _request(duration_seconds=5, resolution="720p", service_tier="default")
 
-        seedance_2 = ArkVideoBackend.metered_usage("doubao-seedance-2-0-260128", request)
-        seedance_1 = ArkVideoBackend.metered_usage("doubao-seedance-1-0-pro-250528", request)
+        seedance_2 = Seedance2VideoBackend.metered_usage("doubao-seedance-2-0-260128", request)
+        seedance_2_5 = Seedance25VideoBackend.metered_usage("doubao-seedance-2-5-260628", request)
+        seedance_1 = Seedance1VideoBackend.metered_usage("doubao-seedance-1-0-pro-250528", request)
 
         assert "service_tier" not in seedance_2.dimensions
+        assert "service_tier" not in seedance_2_5.dimensions
         assert seedance_1.dimensions["service_tier"] == "standard"
 
     def test_estimate_without_tokens_is_unpriced(self) -> None:
@@ -258,14 +269,14 @@ class TestViduMetering:
     def test_audio_only_reported_true_for_q3_models(self) -> None:
         request = _request(duration_seconds=4, resolution="720p", generate_audio=True)
 
-        assert ViduVideoBackend.metered_usage("viduq3-turbo", request).dimensions["audio"] is True
-        assert ViduVideoBackend.metered_usage("vidu2.0", request).dimensions["audio"] is False
+        assert ViduQ3TurboVideoBackend.metered_usage("viduq3-turbo", request).dimensions["audio"] is True
+        assert Vidu2VideoBackend.metered_usage("vidu2.0", request).dimensions["audio"] is False
 
 
 class TestEntryBoundMetering:
     """不透明 API 模型名带上对应的条目时，各调用通道的计量与同条目的官方模型相同（docs/adr/0105）。
 
-    覆盖按模型名派生计量的全部读点：方舟的视频 token 与服务档、可灵的有声约束、Vidu 的时长校正与音轨、Agnes 的
+    覆盖按模型名派生计量的全部读点：方舟各端点的视频 token 与服务档（与条目无关，同样相等）、可灵的有声约束、Vidu 的时长校正与音轨、Agnes 的
     契约有声、OpenAI 的 ``size``、百炼的音轨与参考图上限。
     """
 
@@ -274,12 +285,12 @@ class TestEntryBoundMetering:
     @pytest.mark.parametrize(
         ("backend", "official"),
         [
-            (ArkVideoBackend, "doubao-seedance-2-0-260128"),
-            (ArkVideoBackend, "doubao-seedance-2-5-260628"),
-            (KlingVideoBackend, "kling-v2-6"),
-            (KlingVideoBackend, "kling-v3"),
-            (ViduVideoBackend, "viduq3-turbo"),
-            (ViduVideoBackend, "vidu2.0"),
+            (Seedance2VideoBackend, "doubao-seedance-2-0-260128"),
+            (Seedance25VideoBackend, "doubao-seedance-2-5-260628"),
+            (KlingProAudioVideoBackend, "kling-v2-6"),
+            (KlingAudioVideoBackend, "kling-v3"),
+            (ViduQ3TurboVideoBackend, "viduq3-turbo"),
+            (Vidu2VideoBackend, "vidu2.0"),
             (AgnesVideoBackend, "agnes-video-2.5"),
             (OpenAIVideoBackend, "sora-2-pro"),
             (DashScopeVideoBackend, "wan3.0-video"),
@@ -308,22 +319,10 @@ class TestEntryBoundMetering:
             official, request, settled
         )
 
-    def test_entry_decides_the_seedance_generation_over_the_api_model_name(self) -> None:
-        """不透明名字认不出世代时没有 token 估算并上报服务档；条目给出 2.0 后按 2.0 像素表估算且不上报服务档。"""
-        request = _request(duration_seconds=5, resolution="720p")
-        entry = catalog.find_entry("doubao-seedance-2-0-260128", media_type="video")
-
-        unbound = ArkVideoBackend.metered_usage(self._OPAQUE, request)
-        bound = ArkVideoBackend.metered_usage(self._OPAQUE, request, entry=entry)
-
-        assert "video_tokens" not in unbound.quantities
-        assert unbound.dimensions["service_tier"] == "standard"
-        assert bound.quantities["video_tokens"] == pytest.approx(5 * 1280 * 720 * 24 / 1024)
-        assert "service_tier" not in bound.dimensions
-
     @pytest.mark.parametrize(("official", "generates_audio"), [("kling-v3", True), ("kling-v2-6", False)])
     def test_kling_default_tier_audio_follows_the_entry(self, official: str, generates_audio: bool) -> None:
         entry = catalog.find_entry(official, media_type="video")
 
         assert KlingVideoBackend.effective_generate_audio_for_model(self._OPAQUE) is False
-        assert KlingVideoBackend.effective_generate_audio_for_model(self._OPAQUE, entry) is generates_audio
+        backend = KlingAudioVideoBackend if generates_audio else KlingProAudioVideoBackend
+        assert backend.effective_generate_audio_for_model(self._OPAQUE, entry) is generates_audio

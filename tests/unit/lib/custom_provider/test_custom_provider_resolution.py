@@ -152,9 +152,11 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
         ("openai-video", "vid-model", 1, "storyboard"),
         ("newapi-video", "vid-model", 0, "storyboard"),
         # 未声明（None）：按 model_id 调 backend 纯 caps 函数读上限，不构造 backend
-        ("ark-seedance", "doubao-seedance-2-0", 9, "storyboard"),
-        ("ark-seedance", "doubao-seedance-1-0", 0, "storyboard"),  # 非 seedance-2 → 0，证明纯函数仍按 model 分支
-        ("vidu-video", "viduq3-turbo", 7, "storyboard"),
+        ("ark-seedance-2", "doubao-seedance-2-0", 9, "storyboard"),
+        # 条目显式记录不接受参考图 → 0（HappyHorse 1.0 i2v）；对应不上条目 → 只受通道约束（方舟通道不设上限，为未收录）
+        ("dashscope-always-on-video", "happyhorse-1.0-i2v", 0, "storyboard"),
+        ("ark-seedance-2", "doubao-seedance-1-0", None, "storyboard"),
+        ("vidu-video-q3-turbo", "viduq3-turbo", 7, "storyboard"),
         # MiniMax 声明式端点：S2V-01 端点单脸参考 → 1；海螺系列走首帧无参考 → 0。S2V-01 端点无首帧能力，
         # 只能落 r2v 桶，项目须是参考生视频才解析得到它。参考上限由端点声明；模型名不取 S2V-01，
         # 它在目录里已下线，解析会报下线
@@ -163,10 +165,10 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
     ],
 )
 async def test_custom_video_max_reference_images_from_endpoint(
-    db_session: AsyncSession, endpoint: str, model_id: str, expected_max_refs: int, generation_mode: str
+    db_session: AsyncSession, endpoint: str, model_id: str, expected_max_refs: int | None, generation_mode: str
 ):
-    """custom 视频 model 的 max_reference_images 经 ENDPOINT_REGISTRY 派生：endpoint cap
-    为显式 int 时直接用；为 None 时按 model_id 调 backend 纯 caps 函数读上限，均不静默落默认值。
+    """custom 视频 model 的 max_reference_images 由通道声明（ENDPOINT_REGISTRY 的显式 int，或 backend 纯 caps
+    函数）与按名字对应的条目两侧求值，取较小值；都没有声明时为未收录（docs/adr/0104）。
 
     perf 回归护栏：无论哪条路径都断言 `CustomProviderRepository.get_provider` 未被调用——
     旧 fallthrough 会多查一次 provider 行 + 构造 backend，新路径纯函数解析不应触发。"""
@@ -214,7 +216,7 @@ async def test_custom_video_max_reference_images_from_endpoint(
 
 @pytest.mark.asyncio
 async def test_custom_video_caps_resolved_without_api_key(db_session: AsyncSession):
-    """endpoint cap=None 的 ark-seedance 在 api_key 为空时仍解析出上限（=9）且**不抛**。
+    """endpoint cap=None 的 ark-seedance-2 在 api_key 为空时仍解析出上限（=9）且**不抛**。
 
     旧路径构造 ArkVideoBackend 会因空 key 抛 ValueError（与延迟解析的 vidu 行为不对称）；
     纯 caps 函数不依赖 client，故对称放行。"""
@@ -235,7 +237,7 @@ async def test_custom_video_caps_resolved_without_api_key(db_session: AsyncSessi
         provider_id=provider.id,
         model_id="doubao-seedance-2-0",
         display_name="Vid Model",
-        endpoint="ark-seedance",
+        endpoint="ark-seedance-2",
         is_default=True,
         is_enabled=True,
         capability_overrides={"durations": [5, 10]},
@@ -268,9 +270,9 @@ async def test_custom_video_max_refs_missing_caps_fn_raises(db_session: AsyncSes
     from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 
     bad_spec = dataclasses.replace(
-        ENDPOINT_REGISTRY["ark-seedance"], video_max_reference_images=None, video_caps_for_model=None
+        ENDPOINT_REGISTRY["ark-seedance-2"], video_max_reference_images=None, video_caps_for_model=None
     )
-    monkeypatch.setitem(ENDPOINT_REGISTRY, "ark-seedance", bad_spec)
+    monkeypatch.setitem(ENDPOINT_REGISTRY, "ark-seedance-2", bad_spec)
 
     provider = CustomProvider(
         display_name="VideoProv",
@@ -285,7 +287,7 @@ async def test_custom_video_max_refs_missing_caps_fn_raises(db_session: AsyncSes
         provider_id=provider.id,
         model_id="doubao-seedance-2-0",
         display_name="Vid Model",
-        endpoint="ark-seedance",
+        endpoint="ark-seedance-2",
         is_default=True,
         is_enabled=True,
         capability_overrides={"durations": [5, 10]},
@@ -321,8 +323,8 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
     def _negative_caps(model: str, entry: object = None) -> VideoCapabilities:
         return VideoCapabilities(max_reference_images=-1)
 
-    bad_spec = dataclasses.replace(ENDPOINT_REGISTRY["ark-seedance"], video_caps_for_model=_negative_caps)
-    monkeypatch.setitem(ENDPOINT_REGISTRY, "ark-seedance", bad_spec)
+    bad_spec = dataclasses.replace(ENDPOINT_REGISTRY["ark-seedance-2"], video_caps_for_model=_negative_caps)
+    monkeypatch.setitem(ENDPOINT_REGISTRY, "ark-seedance-2", bad_spec)
 
     provider = CustomProvider(
         display_name="VideoProv",
@@ -337,7 +339,7 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
         provider_id=provider.id,
         model_id="doubao-seedance-2-0",
         display_name="Vid Model",
-        endpoint="ark-seedance",
+        endpoint="ark-seedance-2",
         is_default=True,
         is_enabled=True,
         capability_overrides={"durations": [5, 10]},

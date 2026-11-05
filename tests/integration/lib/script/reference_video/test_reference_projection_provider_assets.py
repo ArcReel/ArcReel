@@ -19,6 +19,7 @@ from lib.artifacts.version_manager import VersionManager
 from lib.asset_library.bindings import CredentialType, account_scope, confirm_binding, get_bindable_credential
 from lib.asset_library.generation_inputs import choose_reference_image_assets
 from lib.backends.backend_assembly.assembler import assemble_backend
+from lib.backends.backend_assembly.specs import effective_builtin_video_capabilities
 from lib.backends.video_frame_slots import resolve_video_capabilities
 from lib.catalog import query as catalog
 from lib.config.resolver import ConfigResolver
@@ -106,7 +107,7 @@ class _World:
                 discovery_format="openai",
                 base_url="https://relay.example.test",
                 api_key="TEST-relay-key-0001",
-                models=[{"display_name": m["model_id"], "endpoint": "ark-seedance", **m} for m in models],
+                models=[{"display_name": m["model_id"], "endpoint": "ark-seedance-2", **m} for m in models],
             )
             await session.commit()
             return provider.id
@@ -220,20 +221,20 @@ async def test_precheck_and_execution_report_the_same_unusable_link_for_builtin_
 
 
 @pytest.mark.parametrize(
-    ("model", "entry_binding", "applies"),
+    ("model", "endpoint", "applies"),
     [
-        (OPAQUE_MODEL, "bytedance/doubao-seedance-2.0", True),
-        (OPAQUE_MODEL, None, False),
-        (FORGED_MODEL, None, False),
+        (OPAQUE_MODEL, "ark-seedance-2", True),
+        (OPAQUE_MODEL, "ark-seedance-2-5", True),
+        (FORGED_MODEL, "ark-seedance-1", False),
     ],
-    ids=["opaque-id-bound-to-seedance", "opaque-id-unbound", "forged-seedance-name"],
+    ids=["seedance-2", "seedance-2-5", "seedance-1-with-2-0-name"],
 )
-async def test_custom_endpoint_asset_support_comes_from_the_model_entry(
-    world: _World, model: str, entry_binding: str | None, applies: bool
+async def test_custom_endpoint_asset_support_comes_from_the_endpoint(
+    world: _World, model: str, endpoint: str, applies: bool
 ):
-    """自定义「火山方舟 (Seedance)」端点：是否发素材引用按模型对应的条目认定，绑定 Seedance 条目的不透明模型 ID
-    适用，名字里带 Seedance 字样但对应不上条目的不适用；读侧与执行侧结论一致。"""
-    db_id = await world.custom_provider([{"model_id": model, "is_default": True, "entry_binding": entry_binding}])
+    """自定义供应商的 Seedance 端点：是否发素材引用由模型挂接的端点决定（2.0 / 2.5 有素材引用契约，1.x 没有），
+    与型号名无关；读侧与执行侧结论一致。"""
+    db_id = await world.custom_provider([{"model_id": model, "is_default": True, "endpoint": endpoint}])
     await world.bind("custom", db_id)
     await world.link(state="failed", error_code="DownloadFailed", error_message="cannot fetch")
     provider_id = make_provider_id(db_id)
@@ -283,18 +284,24 @@ async def test_opaque_custom_model_bound_to_seedance_gets_the_entry_video_capabi
 
 
 async def test_opaque_custom_model_without_binding_keeps_the_conservative_capabilities(world: _World):
-    """未绑定条目的不透明模型 ID 仍按保守回落：没有参考图能力，参考生视频不可选。"""
+    """未绑定条目的不透明模型 ID 按保守回落：尾帧与参考音频不开；参考图上限只受通道约束（docs/adr/0104）。
+
+    方舟通道实现了参考图且不设上限，参考生视频因而可选，上限为未收录：执行时不裁剪，超出部分由上游拒绝。
+    """
     db_id = await world.custom_provider([{"model_id": OPAQUE_MODEL, "is_default": True}])
     provider_id = make_provider_id(db_id)
 
-    with pytest.raises(ValueError, match="r2v"):
-        await world.resolver.resolve_video_backend(
-            {"video_provider_r2v": f"{provider_id}/{OPAQUE_MODEL}"}, None, generation_type="r2v"
-        )
+    selected = await world.resolver.resolve_video_backend(
+        {"video_provider_r2v": f"{provider_id}/{OPAQUE_MODEL}"}, None, generation_type="r2v"
+    )
     backend = await assemble_backend(
         provider_id=provider_id, media_type="video", model_id=OPAQUE_MODEL, resolver=world.resolver
     )
-    assert backend.video_capabilities_for_tier("default").max_reference_images == 0
+    caps = backend.video_capabilities_for_tier("default")
+    assert (selected.provider_id, selected.model_id) == (provider_id, OPAQUE_MODEL)
+    assert caps.max_reference_images is None
+    assert caps.last_frame is False
+    assert caps.max_reference_audio_count == 0
 
 
 async def test_explicit_capability_override_still_wins_over_the_bound_entry(world: _World):
@@ -332,6 +339,8 @@ async def test_user_added_builtin_model_bound_to_seedance_gets_the_entry_video_c
         backend = await assemble_backend(
             provider_id="ark", media_type="video", model_id=OPAQUE_MODEL, resolver=world.resolver
         )
+        # 执行闸门同一口径：调用通道的声明与绑定条目两侧求值
+        executed = effective_builtin_video_capabilities(resolve_video_capabilities(backend), "ark", OPAQUE_MODEL)
     finally:
         catalog.install_user_added_models(())
 
@@ -339,4 +348,4 @@ async def test_user_added_builtin_model_bound_to_seedance_gets_the_entry_video_c
     assert projection.request_facts.max_reference_images == 9
     assert len(projection.request_assets) == 2
     assert backend.model == OPAQUE_MODEL
-    assert resolve_video_capabilities(backend).max_reference_images == 9
+    assert executed.max_reference_images == 9

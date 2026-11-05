@@ -17,6 +17,7 @@ from lib.backends.backend_assembly.specs import (
     PROVIDER_SPEC_REGISTRY,
     ProviderSpec,
     _validate_provider_specs,
+    builtin_model_spec,
     get_provider_spec,
 )
 from lib.backends.provider_assets import InferenceCredentialRef
@@ -52,7 +53,7 @@ def _built(spec: ProviderSpec, config: LoadedConfig, model: str | None) -> dict[
     ],
 )
 def test_migrated_builtin_video_providers_use_shipped_definitions(provider_id: str, model: str, endpoint: str):
-    backend = get_provider_spec(provider_id, "video").build_backend(
+    backend = get_provider_spec(provider_id, "video", endpoint).build_backend(
         _loaded(credentials={"api_key": "sk-test"}, provider_id=provider_id), model
     )
 
@@ -69,7 +70,7 @@ class TestBuildSimpleBaseUrlPriority:
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="ark")
         assert _built(get_provider_spec("ark", "image"), config, "doubao-seed-2-0-pro-260215") == {
             "media": "image",
-            "backend": "ark",
+            "backend": "ark-seedream-4",
             "kwargs": {
                 "api_key": "sk-test",
                 "model": "doubao-seed-2-0-pro-260215",
@@ -93,10 +94,9 @@ class TestBuildSimpleBaseUrlPriority:
         # （非 ark 的 /api/v3）。
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="ark-agent-plan")
         built = _built(get_provider_spec("ark-agent-plan", "video"), config, "doubao-seedance-2.0")
-        built["kwargs"].pop("catalog_entry")
         assert built == {
             "media": "video",
-            "backend": "ark-agent-plan",
+            "backend": "ark-seedance-2",
             "kwargs": {
                 "api_key": "sk-test",
                 "model": "doubao-seedance-2.0",
@@ -124,16 +124,22 @@ class TestBuildSimpleBaseUrlPriority:
         assert "inference_credential" not in _built(get_provider_spec(provider_id, "video"), plain, "m")["kwargs"]
 
     @pytest.mark.parametrize(
-        ("provider_id", "model_id"), [("ark", "doubao-seedance-2-0-260128"), ("ark-agent-plan", "doubao-seedance-2.0")]
+        ("provider_id", "model_id", "endpoint"),
+        [
+            ("ark", "doubao-seedance-2-0-260128", "ark-seedance-2"),
+            ("ark", "doubao-seedance-2-0-mini-260615", "ark-seedance-2"),
+            ("ark", "doubao-seedance-2-5-260628", "ark-seedance-2-5"),
+            ("ark-agent-plan", "doubao-seedance-2.0-fast", "ark-seedance-2"),
+        ],
     )
-    def test_ark_video_carries_the_listed_model_entry(self, provider_id: str, model_id: str):
-        """方舟视频通道带上清单所引的条目，素材引用槽位按它认定；不在清单里的模型没有条目。"""
+    def test_ark_video_builds_through_the_seedance_endpoint_of_the_model(
+        self, provider_id: str, model_id: str, endpoint: str
+    ):
+        """官方收录的方舟视频模型按数据声明的 Seedance 端点装配。"""
         config = _loaded(credentials={"api_key": "TEST-ark-key"}, provider_id=provider_id)
-        spec = get_provider_spec(provider_id, "video")
-        entry = _built(spec, config, model_id)["kwargs"]["catalog_entry"]
-        assert entry is not None
-        assert entry.key.ref == "bytedance/doubao-seedance-2.0"
-        assert _built(spec, config, "proxy-seedance-2-0-anything")["kwargs"]["catalog_entry"] is None
+        spec = builtin_model_spec(provider_id, "video", model_id)
+        assert spec.endpoint == endpoint
+        assert _built(spec, config, model_id)["backend"] == endpoint
 
     def test_grok_image_no_default_no_user_omits_base_url(self):
         # grok 无 registry default 且用户未配 → 不传 base_url（grok backend 不接受该参数）
@@ -157,7 +163,7 @@ class TestMediaRegistryRouting:
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="dashscope")
         assert _built(get_provider_spec("dashscope", "video"), config, "wan2.7-r2v") == {
             "media": "video",
-            "backend": "dashscope",
+            "backend": "dashscope-always-on-video",
             "kwargs": {
                 "api_key": "sk-test",
                 "model": "wan2.7-r2v",
@@ -362,12 +368,12 @@ class TestKlingSpec:
 
     def test_video_dual_secret_no_api_model_name(self):
         spec = get_provider_spec("kling", "video")
-        assert spec.registry_backend == "kling"
+        assert spec.registry_backend == "kling-video-pro-silent"
         config = self._kling_config(access_key="ak-1", secret_key="sk-1")
         # video backend 不接受 api_model_name：即使 model 是别名也不传该参数
         assert _built(spec, config, "kling-v3") == {
             "media": "video",
-            "backend": "kling",
+            "backend": "kling-video-pro-silent",
             "kwargs": {
                 "auth_mode": "jwt",
                 "access_key": "ak-1",

@@ -129,11 +129,12 @@ function detailOf(item: ProviderModelItem): ProviderModelDetail {
     provider_multiplier: 1,
     entry: null,
     entry_binding: null,
-    capabilities: { media_type: "text", editable: [], base: {}, overrides: {}, effective: {} },
+    capabilities: { media_type: "text", editable: [], displayed: [], base: {}, overrides: {}, effective: {} },
     endpoint: "openai-chat",
     resolution: null,
     path_overrides: null,
     requests: [],
+    endpoint_options: [],
   };
 }
 

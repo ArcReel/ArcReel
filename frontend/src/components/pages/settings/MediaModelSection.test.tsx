@@ -32,10 +32,12 @@ const CANDIDATES = {
   image: {
     default: ["gemini/nano-banana", "openai/gpt-image-edit"],
     buckets: { t2i: ["gemini/nano-banana"], i2i: ["gemini/nano-banana", "openai/gpt-image-edit"] },
+    filtered: {},
   },
   video: {
     default: ["gemini/veo-3", "ark/seedance"],
     buckets: { i2v: ["gemini/veo-3"], r2v: ["ark/seedance"] },
+    filtered: {},
   },
   provider_names: {},
 };
@@ -178,6 +180,23 @@ describe("MediaModelSection", () => {
     await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
     expect(await screen.findByRole("option", { name: /seedance/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /veo-3/ })).not.toBeInTheDocument();
+  });
+
+  it("names the models a purpose filters out and why, without letting them be picked", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "getModelCandidates").mockResolvedValue({
+      ...CANDIDATES,
+      video: { ...CANDIDATES.video, filtered: { r2v: [{ option: "gemini/veo-3", unmet: ["max_reference_images"] }] } },
+    } as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>);
+    render(<MediaModelSection />);
+    await screen.findByRole("combobox", { name: "默认视频模型" });
+
+    await user.click(screen.getAllByText("按用途指定模型")[0]);
+    await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
+    const veo = await screen.findByRole("option", { name: /veo-3/ });
+    expect(veo).toHaveTextContent("不接受参考图");
+    expect(veo).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("group", { name: "不能用于参考生视频" })).toContainElement(veo);
   });
 
   it("shows the global default model behind 跟随默认 in each unset sub-field", async () => {
@@ -386,6 +405,7 @@ describe("MediaModelSection", () => {
           video: {
             default: ["kling/v3-omni"],
             buckets: { i2v: ["kling/v3-omni"], r2v: ["kling/v3-omni"] },
+            filtered: {},
           },
         } as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>);
         vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([

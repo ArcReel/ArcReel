@@ -2,7 +2,8 @@
 
 ArcReel 应用加载出厂快照与官方同步数据、目录数据仓库的 CI 共用这一份实现：实例侧从宽读入
 （``parse_*``、``load_catalog``），构建侧从严校验（``check_*``）；用户修改的条目副本经 ``dump_entry``
-写回。本包只依赖标准库，不依赖 ArcReel 应用。
+写回；内置调用端点清单（``BUILTIN_ENDPOINTS``、``BUILTIN_PROVIDER_ENDPOINTS``）供端点声明的校验与最低应用版本的
+推导使用。本包只依赖标准库，不依赖 ArcReel 应用。
 """
 
 from .dataset import (
@@ -13,6 +14,16 @@ from .dataset import (
     load_catalog,
     make_manifest,
     parse_manifest,
+)
+from .endpoints import (
+    BUILTIN_ENDPOINTS,
+    BUILTIN_PROVIDER_ENDPOINTS,
+    ENDPOINT_DECLARATIONS_SINCE,
+    BuiltinEndpoint,
+    ProviderEndpointOptions,
+    app_version_key,
+    endpoint_version_floor,
+    provider_endpoint_options,
 )
 from .model import (
     AudioFacts,
@@ -57,16 +68,20 @@ from .vocabulary import (
 from .writing import dump_entry
 
 __all__ = [
+    "BUILTIN_ENDPOINTS",
+    "BUILTIN_PROVIDER_ENDPOINTS",
     "CATALOG_FILENAME",
     "CJK_DOUBLE_METER",
     "CURRENCIES",
     "DIMENSIONS",
     "DIMENSION_MEDIA_TYPES",
+    "ENDPOINT_DECLARATIONS_SINCE",
     "MANIFEST_FILENAME",
     "MEDIA_TYPES",
     "METERS",
     "SERVICE_TIERS",
     "AudioFacts",
+    "BuiltinEndpoint",
     "BuiltinProviderListing",
     "BuiltinProviderModel",
     "CatalogData",
@@ -85,12 +100,15 @@ __all__ = [
     "ModelFacts",
     "PriceRow",
     "PriceTable",
+    "ProviderEndpointOptions",
     "TextFacts",
     "VideoFacts",
+    "app_version_key",
     "check_catalog",
     "check_catalog_files",
     "check_entry",
     "dump_entry",
+    "endpoint_version_floor",
     "is_valid_dimension_value",
     "load_catalog",
     "make_manifest",
@@ -99,4 +117,5 @@ __all__ = [
     "parse_dataset_version",
     "parse_entry",
     "parse_manifest",
+    "provider_endpoint_options",
 ]

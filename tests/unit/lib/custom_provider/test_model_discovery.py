@@ -55,7 +55,7 @@ class TestInferEndpointSmoke:
         from lib.custom_provider.endpoints import infer_endpoint
 
         # 可灵视频收敛到原生 kling-video（视频 family 含 kling，不再默认落 openai-video）
-        assert infer_endpoint("kling-v2", "openai") == "kling-video"
+        assert infer_endpoint("kling-v2", "openai") == "kling-video-silent"
         assert infer_endpoint("sora-2", "openai") == "openai-video"
 
     def test_google_text(self):
@@ -137,7 +137,7 @@ class TestDiscoverModelsOpenAI:
 
         [result] = await discover_models(discovery_format="openai", base_url="https://api.example.com/v1", api_key="k")
 
-        assert (result["recognized"], result["media_type"], result["endpoint"]) == (True, "video", "kling-video")
+        assert (result["recognized"], result["media_type"], result["endpoint"]) == (True, "video", "kling-video-audio")
         assert result["matched_entry"]["media_type"] == "video"
         assert result["endpoint_by_media_type"]["image"] == "kling-image"
 
@@ -579,8 +579,8 @@ def test_discover_openai_returns_endpoints(monkeypatch):
     )
     by_id = {m["model_id"]: m for m in result}
     assert by_id["gpt-4o"]["endpoint"] == "openai-chat"
-    assert by_id["kling-v2"]["endpoint"] == "kling-video"
+    assert by_id["kling-v2"]["endpoint"] == "kling-video-silent"
     assert by_id["dall-e-3"]["endpoint"] == "openai-images"
     # 每种 media_type 仅一个 default
     defaults = [m for m in result if m["is_default"]]
-    assert {m["endpoint"] for m in defaults} == {"openai-chat", "kling-video", "openai-images"}
+    assert {m["endpoint"] for m in defaults} == {"openai-chat", "kling-video-silent", "openai-images"}

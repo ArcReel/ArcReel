@@ -9,8 +9,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from dataclasses import replace
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 from arcreel_catalog_core import CatalogEntry
@@ -32,7 +34,6 @@ from lib.backends.providers import PROVIDER_VIDU
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import (
-    UNRECOGNIZED_MODEL_CAPABILITIES,
     EntryBoundCapabilities,
     match_by_names,
 )
@@ -58,55 +59,58 @@ _MAX_REFERENCE_IMAGES = 7
 _PROMPT_MAX_TEXT2VIDEO = 5000
 _PROMPT_MAX_REFERENCE2VIDEO = 2000
 
-# q3 系列模型默认开启音视频直出，q2/q1/2.0 默认静音；audio 仅传 q3 时才生效
-_Q3_MODELS = frozenset(
+
+@dataclass(frozen=True)
+class ViduEndpoint:
+    """固定的音轨字段与各执行子路径的时长契约（ADR 0018）。"""
+
+    key: str
+    audio: bool
+    durations: Mapping[str, tuple[int, ...]]
+
+
+VIDU_GENERIC = ViduEndpoint("vidu-video-generic", False, {})
+VIDU_Q3_PRO = ViduEndpoint(
+    "vidu-video-q3-pro",
+    True,
+    {"/text2video": tuple(range(1, 17)), "/img2video": tuple(range(1, 17)), "/start-end2video": tuple(range(1, 17))},
+)
+VIDU_Q3_TURBO = ViduEndpoint(
+    "vidu-video-q3-turbo",
+    True,
     {
-        "viduq3-pro",
-        "viduq3-turbo",
-        "viduq3-pro-fast",
-        "viduq3",
-        "viduq3-mix",
-    }
+        "/text2video": tuple(range(1, 17)),
+        "/img2video": tuple(range(1, 17)),
+        "/start-end2video": tuple(range(1, 17)),
+        "/reference2video": tuple(range(3, 17)),
+    },
+)
+VIDU_Q3_FAST = ViduEndpoint("vidu-video-q3-fast", True, {"/img2video": tuple(range(1, 17))})
+VIDU_Q3_REFERENCE = ViduEndpoint("vidu-video-q3-reference", True, {"/reference2video": tuple(range(3, 17))})
+VIDU_Q2 = ViduEndpoint(
+    "vidu-video-q2", False, {"/text2video": tuple(range(1, 11)), "/reference2video": tuple(range(1, 11))}
+)
+VIDU_Q2_PRO = ViduEndpoint(
+    "vidu-video-q2-pro",
+    False,
+    {"/img2video": tuple(range(1, 11)), "/start-end2video": tuple(range(1, 9)), "/reference2video": tuple(range(11))},
+)
+VIDU_Q2_FAST = ViduEndpoint(
+    "vidu-video-q2-fast", False, {"/img2video": tuple(range(1, 11)), "/start-end2video": tuple(range(1, 9))}
+)
+VIDU_Q1 = ViduEndpoint(
+    "vidu-video-q1",
+    False,
+    {"/text2video": (5,), "/img2video": (5,), "/start-end2video": (5,), "/reference2video": (5,)},
+)
+VIDU_Q1_CLASSIC = ViduEndpoint("vidu-video-q1-classic", False, {"/img2video": (5,), "/start-end2video": (5,)})
+VIDU_2 = ViduEndpoint(
+    "vidu-video-2", False, {"/img2video": (4, 8), "/start-end2video": (4, 8), "/reference2video": (4,)}
 )
 
-# 按 (model, endpoint) 列出合法 duration —— 文档逐端点列出，差异很大
-_DURATION_RULES: dict[tuple[str, str], list[int]] = {
-    # /text2video
-    ("viduq3-pro", "/text2video"): list(range(1, 17)),
-    ("viduq3-turbo", "/text2video"): list(range(1, 17)),
-    ("viduq2", "/text2video"): list(range(1, 11)),
-    ("viduq1", "/text2video"): [5],
-    # /img2video
-    ("viduq3-pro", "/img2video"): list(range(1, 17)),
-    ("viduq3-turbo", "/img2video"): list(range(1, 17)),
-    ("viduq3-pro-fast", "/img2video"): list(range(1, 17)),
-    # q2 系在 /img2video 为 1–10；1–8 是 /start-end2video（首尾帧）端点的值，两端点不同。
-    ("viduq2-pro-fast", "/img2video"): list(range(1, 11)),
-    ("viduq2-pro", "/img2video"): list(range(1, 11)),
-    ("viduq2-turbo", "/img2video"): list(range(1, 11)),
-    ("viduq1", "/img2video"): [5],
-    ("viduq1-classic", "/img2video"): [5],
-    ("vidu2.0", "/img2video"): [4, 8],
-    # /start-end2video
-    ("viduq3-pro", "/start-end2video"): list(range(1, 17)),
-    ("viduq3-turbo", "/start-end2video"): list(range(1, 17)),
-    ("viduq2-pro-fast", "/start-end2video"): list(range(1, 9)),
-    ("viduq2-pro", "/start-end2video"): list(range(1, 9)),
-    ("viduq2-turbo", "/start-end2video"): list(range(1, 9)),
-    ("viduq1", "/start-end2video"): [5],
-    ("viduq1-classic", "/start-end2video"): [5],
-    ("vidu2.0", "/start-end2video"): [4, 8],
-    # /reference2video (非主体)
-    ("viduq3-turbo", "/reference2video"): list(range(3, 17)),
-    ("viduq3", "/reference2video"): list(range(3, 17)),
-    ("viduq3-mix", "/reference2video"): list(range(3, 17)),
-    ("viduq2-pro", "/reference2video"): list(range(11)),  # 0=自动
-    ("viduq2", "/reference2video"): list(range(1, 11)),
-    ("viduq1", "/reference2video"): [5],
-    ("vidu2.0", "/reference2video"): [4],
-}
 
-# 端点支持的模型集合 —— 用于早期失败提示（依据 docs/api-docs/providers/vidu.md 所列官方文档）
+# 端点支持的模型集合（依据 docs/api-docs/providers/vidu.md 所列官方文档）。型号接受哪些输入以模型条目为准
+# （docs/adr/0104），这里只用来认型号与判定只服务 /reference2video 的型号的 prompt 上限。
 _ENDPOINT_MODELS: dict[str, frozenset[str]] = {
     "/text2video": frozenset({"viduq3-turbo", "viduq3-pro", "viduq2", "viduq1"}),
     "/img2video": frozenset(
@@ -168,6 +172,8 @@ def _serves_only_reference2video(model: str) -> bool:
 class ViduVideoBackend(EntryBoundCapabilities):
     """Vidu 视频生成后端，按 request 字段分派到不同端点。"""
 
+    endpoint = VIDU_Q3_TURBO
+
     def __init__(
         self,
         *,
@@ -180,11 +186,6 @@ class ViduVideoBackend(EntryBoundCapabilities):
         self._base_url = base_url
         self._transport_layer = transport_layer
         self._model = model or DEFAULT_MODEL
-        # 端点白名单与逐型号规则按认得的型号查；认不得的模型不做型号级校正，原样发给上游。
-        self._known_model = _known_model(self._model)
-
-    def _on_catalog_entry_changed(self) -> None:
-        self._known_model = _known_model(self._model, self._catalog_entry)
 
     @property
     def name(self) -> str:
@@ -194,48 +195,30 @@ class ViduVideoBackend(EntryBoundCapabilities):
     def model(self) -> str:
         return self._model
 
-    @staticmethod
-    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """按模型名纯计算 caps —— 不构造 client。认不得的型号（见 ``_known_model``）取 name_family 的
-        统一回落，音轨按恒无声声明（只有 q3 系列下发音轨开关），prompt 上限取宽值。
+    @classmethod
+    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
+        """Vidu 调用通道的声明（通道事实）—— 纯计算，不构造 client。
 
-        认得的型号 first_frame/last_frame/reference_images
-        直接查 `_ENDPOINT_MODELS` 的端点白名单，与 `_select_endpoint`/`_build_request` 实际能否
-        派发到 /img2video、/start-end2video、/reference2video 同源：例如 `viduq3` 不在
-        /img2video、/start-end2video 白名单内（只支持 /reference2video），若恒为 True，
-        调用方按声明提交首帧/尾帧会在 `_build_request` 抛 RuntimeError。`max_reference_images`
-        随 `reference_images` 联动归零（与 `kling.py` 同一实现约定一致）：不在 /reference2video
-        白名单的 model 不可能提交参考图，声明非零容量会误导展示层（如自定义供应商的
-        `/video-capabilities`）。
+        通道按请求字段分派到 /text2video、/img2video、/start-end2video、/reference2video 四个端点，对任何型号都
+        发得出文生、首帧、首尾帧与参考图，参考图一次最多 7 张（端点上限，``_build_request`` 同读）；不收参考音频。
+        各型号接受哪些输入记在模型条目上，与本声明两侧求值（``lib.backends.video_capabilities``，docs/adr/0104）。
+        参考图与首尾帧在 Vidu 上是互斥模式：_select_endpoint 见参考图即切 /reference2video，该端点不收首尾帧，
+        _build_request 拒绝两者同带的请求。
+
+        音轨开关与子路径时长由所选端点决定；提示词上限按型号名判定。
         """
         known = _known_model(model, entry)
-        if known is None:
-            return replace(
-                UNRECOGNIZED_MODEL_CAPABILITIES,
-                max_prompt_chars=_PROMPT_MAX_TEXT2VIDEO,
-                audio_track=VideoAudioMode.ALWAYS_OFF,
-            )
-        reference_images = known in _ENDPOINT_MODELS["/reference2video"]
-        first_frame = known in _ENDPOINT_MODELS["/img2video"]
-        last_frame = known in _ENDPOINT_MODELS["/start-end2video"]
         return VideoCapabilities(
-            text_to_video=known in _ENDPOINT_MODELS["/text2video"],
-            first_frame=first_frame,
-            last_frame=last_frame,
-            max_reference_images=_MAX_REFERENCE_IMAGES if reference_images else 0,
-            # 参考图与首尾帧在 Vidu 上是互斥模式：_select_endpoint 见参考图即切 /reference2video，
-            # 该端点不收首尾帧，_build_request 拒绝两者同带的请求。
-            #
-            # prompt 上限按端点分档（/reference2video 更窄），而本函数无端点上下文，只能声明
-            # 「该 model 无论走哪条端点都成立」的值，不在此处按最窄值误拒多端点 model 合法的
-            # t2v/i2v 请求。
+            text_to_video=True,
+            first_frame=True,
+            last_frame=True,
+            max_reference_images=_MAX_REFERENCE_IMAGES,
             max_prompt_chars=(
-                _PROMPT_MAX_REFERENCE2VIDEO if _serves_only_reference2video(known) else _PROMPT_MAX_TEXT2VIDEO
+                _PROMPT_MAX_REFERENCE2VIDEO
+                if known is not None and _serves_only_reference2video(known)
+                else _PROMPT_MAX_TEXT2VIDEO
             ),
-            # 音轨开关 body["audio"] 只对 q3 系列下发（_build_request），其余系列默认静音且无
-            # 开关可下发，故恒无声——与 `generate_audio=... if self._known_model in _Q3_MODELS else False`
-            # 的结算口径同源。
-            audio_track=(VideoAudioMode.CONTROLLABLE if known in _Q3_MODELS else VideoAudioMode.ALWAYS_OFF),
+            audio_track=(VideoAudioMode.CONTROLLABLE if cls.endpoint.audio else VideoAudioMode.ALWAYS_OFF),
         )
 
     @property
@@ -248,7 +231,7 @@ class ViduVideoBackend(EntryBoundCapabilities):
         raise NotImplementedError("ViduVideoBackend 暂不支持 resume_video")
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        endpoint, body = self._build_request(request)
+        endpoint, body = await asyncio.to_thread(self._build_request, request)
         # _build_request 已把 duration 归一化到 body["duration"]，统一使用以避免 None 崩溃及结果不一致。
         coerced_duration = int(body["duration"])
 
@@ -295,7 +278,7 @@ class ViduVideoBackend(EntryBoundCapabilities):
             seed=request.seed,
             usage_tokens=int(actual_credits) if actual_credits is not None else None,
             task_id=task_id,
-            generate_audio=request.generate_audio if self._known_model in _Q3_MODELS else False,
+            generate_audio=request.generate_audio if self.endpoint.audio else False,
         )
 
     # ── request building ────────────────────────────────────────────────
@@ -317,13 +300,11 @@ class ViduVideoBackend(EntryBoundCapabilities):
         if endpoint == "/text2video" and request.end_image is not None:
             raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
 
-        # 1) 校验认得的型号 × 端点（提前失败比 400 含义更清晰）；认不得的模型由上游判定
-        endpoint_models = _ENDPOINT_MODELS.get(endpoint, frozenset())
-        if self._known_model is not None and endpoint_models and self._known_model not in endpoint_models:
-            raise RuntimeError(f"Vidu 模型 {self._model} 不支持 {endpoint} 端点；该端点支持: {sorted(endpoint_models)}")
+        # 1) 型号接不接受这条端点的输入由模型条目与通道两侧求值后在 gate_video_request 处判定（docs/adr/0104），
+        #    这里不按型号拒绝；条目未收录的输入由上游判定。
 
         # 2) duration 在合法集合内取最近值
-        duration = _coerce_duration(self._known_model or self._model, endpoint, request.duration_seconds)
+        duration = _coerce_duration(self.endpoint, endpoint, request.duration_seconds)
 
         # 3) prompt 长度（reference2video 上限 2000，其他 5000）
         # 超限一律拒绝，不再客户端截断：截断会产出与意图不符的成片却照常计费、用户无从知情，
@@ -356,7 +337,7 @@ class ViduVideoBackend(EntryBoundCapabilities):
             body["seed"] = request.seed
 
         # 6) audio 仅 q3 系列接受
-        if self._known_model in _Q3_MODELS:
+        if self.endpoint.audio:
             body["audio"] = bool(request.generate_audio)
 
         # 7) aspect_ratio 仅 text2video / reference2video 接受
@@ -388,8 +369,9 @@ class ViduVideoBackend(EntryBoundCapabilities):
             raise FileNotFoundError(f"end_image 文件不存在: {request.end_image}")
         return _endpoint_for(request)
 
-    @staticmethod
+    @classmethod
     def metered_usage(
+        cls,
         model: str,
         request: VideoGenerationRequest,
         result: VideoGenerationResult | None = None,
@@ -399,18 +381,17 @@ class ViduVideoBackend(EntryBoundCapabilities):
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         时长与参考图张数取 ``_build_request`` 校正后的发送值，分辨率取请求原值；参考生视频按端点判定，Vidu 的
-        参考生视频与图生、文生视频单价不同。是否有声只对 q3 系列成立（只有它们发送 ``audio``）。型号按模型对应的
-        条目认定（``entry``），与请求构造同一个。
+        参考生视频与图生、文生视频单价不同。音轨开关与时长校正均读所选端点，与请求构造同源。
         """
-        known = _known_model(model, entry)
+        del model, entry
         endpoint = _endpoint_for(request)
-        seconds = _coerce_duration(known or model, endpoint, request.duration_seconds)
+        seconds = _coerce_duration(cls.endpoint, endpoint, request.duration_seconds)
         return video_usage(
             request,
             result,
             seconds=seconds,
             resolution=request.resolution or None,
-            audio=bool(request.generate_audio) if known in _Q3_MODELS else False,
+            audio=bool(request.generate_audio) if cls.endpoint.audio else False,
             reference_images=len(_reference_images(request)) if endpoint == "/reference2video" else 0,
             reference_to_video=endpoint == "/reference2video",
         )
@@ -463,9 +444,9 @@ def _reference_images(request: VideoGenerationRequest) -> list[Path]:
     return [Path(p) for p in (request.reference_images or []) if p]
 
 
-def _coerce_duration(model: str, endpoint: str, requested: int | None) -> int:
-    """按 (model, endpoint) 的合法集合，把请求时长校正到最近值。"""
-    allowed = _DURATION_RULES.get((model, endpoint))
+def _coerce_duration(profile: ViduEndpoint, endpoint: str, requested: int | None) -> int:
+    """按调用端点在各子路径的合法集合，把请求时长校正到最近值。"""
+    allowed = profile.durations.get(endpoint)
     if not allowed:
         # 表里无项时不强校（让接口按默认处理），但若给了值就透传
         return int(requested) if requested else 5
@@ -477,9 +458,93 @@ def _coerce_duration(model: str, endpoint: str, requested: int | None) -> int:
     logger.warning(
         "Vidu duration %s 不在 model=%s endpoint=%s 合法集合 %s，使用最近值 %s",
         requested,
-        model,
+        profile.key,
         endpoint,
         allowed,
         nearest,
     )
     return int(nearest)
+
+
+class ViduGenericVideoBackend(ViduVideoBackend):
+    """``vidu-video-generic`` 请求契约。"""
+
+    endpoint = VIDU_GENERIC
+
+
+class ViduQ3ProVideoBackend(ViduVideoBackend):
+    """``vidu-video-q3-pro`` 请求契约。"""
+
+    endpoint = VIDU_Q3_PRO
+
+
+class ViduQ3TurboVideoBackend(ViduVideoBackend):
+    """``vidu-video-q3-turbo`` 请求契约。"""
+
+    endpoint = VIDU_Q3_TURBO
+
+
+class ViduQ3FastVideoBackend(ViduVideoBackend):
+    """``vidu-video-q3-fast`` 请求契约。"""
+
+    endpoint = VIDU_Q3_FAST
+
+
+class ViduQ3ReferenceVideoBackend(ViduVideoBackend):
+    """``vidu-video-q3-reference`` 请求契约。"""
+
+    endpoint = VIDU_Q3_REFERENCE
+
+
+class ViduQ2VideoBackend(ViduVideoBackend):
+    """``vidu-video-q2`` 请求契约。"""
+
+    endpoint = VIDU_Q2
+
+
+class ViduQ2ProVideoBackend(ViduVideoBackend):
+    """``vidu-video-q2-pro`` 请求契约。"""
+
+    endpoint = VIDU_Q2_PRO
+
+
+class ViduQ2FastVideoBackend(ViduVideoBackend):
+    """``vidu-video-q2-fast`` 请求契约。"""
+
+    endpoint = VIDU_Q2_FAST
+
+
+class ViduQ1VideoBackend(ViduVideoBackend):
+    """``vidu-video-q1`` 请求契约。"""
+
+    endpoint = VIDU_Q1
+
+
+class ViduQ1ClassicVideoBackend(ViduVideoBackend):
+    """``vidu-video-q1-classic`` 请求契约。"""
+
+    endpoint = VIDU_Q1_CLASSIC
+
+
+class Vidu2VideoBackend(ViduVideoBackend):
+    """``vidu-video-2`` 请求契约。"""
+
+    endpoint = VIDU_2
+
+
+VIDU_BACKENDS: Mapping[str, type[ViduVideoBackend]] = {
+    backend.endpoint.key: backend
+    for backend in (
+        ViduGenericVideoBackend,
+        ViduQ3ProVideoBackend,
+        ViduQ3TurboVideoBackend,
+        ViduQ3FastVideoBackend,
+        ViduQ3ReferenceVideoBackend,
+        ViduQ2VideoBackend,
+        ViduQ2ProVideoBackend,
+        ViduQ2FastVideoBackend,
+        ViduQ1VideoBackend,
+        ViduQ1ClassicVideoBackend,
+        Vidu2VideoBackend,
+    )
+}

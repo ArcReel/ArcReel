@@ -483,7 +483,7 @@ class TestFreeze:
         fixture = _Fixture(tmp_path)
         generation_input = _admitted(fixture)
 
-        with generation_input.freeze(max_reference_images=0, model="m", bind_claims=_identity_binder) as frozen:
+        with generation_input.freeze(max_reference_images=None, model="m", bind_claims=_identity_binder) as frozen:
             frozen_digests = [visual.content_digest for visual in frozen.references.visual_references]
             claimed = {claim.artifact_path: claim.content_digest for claim in frozen.claims}
 

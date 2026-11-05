@@ -36,7 +36,7 @@ from lib.custom_provider.capabilities import (
     filter_valid_overrides,
     resolve_audio_pair,
     strip_incoherent_audio_overrides,
-    system_video_capabilities,
+    two_sided_video_capabilities,
 )
 from lib.custom_provider.capability_view import CapabilityView, custom_capability_view
 from lib.custom_provider.discovery_formats import endpoint_attachment_holds, is_comfyui_protocol
@@ -398,7 +398,7 @@ class EndpointCatalogResponse(BaseModel):
 def _system_capabilities_for(
     endpoint: str, model_id: str, endpoint_spec: EndpointSpec | None = None, entry_binding: str | None = None
 ) -> dict[str, object] | None:
-    """读该 model 的系统判定能力；非 video endpoint 返回 None。
+    """读该 model 的判定能力（调用端点声明与模型条目两侧求值，不含能力覆盖）；非 video endpoint 返回 None。
 
     判定失败（endpoint 已下线、注册表声明异常）时降级为 None 而非 500：列表端点要能把
     其余模型正常呈现出来，单行判定不出来只是设置页少一段"判定值"提示。
@@ -410,7 +410,7 @@ def _system_capabilities_for(
         if media_type != "video":
             return None
         caps = asdict(
-            system_video_capabilities(
+            two_sided_video_capabilities(
                 endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec, entry_binding=entry_binding
             )
         )

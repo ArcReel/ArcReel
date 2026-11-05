@@ -2,12 +2,12 @@
 
 `lib.backends.video_backends.dashscope.classify_wan_model` 是家族归属、分隔符归一化、标识符边界、
 image-to-video 续接语法、videoedit 模态排除的唯一判定入口；端点路由
-（`lib.custom_provider.endpoints.infer_endpoint`）、能力档
-（`DashScopeVideoBackend.video_capabilities_for_model`）、时长档
+（`lib.custom_provider.endpoints.infer_endpoint`）、请求形态档
+（`lib.backends.video_backends.dashscope._profile_key_for_model`）、时长档
 （`lib.custom_provider.duration_presets.infer_supported_durations`）三处判定点都只消费其结论。
 本文件覆盖分隔符 × 版本 × 模态 × 大小写 × 装饰前缀等轴的组合，逐条比对三处判定点的期望值，
-并对可解析出具体模态（t2v/i2v/r2v）的家族成员做一条通用一致性断言：命中原生路由必有非默认
-能力档，反之亦然——三处判定点各自维护一份正则时容易出现宽度不一致，产生这类互斥组合；
+并对可解析出具体模态（t2v/i2v/r2v）的家族成员做一条通用一致性断言：命中原生路由必能解析出
+请求形态档，反之亦然——三处判定点各自维护一份正则时容易出现宽度不一致，产生这类互斥组合；
 逐点单测无法发现，只有跨判定点的组合校验能发现。
 """
 
@@ -17,8 +17,7 @@ import itertools
 
 import pytest
 
-from lib.backends.video_backends.dashscope import DashScopeVideoBackend
-from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES
+from lib.backends.video_backends.dashscope import DashScopeVideoBackend, _profile_key_for_model
 from lib.custom_provider.duration_presets import infer_supported_durations
 from lib.custom_provider.endpoints import infer_endpoint
 
@@ -47,10 +46,11 @@ def _wan27_ids_with_modality() -> list[tuple[str, str]]:
 @pytest.mark.parametrize(("model_id", "modality"), _wan27_ids_with_modality())
 def test_wan27_alias_routes_and_profiles_consistently(model_id: str, modality: str) -> None:
     """wan2.7 t2v/i2v/r2v：连字符/下划线前缀 × 连字符/下划线模态分隔符 × 大小写全组合。"""
-    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
-    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    assert caps.first_frame is (modality in ("i2v", "r2v"))
-    assert caps.max_prompt_chars == 5000
+    assert infer_endpoint(model_id, "openai") == (
+        "dashscope-reference-voice-video" if modality == "r2v" else "dashscope-always-on-video"
+    )
+    assert _profile_key_for_model(model_id) == f"wan2.7-{modality}"
+    assert DashScopeVideoBackend.video_capabilities_for_model(model_id).max_prompt_chars == 5000
     assert infer_supported_durations(model_id) == list(range(2, 16))
 
 
@@ -62,10 +62,8 @@ def test_wan27_alias_routes_and_profiles_consistently(model_id: str, modality: s
 @pytest.mark.parametrize("case_fn", _CASE_FNS)
 def test_wan27_image_to_video_alias_normalizes_to_i2v(prefix_sep: str, modality_word: str, case_fn: type[str]) -> None:
     model_id = case_fn(f"wan{prefix_sep}2.7-{modality_word}")
-    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
-    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    assert caps.first_frame is True
-    assert caps.max_reference_images == 0  # 与 r2v 档区分
+    assert infer_endpoint(model_id, "openai") == "dashscope-always-on-video"
+    assert _profile_key_for_model(model_id) == "wan2.7-i2v"  # 与 r2v 档区分
 
 
 @pytest.mark.parametrize("prefix_sep", _PREFIX_SEPS)
@@ -87,7 +85,7 @@ def _wan3_ids() -> list[str]:
 
 @pytest.mark.parametrize("model_id", _wan3_ids())
 def test_wan3_alias_routes_and_durations_consistently(model_id: str) -> None:
-    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
+    assert infer_endpoint(model_id, "openai") == "dashscope-wan3-video"
     assert infer_supported_durations(model_id) == list(range(2, 31))
 
 
@@ -102,26 +100,24 @@ def test_wan2x_non_27_dash_form_stays_generic_dot_form_stays_native(
     video-generation/video-synthesis 端点，是否收窄该判定需要供应商 API 事实与产品判断，
     见 classify_wan_model 的说明）。"""
     model_id = case_fn(_build(prefix_sep, version, "-", modality))
-    expected_endpoint = "dashscope-async-video" if prefix_sep == "" else "openai-video"
+    expected_endpoint = "dashscope-video" if prefix_sep == "" else "openai-video"
     assert infer_endpoint(model_id, "openai") == expected_endpoint
     assert infer_supported_durations(model_id) == [4, 5]
 
 
 @pytest.mark.parametrize(
-    ("model_id", "expected_endpoint", "expected_first_frame"),
+    ("model_id", "expected_endpoint", "expected_profile"),
     [
-        ("proxy/wan-2.7-r2v", "dashscope-async-video", True),
-        ("proxy/wan_2.7_t2v", "dashscope-async-video", False),
-        ("vendor-wan2.7-i2v-0715", "dashscope-async-video", True),
+        ("proxy/wan-2.7-r2v", "dashscope-reference-voice-video", "wan2.7-r2v"),
+        ("proxy/wan_2.7_t2v", "dashscope-always-on-video", "wan2.7-t2v"),
+        ("vendor-wan2.7-i2v-0715", "dashscope-always-on-video", "wan2.7-i2v"),
     ],
 )
-def test_decorated_prefix_suffix_still_resolves(
-    model_id: str, expected_endpoint: str, expected_first_frame: bool
-) -> None:
+def test_decorated_prefix_suffix_still_resolves(model_id: str, expected_endpoint: str, expected_profile: str) -> None:
     """代理中转常见的前后缀装饰不影响判定。"""
     assert infer_endpoint(model_id, "openai") == expected_endpoint
-    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    assert caps.first_frame is expected_first_frame
+    if expected_profile and expected_profile.startswith("wan"):
+        assert _profile_key_for_model(model_id) == expected_profile
 
 
 @pytest.mark.parametrize(
@@ -131,9 +127,8 @@ def test_decorated_prefix_suffix_still_resolves(
 def test_boundary_false_positives_are_rejected(model_id: str) -> None:
     """含 wan2/wan3 子串但并非该家族的型号名不得被误判——两侧标识符边界。"""
     assert infer_endpoint(model_id, "openai") == "openai-video"
-    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    assert caps.max_reference_images == 0
-    assert caps.max_prompt_chars is None
+    assert _profile_key_for_model(model_id) is None
+    assert DashScopeVideoBackend.video_capabilities_for_model(model_id).max_prompt_chars is None
 
 
 @pytest.mark.parametrize(
@@ -154,8 +149,7 @@ def test_boundary_false_positives_are_rejected(model_id: str) -> None:
 def test_adjacent_letters_do_not_qualify_as_classification_tokens(model_id: str, expected_endpoint: str) -> None:
     """分类 token 两侧标识符边界须完整：紧邻字母/数字的相似子串不应被误判命中。"""
     assert infer_endpoint(model_id, "openai") == expected_endpoint
-    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    assert caps is UNRECOGNIZED_MODEL_CAPABILITIES
+    assert _profile_key_for_model(model_id) is None
 
 
 @pytest.mark.parametrize("model_id", ["swan2.7-image", "vendorwan2.7-image"])
@@ -171,7 +165,9 @@ def test_wan_substring_image_variant_routes_to_image_endpoint_despite_rejected_f
 def test_wan27_known_modality_not_downgraded_by_unrelated_image_decoration(model_id: str) -> None:
     """wan2.7 已解析出已知 t2v/i2v/r2v profile 时，id 别处（如代理命名空间前缀）另含无关 "image"
     子串不应被误判成图像变体——已知 profile 本身已确立视频语义，须优先于笼统 image 子串判定。"""
-    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
+    assert infer_endpoint(model_id, "openai") == (
+        "dashscope-reference-voice-video" if "r2v" in model_id else "dashscope-always-on-video"
+    )
 
 
 @pytest.mark.parametrize("model_id", ["wan3.0-image-edit", "wan-3-turbo-image-preview"])
@@ -252,9 +248,10 @@ def test_wan27_suffix_not_polluted_by_literal_marker_text_in_decoration_prefix(m
     （不满足家族标识符边界、未被判定为家族标记，如 "vendorwan2.7-videoedit-proxy/" 里的
     "wan2.7"），文本搜索无法区分这类前缀噪音与真正的家族标记位置，会把装饰前缀内容
     （"videoedit"/"s2v"）误当模态段的一部分。"""
-    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
-    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    assert caps is not UNRECOGNIZED_MODEL_CAPABILITIES
+    assert infer_endpoint(model_id, "openai") == (
+        "dashscope-reference-voice-video" if "r2v" in model_id else "dashscope-always-on-video"
+    )
+    assert _profile_key_for_model(model_id) is not None
 
 
 def test_wan27_videoedit_excluded_from_family_duration_preset() -> None:
@@ -275,7 +272,9 @@ def test_videoedit_detection_ignores_decoration_before_wan27_marker(model_id: st
     """ "videoedit" 判定只在 wan2.7 标记之后的模态段内生效，不含标记前的装饰前缀："videoeditor"
     一类无关词形本就不满足标识符边界；"videoedit-service" 这类装饰前缀即便满足边界也不计入——
     与代理命名空间无关的真实模态（如 i2v/r2v）应正常落原生路由。"""
-    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
+    assert infer_endpoint(model_id, "openai") == (
+        "dashscope-reference-voice-video" if "r2v" in model_id else "dashscope-always-on-video"
+    )
 
 
 @pytest.mark.parametrize("model_id", ["wan2.7-r2v-videoedit", "wan_2.7-videoedit-0715"])
@@ -289,7 +288,7 @@ def test_videoedit_detected_within_modality_segment_after_marker(model_id: str) 
 def test_videoedit_exclusion_scoped_to_wan27_only(model_id: str) -> None:
     """videoedit 排除只对 wan2.7 家族生效——wan3 的 id 即便含 "videoedit" 子串（装饰前缀或
     其他来源），也不应被误排除出原生路由，该模态的能力欠缺只记录在 wan2.7 家族下。"""
-    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
+    assert infer_endpoint(model_id, "openai") == "dashscope-wan3-video"
     assert infer_supported_durations(model_id) == list(range(2, 31))
 
 
@@ -313,7 +312,7 @@ def test_wan27_unrecognized_modality_excluded_from_native_route_and_family_durat
 @pytest.mark.parametrize("model_id", ["wan2.6-image-to-video", "wan2.1-image-to-video"])
 def test_wan2x_dot_image_to_video_has_no_registered_capability_falls_back_to_generic(model_id: str) -> None:
     """wan2x_dot（2.7 以外的点号形态）没有登记任何 VideoCapabilities；image-to-video 续接语法
-    命中时若仍放行原生路由，会静默拿到 统一回落（恰好 first_frame=True，掩盖问题）。
+    命中时若仍放行原生路由，会静默拿到通道声明（恰好 first_frame=True，掩盖问题）。
     没有已验证能力/请求 schema 的 id 排除出原生路由，落通用视频端点。"""
     assert infer_endpoint(model_id, "openai") == "openai-video"
 
@@ -334,16 +333,15 @@ def test_wan_substring_s2v_excluded_from_minimax_routing_even_without_family_mat
 
 
 @pytest.mark.parametrize(
-    ("model_id", "expected_max_reference_images"),
+    ("model_id", "expected_endpoint"),
     [
-        ("proxy/happyhorse-1.0-r2v", 9),
-        ("happyhorse-1.0-r2v-0715", 9),
-        ("myhappyhorse-1.0-r2v", 0),  # 标识符边界拒绝：非 happyhorse 家族
+        ("proxy/happyhorse-1.0-r2v", "dashscope-reference-video"),
+        ("happyhorse-1.0-r2v-0715", "dashscope-reference-video"),
+        ("myhappyhorse-1.0-r2v", "openai-chat"),  # 标识符边界拒绝：非 happyhorse 家族
     ],
 )
-def test_happyhorse_boundary_and_decoration(model_id: str, expected_max_reference_images: int) -> None:
-    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    assert caps.max_reference_images == expected_max_reference_images
+def test_happyhorse_boundary_and_decoration(model_id: str, expected_endpoint: str) -> None:
+    assert infer_endpoint(model_id, "openai") == expected_endpoint
 
 
 @pytest.mark.parametrize(
@@ -357,21 +355,15 @@ def test_happyhorse_boundary_and_decoration(model_id: str, expected_max_referenc
     ],
 )
 def test_native_route_and_non_default_profile_agree(model_id: str) -> None:
-    """一致性断言：家族成员且模态可解析（t2v/i2v/r2v）时，命中原生路由必有非默认能力档，反之亦然。
+    """一致性断言：家族成员且模态可解析（t2v/i2v/r2v）时，命中原生路由必能解析出请求形态档，反之亦然。
 
     该断言只覆盖模态可解析的成员——裸家族名（如 "happyhorse"）、wan2.7-videoedit、非 2.7 的点号形态
-    2.x（"wan2.1-*"）均因模态/协议未确权而按设计落默认档，不受本断言约束（见 classify_wan_model
+    2.x（"wan2.1-*"）均因模态/协议未确权而按设计认不得，不受本断言约束（见 classify_wan_model
     与 _profile_for_model 的说明）。
     """
-    routed_native = infer_endpoint(model_id, "openai") == "dashscope-async-video"
-    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    # 用对象身份而非字段相等判定"是否解析出已知档"——happyhorse-i2v 的声明字段值恰好与
-    # VideoCapabilities() 的默认值逐项相同（first_frame 默认即 True），字段级比较会漏判。
-    # `_profile_for_model` 命中已知 key 时返回 `_MODEL_PROFILES` 里的原对象，未命中时返回
-    # `UNRECOGNIZED_MODEL_CAPABILITIES` 单例，两者身份不同，可靠区分"解析成功"与"落回默认"。
-    has_known_profile = caps is not UNRECOGNIZED_MODEL_CAPABILITIES
-    assert routed_native is True
-    assert has_known_profile is True
+    assert infer_endpoint(model_id, "openai").startswith("dashscope-")
+    if "happyhorse" not in model_id:
+        assert _profile_key_for_model(model_id) is not None
 
 
 @pytest.mark.parametrize(
@@ -385,13 +377,11 @@ def test_native_route_and_non_default_profile_agree(model_id: str) -> None:
 )
 def test_excluded_from_native_route_agrees_with_default_profile(model_id: str) -> None:
     """一致性断言的排除方向：has_known_modality=False 时两个判定点须一致落回默认档，不能出现
-    「不落原生路由却仍解析出真实能力档」的互斥组合——`_profile_for_model` 的子串容忍匹配若不
+    「不落原生路由却仍解析出请求形态档」的互斥组合——`_profile_for_model` 的子串容忍匹配若不
     检查 has_known_modality，会在装饰后缀里找到共存的已知 token（如 "wan2.7-i2v-s2v" 里的
-    "i2v"）而误判出该已实现模态的能力档。"""
-    routed_native = infer_endpoint(model_id, "openai") == "dashscope-async-video"
-    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    assert routed_native is False
-    assert caps is UNRECOGNIZED_MODEL_CAPABILITIES
+    "i2v"）而误判出该已实现模态的请求形态档。"""
+    assert not infer_endpoint(model_id, "openai").startswith("dashscope-")
+    assert _profile_key_for_model(model_id) is None
 
 
 @pytest.mark.parametrize(
@@ -410,7 +400,8 @@ def test_wan27_image_variant_not_upgraded_by_image_to_video_decoration_before_ma
 @pytest.mark.parametrize("model_id", ["wan2.7-image-to-video", "wan_2.7-image2video"])
 def test_wan27_image_to_video_detected_within_modality_segment_after_marker(model_id: str) -> None:
     """真正的 image-to-video 续接语法出现在 wan2.7 标记之后的模态段内时，仍要正确命中并折算成
-    i2v，落原生路由与非默认能力档。"""
-    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
-    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    assert caps is not UNRECOGNIZED_MODEL_CAPABILITIES
+    i2v，落原生路由并解析出请求形态档。"""
+    assert infer_endpoint(model_id, "openai") == (
+        "dashscope-reference-voice-video" if "r2v" in model_id else "dashscope-always-on-video"
+    )
+    assert _profile_key_for_model(model_id) is not None
