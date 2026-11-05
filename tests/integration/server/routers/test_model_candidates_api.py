@@ -23,6 +23,7 @@ from arcreel_catalog_core import CatalogData
 from lib.backends.generation_type_buckets import builtin_model_buckets, custom_model_buckets
 from lib.catalog import query as catalog
 from lib.catalog.builtin_models import disabled_builtin_models, disabled_without_state, list_builtin_models
+from lib.catalog.errors import ModelDiscontinuedError
 from lib.catalog.query import factory_snapshot
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService, ProviderStatus
@@ -30,11 +31,15 @@ from lib.db import get_async_session
 from lib.db.base import Base
 from lib.db.repositories.builtin_provider_model_repo import BuiltinProviderModelRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.generation.task_failure import failure_message_key
+from lib.i18n import SUPPORTED_LOCALES, render_message
+from lib.i18n import _ as translate_message
 from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
 from server.routers import system_config as system_config_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes, with_entry_facts
+from tests.factories import make_display_names
 from tests.fakes import use_project_manager
 
 CANDIDATES_URL = "/api/v1/system/config/model-candidates"
@@ -501,6 +506,30 @@ class TestLifecycleNotices:
         notice = body["lifecycle"][DS_I2V_ONLY]
         assert (notice["status"], notice["shutdown_date"]) == ("discontinued", "2026-11-01")
         assert notice["switch_targets"]["default"] == DS_R2V
+
+    @pytest.mark.parametrize("locale", SUPPORTED_LOCALES)
+    def test_calling_the_discontinued_model_names_the_successor_as_the_notice_does(
+        self, make_client, monkeypatch, locale
+    ):
+        """调用已下线模型的报错与引用处的提示对后继写法一致：都是条目显示名，不是条目引用。"""
+        successor = _entry_ref(DS_R2V)
+        _retire(monkeypatch, DS_I2V_ONLY, successor=successor, shutdown=date(2026, 11, 1))
+        with make_client(["dashscope"]) as client:
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][DS_I2V_ONLY]
+        provider_id, model_id = DS_I2V_ONLY.split("/", 1)
+        with pytest.raises(ModelDiscontinuedError) as excinfo:
+            catalog.require_callable(provider_id, model_id, "video")
+
+        exc = excinfo.value
+        message = render_message(
+            failure_message_key(exc.code, exc.params),
+            exc.params,
+            lambda key, **params: translate_message(key, locale=locale, **params),
+            make_display_names(locale),
+        )
+        assert notice["successor_name"]
+        assert notice["successor_name"] in message
+        assert successor not in message
 
     def test_successor_that_does_not_support_the_bucket_is_offered_only_where_it_qualifies(
         self, make_client, monkeypatch

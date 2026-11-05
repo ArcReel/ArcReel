@@ -405,6 +405,61 @@ describe("ModelConfigSection", () => {
       );
     });
 
+    describe("所选视频模型已下线", () => {
+      const DISCONTINUED_ERROR = "Ark/seedance：该模型已于 2026-11-01 下线，官方建议改用 Seedance 2；请在设置中重新选择模型";
+      const discontinued = (status: "discontinued" | "retiring" = "discontinued") => ({
+        ...CANDIDATES,
+        lifecycle: {
+          "ark/seedance": {
+            status,
+            shutdown_date: "2026-11-01",
+            successor: "bytedance/seedance-2",
+            successor_name: "Seedance 2",
+            switch_targets: { default: null, i2v: null, r2v: null },
+          },
+        },
+      });
+
+      beforeEach(() => {
+        vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError(DISCONTINUED_ERROR, undefined, 400));
+      });
+
+      it.each([
+        ["the project default", { videoBackend: "ark/seedance" }],
+        ["a generation-path override", { videoBackend: "gemini/veo-3", videoProviderI2V: "ark/seedance" }],
+      ])("shows only the discontinued notice when %s references it", async (_where, value) => {
+        renderWithCandidates({ projectName: "demo", value: { ...EMPTY_VALUE, ...value }, candidates: discontinued() });
+
+        expect(await screen.findByText("已下线（2026-11-01），无法继续生成，官方建议改用 Seedance 2")).toBeInTheDocument();
+        await waitFor(() => expect(API.getVideoCapabilities).toHaveBeenCalled());
+        await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(1));
+        expect(screen.queryByText(DISCONTINUED_ERROR)).not.toBeInTheDocument();
+      });
+
+      it("keeps the capability error when the model is executed without a notice here", async () => {
+        // 项目跟随全局默认：本页引用处为空、不显示下线提示，报错是唯一的说明
+        renderWithCandidates({
+          projectName: "demo",
+          globalDefaults: { ...EMPTY_GLOBALS, video: "ark/seedance" },
+          candidates: discontinued(),
+        });
+
+        expect(await screen.findByText(DISCONTINUED_ERROR)).toBeInTheDocument();
+      });
+
+      it("keeps the capability error next to a notice that only announces the shutdown", async () => {
+        // 即将下线的模型仍可调用，能力查询报的是别的问题，不与提示重复
+        renderWithCandidates({
+          projectName: "demo",
+          value: { ...EMPTY_VALUE, videoBackend: "ark/seedance" },
+          candidates: discontinued("retiring"),
+        });
+
+        expect(await screen.findByText(DISCONTINUED_ERROR)).toBeInTheDocument();
+        expect(screen.getByText(/即将下线（2026-11-01）/)).toBeInTheDocument();
+      });
+    });
+
     it("lets the project default model win over every global layer in the placeholder", async () => {
       const user = userEvent.setup();
       renderWithCandidates({

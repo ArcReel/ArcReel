@@ -312,6 +312,17 @@ export function ModelConfigSection({
     usesReferenceImages: false,
     enabled: !!usesReferenceImages && !!value.videoResolutions,
   });
+  // 执行模型就是本卡片里某处引用、且那里已显示「已下线」或「不可用」提示时，能力查询的报错说的是同一件事，
+  // 不再重复显示。即将下线的模型仍可调用，报错另有原因，照常显示；执行模型来自全局默认时本页没有提示，也照常显示。
+  const videoReferences = showSubFields
+    ? [value.videoBackend, value.videoProviderI2V, value.videoProviderR2V]
+    : [value.videoBackend];
+  const videoModelError = (model: string, error: string | null) => {
+    const status = model && videoReferences.includes(model) ? candidates?.lifecycle?.[model]?.status : undefined;
+    return status === "discontinued" || status === "unavailable" ? null : error;
+  };
+  const executingVideoError = videoModelError(executingVideo, capabilities.videoModelError);
+  const executingI2VError = videoModelError(executingI2V, i2vCapabilities.videoModelError);
   const { rawDurations, supportedDurations, voiceConsistency } = capabilities;
   // 约束上下文（分辨率 / 参考图路径）变了但模型没变时，旧的收窄结果会一直挂到新结果落地：
   // 这样切档位不闪加载态，但这段窗口里的选项属于上一个上下文。期间只展示、不接受选择，
@@ -537,9 +548,7 @@ export function ModelConfigSection({
             (v) => onChange({ ...value, videoResolutions: { ...value.videoResolutions, [executingI2V]: v } }),
             `${bucketLabels.i2v.label} · ${t("resolution_label")}`,
           )}
-          {usesReferenceImages && i2vCapabilities.videoModelError && (
-            <InlineWarning message={i2vCapabilities.videoModelError} />
-          )}
+          {usesReferenceImages && executingI2VError && <InlineWarning message={executingI2VError} />}
           {renderResolutionField(
             executingVideo,
             value.videoResolution,
@@ -550,7 +559,7 @@ export function ModelConfigSection({
               ? `${bucketLabels.r2v.label} · ${t("resolution_label")}`
               : t("resolution_label"),
           )}
-          {capabilities.videoModelError && <InlineWarning message={capabilities.videoModelError} />}
+          {executingVideoError && <InlineWarning message={executingVideoError} />}
 
           {/* 档位空集且该模型的时长本就不由 ArcReel 驱动：控件无从渲染，但要说清为什么没有，
               否则用户只会看见时长这一节凭空消失。 */}
