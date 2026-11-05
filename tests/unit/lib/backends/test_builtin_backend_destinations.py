@@ -25,6 +25,7 @@ from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.vidu import ViduImageBackend
 from lib.backends.video_backends.agnes import AgnesVideoBackend
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
 from lib.backends.video_backends.vidu import ViduVideoBackend
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http
@@ -76,6 +77,12 @@ _CALLS: dict[str, Call] = {
     "vidu-video-q3-turbo": lambda tmp_path: ViduVideoBackend(
         api_key="k", base_url=f"{METADATA_BASE_URL}/ent/v2"
     ).generate(_video(tmp_path)),
+    "kling-video-model-path": lambda tmp_path: KlingModelPathVideoBackend(
+        api_key="k", base_url=METADATA_BASE_URL
+    ).generate(_video(tmp_path)),
+    "kling-video-model-path-resume": lambda tmp_path: KlingModelPathVideoBackend(
+        api_key="k", base_url=METADATA_BASE_URL
+    ).resume_video("tasks:job-1", _video(tmp_path)),
 }
 
 

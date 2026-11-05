@@ -1817,6 +1817,7 @@ export default {
   'endpoint_kling_video_pro_audio_display': 'Kling Video (Pro: конечный кадр и звук)',
   'endpoint_kling_video_audio_display': 'Kling Video (управление звуком)',
   'endpoint_kling_video_silent_display': 'Kling Video (без звука)',
+  'endpoint_kling_video_model_path_display': 'Kling Video (новый API, всегда со звуком)',
   'endpoint_gemini_video_display': 'Google Gemini Video (Veo)',
   'endpoint_minimax_tts_display': 'MiniMax (речь)',
   'endpoint_openai_tts_display': 'OpenAI Speech (TTS)',

@@ -1775,6 +1775,7 @@ export default {
   'endpoint_kling_video_pro_audio_display': 'Kling 视频（旧版 Pro 尾帧与音轨）',
   'endpoint_kling_video_audio_display': 'Kling 视频（音轨可控）',
   'endpoint_kling_video_silent_display': 'Kling 视频（无声）',
+  'endpoint_kling_video_model_path_display': 'Kling 视频（新版 API，固定有声）',
   'endpoint_gemini_video_display': 'Gemini 视频 (Veo)',
   'endpoint_minimax_tts_display': 'MiniMax（语音）',
   'endpoint_openai_tts_display': 'OpenAI 语音合成 (TTS)',

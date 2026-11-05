@@ -250,6 +250,7 @@ class TestEndpointCatalog:
             "kling-video-pro-audio",
             "kling-video-audio",
             "kling-video-silent",
+            "kling-video-model-path",
             "gemini-video",
             "openai-tts",
             "dashscope-tts",

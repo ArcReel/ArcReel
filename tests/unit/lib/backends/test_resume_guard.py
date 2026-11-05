@@ -27,6 +27,7 @@ _PATHS = {"poll": "/v2/tasks/{{ task_id }}"}
         # 升级前提交的内置任务没有守卫，当下仍是内置供应商
         (None, builtin_endpoint_guard("ark-seedance-2")),
         (builtin_endpoint_guard("ark-seedance-2"), builtin_endpoint_guard("ark-seedance-2")),
+        (builtin_endpoint_guard("kling-video-model-path"), builtin_endpoint_guard("kling-video-model-path")),
     ],
 )
 def test_equivalent_protocols_resume(submitted: str | None, current: str) -> None:
@@ -40,6 +41,11 @@ def test_equivalent_protocols_resume(submitted: str | None, current: str) -> Non
         ("grok-video", "kling-video-audio"),
         ("kling-video", "kling-video-pro-audio paths={}"),
         ("kling-video-audio", "kling-video-pro-audio"),
+        # 可灵旧版 API 与新版 API（模型名在路径里）之间换了协议，退役的 kling-video 也不以新版为后继
+        ("kling-video", "kling-video-model-path"),
+        (builtin_endpoint_guard("kling-video-pro-audio"), builtin_endpoint_guard("kling-video-model-path")),
+        (builtin_endpoint_guard("kling-video-model-path"), builtin_endpoint_guard("kling-video-audio")),
+        (endpoint_guard("kling-video-silent", _PATHS), endpoint_guard("kling-video-model-path", _PATHS)),
         # 换了协议
         ("ark-seedance", "openai-video"),
         # 后继之间互换仍是换了端点

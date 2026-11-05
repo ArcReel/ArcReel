@@ -23,6 +23,7 @@
 - [gemini-video](gemini-video.md)
 - [kling-image](kling-image.md)
 - [kling-video-audio](kling-video-audio.md)
+- [kling-video-model-path](kling-video-model-path.md)
 - [kling-video-pro-audio](kling-video-pro-audio.md)
 - [kling-video-pro-silent](kling-video-pro-silent.md)
 - [kling-video-silent](kling-video-silent.md)
