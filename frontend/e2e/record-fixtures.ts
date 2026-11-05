@@ -261,6 +261,8 @@ async function main() {
     AUTH_USERNAME: USERNAME,
     AUTH_PASSWORD: PASSWORD,
     AUTH_TOKEN_SECRET: "e2e-token-secret-for-recording-only",
+    // 后端启动时会读 .env（含向上查找到的主仓 .env），里面的 DATABASE_URL 会把录制接到开发者的库。
+    PYTHON_DOTENV_DISABLED: "1",
   };
   // 数据库落在临时数据目录里，不碰开发者自己的库。
   delete env.DATABASE_URL;

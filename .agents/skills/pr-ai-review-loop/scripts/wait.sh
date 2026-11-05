@@ -110,6 +110,12 @@ run_until_deadline() {
   return "$status"
 }
 
+# GitHub also answers primary and secondary rate limits with HTTP 403.
+is_rate_limited() {
+  grep -Eiq 'rate[ -]?limit|secondary rate|abuse detection' "$1" \
+    || grep -Eiq '(^|[^0-9])429([^0-9]|$)' "$1"
+}
+
 classify_failure() {
   local error_file="$1"
   local retry_hint
@@ -117,8 +123,7 @@ classify_failure() {
   FAILURE_KIND="fatal"
   RETRY_AFTER=0
 
-  if grep -Eiq 'rate[ -]?limit|secondary rate|abuse detection' "$error_file" \
-    || grep -Eiq '(^|[^0-9])429([^0-9]|$)' "$error_file"; then
+  if is_rate_limited "$error_file"; then
     FAILURE_KIND="transient"
     retry_hint=$(sed -nE 's/.*[Rr]etry-[Aa]fter[:= ]+([0-9]+).*/\1/p' "$error_file" | head -n 1)
     if [[ "$retry_hint" =~ ^[0-9]+$ ]]; then
@@ -170,6 +175,7 @@ fetch_json() {
 
   grep -Ei '^(HTTP/|Retry-After:)' "$raw_output" >> "$error_file" || true
   if [[ "$availability" == "optional" ]] \
+    && ! is_rate_limited "$error_file" \
     && grep -Eq '(^|[^0-9])(403|404|422)([^0-9]|$)' "$error_file"; then
     FAILURE_KIND="unavailable"
     RETRY_AFTER=0

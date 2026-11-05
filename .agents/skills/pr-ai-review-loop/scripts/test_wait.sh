@@ -161,6 +161,10 @@ elif [[ "$*" == *'/code-scanning/alerts?'* ]]; then
     alert_scope=base_security
   fi
   count=$(next_count "$alert_scope")
+  if [[ "$mode" == "security_rate_limit_once" && "$alert_scope" == security && "$count" -eq 2 ]]; then
+    echo 'HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.' >&2
+    exit 1
+  fi
   if [[ "$mode" == "security_unavailable" ]]; then
     echo 'HTTP 404: no analysis found' >&2
     exit 1
@@ -310,6 +314,12 @@ for route in '/code-scanning/alerts?' 'ref=refs/pull/' '/code-scanning/alerts?st
   done
 done
 echo "PASS: forbidden PR/base code scanning still allows review and check changes to wake the wait"
+
+reset_case
+run_wait security_rate_limit_once --max 70
+[[ "$(paste -sd, "$TMP_ROOT/sleeps")" == "60,2,8" ]] || fail "expected a rate-limited code-scanning 403 to retry"
+grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected a rate-limited code-scanning 403 not to read as a security change"
+echo "PASS: rate-limited code scanning retries instead of turning unavailable"
 
 for route in '/pulls/1767 ' '/issues/1767/comments?' '/issues/1767/reactions' '/pulls/1767/reviews?' '/pulls/1767/comments' '/check-runs?'; do
   reset_case
