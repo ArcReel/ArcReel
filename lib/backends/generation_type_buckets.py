@@ -35,10 +35,11 @@ from lib.backends.image_capabilities import (
     effective_image_capabilities,
     entry_reference_limit,
     image_reference_limit,
+    image_reference_override,
     intersect_image_capabilities,
 )
 from lib.backends.input_limits import LimitState
-from lib.catalog.query import CatalogModel
+from lib.catalog.query import CatalogModel, user_added_capability_overrides
 from lib.config.resolver import video_capability_satisfied
 from lib.custom_provider.capabilities import synthesize_video_capabilities
 from lib.custom_provider.endpoints import (
@@ -83,12 +84,16 @@ class BucketFit:
         return cls(media_type, dict.fromkeys(BUCKETS_BY_MEDIA_TYPE.get(media_type, ()), ()))
 
 
-def _image_fit(caps: Iterable[ImageCapability], *, entry_limit: int | None, channel_limit: int | None) -> BucketFit:
+def _image_fit(
+    caps: Iterable[ImageCapability], *, entry_limit: int | None, channel_limit: int | None, override: int | None = None
+) -> BucketFit:
     caps = frozenset(caps)
     unmet: dict[GenerationTypeBucket, tuple[BucketDimension, ...]] = {}
     if ImageCapability.TEXT_TO_IMAGE not in caps:
         unmet["t2i"] = ("text_to_image",)
-    reference = image_reference_limit(capabilities=caps, entry_limit=entry_limit, channel_limit=channel_limit)
+    reference = image_reference_limit(
+        capabilities=caps, entry_limit=entry_limit, channel_limit=channel_limit, override=override
+    )
     if not reference.accepts_input:
         unmet["i2i"] = ("image_to_image",) if reference.state == LimitState.UNSUPPORTED else ("max_reference_images",)
     return BucketFit("image", unmet)
@@ -130,6 +135,7 @@ def builtin_model_bucket_fit(provider_id: str, model_id: str, model_info: Catalo
         return _image_fit(
             effective_image_capabilities(channel, model_id=model_id, builtin_provider=provider_id),
             entry_limit=model_info.max_reference_images,
+            override=image_reference_override(user_added_capability_overrides(provider_id, model_id)),
             channel_limit=channel_limit,
         )
     if model_info.media_type != "video":
@@ -190,6 +196,7 @@ def custom_model_bucket_fit(
                 model_id, builtin_provider=None, endpoint_kind=spec.kind, entry_binding=entry_binding
             ),
             channel_limit=endpoint_reference_image_limit(spec),
+            override=image_reference_override(capability_overrides, endpoint_kind=spec.kind),
         )
     if media_type != "video":
         return BucketFit(media_type)

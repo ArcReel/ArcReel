@@ -1552,6 +1552,7 @@ export default {
   'pm_cap_text_to_video': 'Текст в видео',
   'pm_cap_first_frame': 'Первый кадр',
   'pm_cap_last_frame': 'Последний кадр',
+  'pm_cap_reference_images_hint': '0 запрещает референсы; изменение лимита не включает генерацию по изображению, если эндпоинт её не поддерживает',
   'pm_cap_max_reference_images': 'Макс. число референсов',
   'pm_cap_reference_audio_mode': 'Образец голоса',
   'pm_cap_max_reference_audio_count': 'Макс. число образцов голоса',

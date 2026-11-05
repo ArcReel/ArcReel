@@ -13,8 +13,8 @@ ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082）：模型行�
 不按名字对应条目，也不接受能力覆盖，生效能力就是端点声明。
 
 参考图上限同样两侧求值（:func:`image_reference_limit`）：条目记录的上限与调用通道的上限取较小值；图生图不在
-生效能力里时为不支持；两侧都没有声明时为未收录，不裁剪、超出由上游拒绝。图片没有参考图上限这一维的能力覆盖，
-图生图的能力覆盖决定这条路径走不走得通。任务类型桶的候选、执行时的校验、编排层的裁剪与设置页都读这一个结果。
+生效能力里时为不支持；两侧都没有声明时为未收录，不裁剪、超出由上游拒绝。能力覆盖在两侧求值后整维替换上限，0 表示不接受参考图；
+图生图的路径仍须调用通道实现。任务类型桶的候选、执行时的校验、编排层的裁剪与设置页都读这一个结果。
 ComfyUI 端点的上限只来自节点绑定的参考图槽位数，不读条目。
 """
 
@@ -30,7 +30,7 @@ from lib.backends.image_backends.registry import channel_capabilities, channel_r
 from lib.backends.input_limits import InputLimit, effective_input_limit
 from lib.catalog import query as catalog
 from lib.custom_provider import is_custom_provider
-from lib.custom_provider.model_facts import image_model_facts
+from lib.custom_provider.model_facts import image_model_facts, model_fact_overrides
 
 if TYPE_CHECKING:
     from lib.backends.backend_assembly.specs import ProviderSpec
@@ -127,16 +127,29 @@ def entry_reference_limit(
     return image_model_facts(model_id, None, entry_binding=entry_binding).max_reference_images
 
 
+def image_reference_override(overrides: object | None, *, endpoint_kind: str = "python") -> int | None:
+    """图片参考图上限的合法覆盖；ComfyUI 只读节点绑定，不接受覆盖。"""
+    if endpoint_kind == COMFYUI_KIND:
+        return None
+    value = model_fact_overrides(overrides, "image").get("max_reference_images")
+    return value if isinstance(value, int) else None
+
+
 def image_reference_limit(
-    *, capabilities: Iterable[ImageCapability], entry_limit: int | None, channel_limit: int | None
+    *,
+    capabilities: Iterable[ImageCapability],
+    entry_limit: int | None,
+    channel_limit: int | None,
+    override: int | None = None,
 ) -> InputLimit[int]:
     """参考图上限的生效值。``capabilities`` 是生效的文生图 / 图生图（:func:`intersect_image_capabilities` 的结果）。
 
-    图生图不在生效能力里时为不支持；否则条目值与通道值取较小的那个，两侧都为 ``None`` 时为未收录。
+    图生图不在生效能力里时为不支持；否则先取条目值与通道值中较小的那个，再由 ``override`` 整维替换；两侧都为 ``None`` 且没有覆盖时为未收录。
     """
     return effective_input_limit(
         path_supported=ImageCapability.IMAGE_TO_IMAGE in frozenset(capabilities),
         declared=(entry_limit, channel_limit),
+        override=override,
     )
 
 
@@ -153,6 +166,7 @@ async def backend_reference_image_limit(backend: ImageBackend, *, provider_id: s
         return image_reference_limit(
             capabilities=backend.effective_capabilities,
             entry_limit=backend.entry_reference_limit,
+            override=backend.reference_limit_override,
             channel_limit=channel_limit,
         )
     builtin_provider = None if is_custom_provider(provider_id) else provider_id
@@ -161,6 +175,9 @@ async def backend_reference_image_limit(backend: ImageBackend, *, provider_id: s
             backend.capabilities, model_id=backend.model, builtin_provider=builtin_provider
         ),
         entry_limit=entry_reference_limit(backend.model, builtin_provider=builtin_provider),
+        override=image_reference_override(catalog.user_added_capability_overrides(builtin_provider, backend.model))
+        if builtin_provider is not None
+        else None,
         channel_limit=channel_limit,
     )
 

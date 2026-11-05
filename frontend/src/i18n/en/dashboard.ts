@@ -1513,6 +1513,7 @@ export default {
   'pm_cap_text_to_video': 'Text to video',
   'pm_cap_first_frame': 'First frame',
   'pm_cap_last_frame': 'Last frame',
+  'pm_cap_reference_images_hint': '0 means no reference images; changing the limit does not enable image-to-image on endpoints that do not implement it',
   'pm_cap_max_reference_images': 'Max reference images',
   'pm_cap_reference_audio_mode': 'Reference audio',
   'pm_cap_max_reference_audio_count': 'Max reference audio clips',

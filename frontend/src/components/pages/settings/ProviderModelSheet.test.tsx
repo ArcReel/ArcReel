@@ -140,6 +140,34 @@ describe("ProviderModelSheet", () => {
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ model_id: "relay-video" }), "relay-video");
   });
 
+  it.each(["override", "entry"] as const)("saves and reads back the image reference limit in %s", async (target) => {
+    const base = { text_to_image: true, image_to_image: false, max_reference_images: 0 };
+    const detail = unmatchedVideo({
+      model: item({ media_type: "image", endpoint: "openai-images" }),
+      endpoint: "openai-images",
+      capabilities: { media_type: "image", editable: ["image_to_image", "max_reference_images"],
+        displayed: ["image_to_image", "max_reference_images"], base, overrides: {}, effective: base },
+      entry: { ...veoDetail().entry!, maker: "xai", name: "grok-imagine-image", media_type: "image",
+        display_name: "Image", facts: { text_to_image: true, image_to_image: true, max_reference_images: 0 } },
+    });
+    const saved: ProviderModelDetail = target === "override"
+      ? { ...detail, capabilities: { ...detail.capabilities, overrides: { max_reference_images: 8 },
+          effective: { ...base, image_to_image: true, max_reference_images: 8 } } }
+      : { ...detail, entry: { ...detail.entry!, facts: { ...detail.entry!.facts, max_reference_images: 8 } } };
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(detail);
+    const update = vi.spyOn(API, "updateProviderModel").mockResolvedValue(saved);
+    renderSheet();
+    await infoSection();
+    const area = target === "entry" ? await infoSection() : screen.getByRole("list");
+    if (target === "override") fireEvent.click(within(area).getByRole("button", { name: "修改「参考图上限」" }));
+    fireEvent.change(within(area).getByRole("textbox", { name: "「参考图上限」的值" }), { target: { value: "8" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    const payload = target === "override" ? { capability_overrides: { max_reference_images: 8 } }
+      : { entry: { maker: "xai", name: "grok-imagine-image", media_type: "image", facts: { max_reference_images: 8 } } };
+    await waitFor(() => expect(update).toHaveBeenCalledWith("custom-3", "relay-video", payload));
+    expect(within(area).getByRole("textbox", { name: "「参考图上限」的值" })).toHaveValue("8");
+  });
+
   it("clears the overrides when the last changed dimension is restored", async () => {
     vi.spyOn(API, "getProviderModel").mockResolvedValue(
       unmatchedVideo({ capabilities: { ...unmatchedVideo().capabilities, overrides: { durations: [5] } } }),

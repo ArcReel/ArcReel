@@ -974,3 +974,17 @@ class TestVideoCapabilitiesEndpoint:
 
         assert two_sided_video_capabilities(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL).last_frame is False
         assert body["last_frame"] is True
+
+
+def test_image_reference_limit_override_roundtrip(capability_client: TestClient):
+    model = {
+        "model_id": "grok-imagine-image",
+        "display_name": "Image",
+        "endpoint": "openai-images",
+        "is_enabled": True,
+        "capability_overrides": {"image_to_image": True, "max_reference_images": 8},
+    }
+    pid = _create_provider(capability_client, [model])
+    url = f"/api/v1/custom-providers/{pid}"
+    saved = capability_client.get(url).json()["models"][0]
+    assert saved["capability_overrides"] == model["capability_overrides"]

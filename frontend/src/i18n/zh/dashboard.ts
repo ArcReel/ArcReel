@@ -1512,6 +1512,7 @@ export default {
   'pm_cap_text_to_video': '文生视频',
   'pm_cap_first_frame': '首帧',
   'pm_cap_last_frame': '尾帧',
+  'pm_cap_reference_images_hint': '0 表示不接受参考图；修改上限不会开启调用端点未实现的图生图能力',
   'pm_cap_max_reference_images': '参考图上限',
   'pm_cap_reference_audio_mode': '参考音频',
   'pm_cap_max_reference_audio_count': '参考音频数量上限',

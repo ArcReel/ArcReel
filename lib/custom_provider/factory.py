@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
-from lib.backends.image_capabilities import custom_image_model_capabilities, entry_reference_limit
+from lib.backends.image_capabilities import (
+    custom_image_model_capabilities,
+    entry_reference_limit,
+    image_reference_override,
+)
 from lib.backends.video_capabilities import entry_video_facts
 from lib.custom_provider.backends import (
     CustomAudioBackend,
@@ -76,6 +80,7 @@ def create_custom_backend(
             custom_image_model_capabilities(
                 model_id, overrides=capability_overrides, endpoint_kind=spec.kind, entry_binding=entry_binding
             ),
+            reference_limit_override=image_reference_override(capability_overrides, endpoint_kind=spec.kind),
             entry_reference_limit=entry_reference_limit(
                 model_id, builtin_provider=None, endpoint_kind=spec.kind, entry_binding=entry_binding
             ),
