@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from lib.catalog.errors import ModelNotInCatalogError
+from lib.catalog.query import factory_snapshot
 from lib.config.resolver import (
     _VIDEO_LAYERED_KEYS,
     ConfigResolver,
@@ -14,6 +15,7 @@ from lib.config.resolver import (
     video_bucket_for_generation_mode,
 )
 from lib.config.service import ProviderStatus
+from tests.catalog_support import install_catalog, with_entry_changes
 
 
 def _make_ready_provider(name: str, media_types: list[str]) -> ProviderStatus:
@@ -26,6 +28,14 @@ def _make_ready_provider(name: str, media_types: list[str]) -> ProviderStatus:
         required_keys=[],
         credential_count=0,
     )
+
+
+def _ready_with_vertex_video() -> list[ProviderStatus]:
+    """出厂目录中 AI Studio 已没有可用的视频模型，视频自动推断落到下一个就绪的 Vertex。"""
+    return [
+        _make_ready_provider("gemini-aistudio", ["text", "image", "video"]),
+        _make_ready_provider("gemini-vertex", ["video"]),
+    ]
 
 
 class _FakeConfigService:
@@ -150,13 +160,13 @@ class TestDefaultBackends:
         assert result == ("ark", "doubao-seedance-1-5-pro")
 
     async def test_video_backend_auto_resolve(self, db_factory):
-        """DB 无值时走 auto-resolve，选第一个 ready 供应商的默认 video 模型。"""
+        """DB 无值时走 auto-resolve，选第一个有默认 video 模型的 ready 供应商。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={})
+        fake_svc = _FakeConfigService(settings={}, ready_providers=_ready_with_vertex_video())
         # auto-resolve 会在 PROVIDER_REGISTRY 中找到 ready 供应商，不会走到 custom provider 分支
         async with db_factory() as session:
             result = await resolver._resolve_default_video_backend(fake_svc, session)
-        assert result[0] in ("gemini-aistudio", "gemini-vertex", "ark", "grok")
+        assert result == ("gemini-vertex", "veo-3.1-fast-generate-001")
 
     async def test_video_backend_auto_resolve_no_ready_provider(self, db_factory):
         """无 ready 供应商且无自定义供应商时抛出 ValueError。"""
@@ -476,11 +486,11 @@ class TestVideoCapabilitiesBucketing:
         """参考生视频项目的能力取 r2v 桶生效模型的声明。"""
         project = {
             "video_provider_i2v": "kling/kling-v3",
-            "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
+            "video_provider_r2v": "gemini-vertex/veo-3.1-generate-001",
             "generation_mode": "reference_video",
         }
         caps = await _video_caps(db_factory, project)
-        assert caps["model"] == "veo-3.1-generate-preview"
+        assert caps["model"] == "veo-3.1-generate-001"
         assert caps["supported_durations"] == [4, 6, 8]
 
     async def test_max_reference_images_follows_backend_declaration(self, db_factory):
@@ -643,6 +653,17 @@ class TestVideoCapabilities:
         assert caps["duration_endpoint_fixed"] is False
 
 
+@pytest.fixture
+def active_aistudio_veo(monkeypatch):
+    """AI Studio Veo 的计价与音轨口径仍由 gemini-video 端点实现；出厂目录已将其下线，这里在目录副本中设为可用。"""
+    install_catalog(
+        monkeypatch,
+        with_entry_changes(
+            factory_snapshot(), "gemini-aistudio", "veo-3.1-generate-preview", discontinued=False, shutdown_date=None
+        ),
+    )
+
+
 class TestVoiceConsistency:
     """voice_consistency 三维派生（模型能力 × generation_mode × 角色声音绑定方式）。全员经
     `db_factory` 落真实 in-memory DB，按 docs/standards/testing.md 的分档规则归 integration。"""
@@ -694,7 +715,9 @@ class TestVoiceConsistency:
         )
         assert caps["voice_consistency"] == "soft"
 
-    async def test_requested_generate_audio_is_exposed_separately_from_pricing_value(self, db_factory):
+    async def test_requested_generate_audio_is_exposed_separately_from_pricing_value(
+        self, db_factory, active_aistudio_veo
+    ):
         """caps 并列透出用户无声意图与计价口径：AI Studio Veo 恒按含音出账，但项目关掉音频时
         编排层必须读到 False（否则无声视频照旧上传参考音频）。"""
         caps = await _video_caps(
@@ -728,7 +751,7 @@ class TestVoiceConsistency:
         caps = await _video_caps(db_factory, {"video_backend": "ark/doubao-seedance-2-0-260128"})
         assert caps["voice_consistency"] == "soft"
 
-    async def test_aistudio_veo_always_soft_regardless_of_generation_mode(self, db_factory):
+    async def test_aistudio_veo_always_soft_regardless_of_generation_mode(self, db_factory, active_aistudio_veo):
         """AI Studio Veo 无参考音频通道，即便走参考生视频路径也只能 soft（恒有声不推 none）。"""
         caps = await _video_caps(
             db_factory,
@@ -1254,7 +1277,12 @@ class TestResolveVideoBackend:
             await resolver.resolve_video_backend(
                 {project_key: f"custom-{provider.id}/sora-2"}, None, generation_type=generation_type
             )
-        assert excinfo.value.params == {"provider": f"custom-{provider.id}", "model": "sora-2"}
+        # 出厂目录记 Sora 2 于 2026-09-24 关停，下线错误带上关停日期
+        assert excinfo.value.params == {
+            "provider": f"custom-{provider.id}",
+            "model": "sora-2",
+            "shutdown_date": "2026-09-24",
+        }
 
     async def test_auto_resolve_skips_a_discontinued_custom_default(self, db_factory):
         """没有任何默认模型设置、也没有 ready 内置供应商时：自定义供应商已下线的默认模型不被自动挑中。"""
@@ -1369,9 +1397,9 @@ class TestResolveVideoBackendBuckets:
 
     async def test_auto_resolve_when_nothing_configured(self):
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={})
+        fake_svc = _FakeConfigService(settings={}, ready_providers=_ready_with_vertex_video())
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, None, "i2v")
-        assert resolved.provider_id == "gemini-aistudio"
+        assert (resolved.provider_id, resolved.model_id) == ("gemini-vertex", "veo-3.1-fast-generate-001")
 
     async def test_missing_i2v_capability_raises_structured_error(self):
         from lib.config.resolver import VideoBucketCapabilityError
@@ -2023,12 +2051,18 @@ class TestAutoResolvedBackendsPreview:
 
     async def test_builtin_provider_preview_matches_execution(self, db_factory):
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={})
+        fake_svc = _FakeConfigService(settings={}, ready_providers=_ready_with_vertex_video())
         async with db_factory() as session:
             preview = await resolver._resolve_auto_backends(fake_svc, session)
             executed = await self._execution_pairs(resolver, fake_svc, session)
         assert preview == executed
-        assert all(pair is not None and pair[0] == "gemini-aistudio" for pair in preview.values())
+        assert {purpose: pair[0] if pair else None for purpose, pair in preview.items()} == {
+            "t2i": "gemini-aistudio",
+            "i2i": "gemini-aistudio",
+            "i2v": "gemini-vertex",
+            "r2v": "gemini-vertex",
+            "text": "gemini-aistudio",
+        }
 
     async def test_custom_fallback_filters_by_bucket_and_reports_missing_media(self, db_factory):
         """无就绪内置供应商时按桶取自定义默认；该媒体一个候选都没有时为 None，不报错。"""

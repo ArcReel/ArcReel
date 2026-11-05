@@ -196,7 +196,7 @@ async def test_reference_split_planning_reports_empty_intersection_as_incompatib
     from server.text_generation import fetch_reference_split_caps
     from tests.catalog_support import install_catalog, with_entry_facts
 
-    provider_id, model_id = "gemini-aistudio", "veo-3.1-generate-preview"
+    provider_id, model_id = "gemini-vertex", "veo-3.1-generate-001"
     constraints = DurationConstraints(by_resolution={"1080p": (6,)}, with_reference_images=(8,))
     install_catalog(
         monkeypatch, with_entry_facts(factory_snapshot(), provider_id, model_id, duration_constraints=constraints)
@@ -239,7 +239,7 @@ async def test_reference_split_planning_accepts_five_seconds_from_i2v_facts(db_f
 
     project = {
         "generation_mode": "reference_video",
-        "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
+        "video_provider_r2v": "gemini-vertex/veo-3.1-generate-001",
         "video_provider_i2v": "ark/doubao-seedance-2-0-260128",
     }
     caps = await fetch_reference_split_caps(project, config_resolver=ConfigResolver(db_factory))
@@ -260,7 +260,7 @@ async def test_reference_split_planning_borrows_planning_tiers_for_endpoint_fixe
     from server.text_generation import fetch_reference_split_caps
 
     fixed_model = await seed_endpoint_fixed_video_model(db_factory, reference_images=True)
-    veo = "gemini-aistudio/veo-3.1-generate-preview"
+    veo = "gemini-vertex/veo-3.1-generate-001"
     project = {
         "generation_mode": "reference_video",
         "video_provider_r2v": fixed_model if "r2v" in fixed_buckets else veo,

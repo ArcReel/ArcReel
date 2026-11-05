@@ -1650,7 +1650,8 @@ class ConfigResolver:
                 raise ValueError(f"model not found in registry: {provider_id}/{model_id}")
             supported_durations = list(model_info.supported_durations or [])
             # 视频能力位与参考图上限取调用通道声明与模型条目两侧求值的生效值，与执行闸门、能力闸
-            # （`_ensure_video_bucket_capability`）与桶候选下拉（`lib.backends.generation_type_buckets`）同一个结果。
+            # （`_ensure_video_bucket_capability`）与桶候选下拉（`lib.backends.generation_type_buckets`）同一求值规则；
+            # 给出 `builtin_endpoint` 时按构造后端的端点求值，其余读点读模型当前挂接的端点。
             try:
                 builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id, endpoint=builtin_endpoint)
             except ValueError as exc:
