@@ -1779,6 +1779,7 @@ export default {
   'endpoint_kling_video_silent_display': 'Kling 视频（无声）',
   'endpoint_kling_video_model_path_display': 'Kling 视频（新版 API，固定有声）',
   'endpoint_gemini_video_display': 'Gemini 视频 (Veo)',
+  'endpoint_gemini_interactions_video_display': 'Gemini 视频 (Omni)',
   'endpoint_minimax_tts_display': 'MiniMax（语音）',
   'endpoint_openai_tts_display': 'OpenAI 语音合成 (TTS)',
   'endpoint_dashscope_tts_display': '阿里百炼（语音合成）',
@@ -1802,6 +1803,7 @@ export default {
   'endpoint_agnes_video_2_display': 'Agnes（视频 2.0）',
   'endpoint_agnes_video_2_5_display': 'Agnes（视频 2.5）',
   'endpoint_gemini_vertex_video_display': 'Vertex AI 视频 (Veo)',
+  'endpoint_gemini_vertex_interactions_video_display': 'Vertex AI 视频 (Omni)',
   'endpoint_agnes_video_display': 'Agnes（视频）',
   'endpoint_catalog_loading': '加载端点目录…',
   // Image Capability

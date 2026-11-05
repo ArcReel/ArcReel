@@ -37,6 +37,15 @@ from lib.backends.video_backends.gemini import GeminiVideoBackend, VertexVideoBa
 register_backend(PROVIDER_GEMINI, GeminiVideoBackend)
 register_backend("gemini-vertex-video", VertexVideoBackend)
 
+# Gemini Omni 走 Interactions API，与 Veo 是不同的请求协议，AI Studio 与 Vertex 各是一个内置调用端点。
+from lib.backends.video_backends.gemini_interactions import (
+    GeminiInteractionsVideoBackend,
+    VertexInteractionsVideoBackend,
+)
+
+register_backend("gemini-interactions-video", GeminiInteractionsVideoBackend)
+register_backend("gemini-vertex-interactions-video", VertexInteractionsVideoBackend)
+
 # Ark: volcengine-python-sdk[ark] is a project dependency。Seedance 各代是各自的内置调用端点，按端点名注册，
 # 方舟与方舟 Agent Plan 两个内置供应商共用（凭证差异在 backend_assembly 的构造闭包里）。
 from lib.backends.video_backends.ark import SEEDANCE_BACKENDS

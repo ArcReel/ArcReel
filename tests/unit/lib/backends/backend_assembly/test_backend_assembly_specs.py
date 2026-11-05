@@ -321,6 +321,40 @@ class TestGeminiSpec:
             },
         }
 
+    @pytest.mark.parametrize(
+        ("provider_id", "endpoint", "backend_type", "credentials", "extra"),
+        [
+            ("gemini-aistudio", "gemini-interactions-video", "aistudio", {"api_key": "sk-aistudio"}, {}),
+            (
+                "gemini-vertex",
+                "gemini-vertex-interactions-video",
+                "vertex",
+                {"credentials_path": "/legacy/vertex.json"},
+                {"credentials_path": "/legacy/vertex.json"},
+            ),
+        ],
+    )
+    def test_interactions_video_endpoint_builds_its_own_backend_with_the_same_credentials(
+        self, provider_id, endpoint, backend_type, credentials, extra
+    ):
+        # Veo 仍是默认端点；Interactions 端点按端点名建对应后端，凭证与 backend_type 与 Veo 一致
+        assert get_provider_spec(provider_id, "video").endpoint != endpoint
+        config = LoadedConfig(
+            credentials=credentials, provider_meta=PROVIDER_REGISTRY.get(provider_id), rate_limiter=None
+        )
+        assert _built(get_provider_spec(provider_id, "video", endpoint), config, "gemini-omni-1.1-flash") == {
+            "media": "video",
+            "backend": endpoint,
+            "kwargs": {
+                "backend_type": backend_type,
+                "api_key": credentials.get("api_key"),
+                "base_url": credentials.get("base_url"),
+                "rate_limiter": None,
+                "video_model": "gemini-omni-1.1-flash",
+                **extra,
+            },
+        }
+
     def test_bare_gemini_not_registered(self):
         # 裸 "gemini"（无 aistudio/vertex 后缀）是死路径：resolver 只产出带后缀 id。
         # fail-loud，不为死路径登记兜底行。
