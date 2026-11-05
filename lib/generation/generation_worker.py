@@ -30,6 +30,7 @@ from sqlalchemy import update
 
 from lib.billing.ledger import Ledger
 from lib.catalog import query as catalog
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService, read_video_poll_timeout_seconds
@@ -403,7 +404,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     project/script/unit，以实际可用资产调用公共 request projection。
     这份 provider 投影只服务槽位归属与限流路由，不是执行身份；executor 在开始时按最新状态
     物化请求，与认领槽位不一致时回队。
-    解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
+    模型目录错误保留异常里的供应商；其余解析失败（未配置供应商）回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
     raw_payload = task.get("payload")
@@ -443,6 +444,8 @@ async def _extract_provider(task: dict[str, Any]) -> str:
         else:
             generation_type = "i2i" if task.get("task_type") in I2I_ONLY_TASK_TYPES else "t2i"
             resolved = await resolver.resolve_image_backend(project, payload, generation_type=generation_type)
+    except ModelNotInCatalogError as exc:
+        return exc.provider_id
     except Exception:
         logger.debug("provider 解析失败，回退 DEFAULT_PROVIDER 仅供限流路由", exc_info=True)
         return DEFAULT_PROVIDER
