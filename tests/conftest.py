@@ -279,6 +279,51 @@ def offline_official_catalog_sync(isolated_data_root, monkeypatch):
     monkeypatch.setattr("server.app.start_official_sync", start_offline)
 
 
+@pytest.fixture(autouse=True)
+def idle_asset_library_ingest(monkeypatch):
+    """应用 lifespan 启动的素材库入库循环换成不访问数据库与网络的空循环。
+
+    真实循环启动时即查询入库任务表并按间隔轮询，lifespan 用例的数据库与关停时序会随之变化。入库循环本身由
+    ``tests/unit/lib/asset_library`` 与 ``tests/unit/server/routers/test_provider_asset_links_api.py`` 直接调用
+    ``lib.asset_library.ingest.run_once`` 覆盖。
+    """
+    from lib.asset_library import ingest
+
+    class _IdleRunner(ingest.AssetIngestRunner):
+        async def _loop(self) -> None:
+            await asyncio.Event().wait()
+
+    def start_idle(session_factory) -> ingest.AssetIngestRunner:
+        runner = _IdleRunner(session_factory)
+        runner.start()
+        return runner
+
+    monkeypatch.setattr("server.app.start_asset_ingest", start_idle)
+
+
+@pytest.fixture(autouse=True)
+def idle_material_maintenance(monkeypatch):
+    """应用 lifespan 启动的远端素材维护循环换成空循环，理由同 ``idle_asset_library_ingest``。
+
+    结算、补偿删除与工作文件清理由 ``tests/integration/server/routers/test_remote_material_storage.py``
+    直接调用 ``lib.material`` 的入口覆盖。
+    """
+    from lib.material import maintenance
+
+    class _IdleMaintenance(maintenance.MaterialMaintenance):
+        async def _loop(self) -> None:
+            await asyncio.Event().wait()
+
+    def start_idle(
+        session_factory, projects_dir, deleted_projects_dir=None, data_root=None
+    ) -> maintenance.MaterialMaintenance:
+        runner = _IdleMaintenance(session_factory, projects_dir, deleted_projects_dir, data_root)
+        runner.start()
+        return runner
+
+    monkeypatch.setattr("server.app.start_material_maintenance", start_idle)
+
+
 #: 测试内主机名统一解析到的地址（TEST-NET-3，公网段、不可路由）。
 _OFFLINE_DNS_ADDRESS = "203.0.113.10"
 

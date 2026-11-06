@@ -7,6 +7,7 @@ import {
   Brain,
   Cable,
   Film,
+  HardDrive,
   Info,
   KeyRound,
   Plug,
@@ -30,6 +31,7 @@ import { UsageRecordsSection } from "../usage/UsageRecordsSection";
 import { AgentConfigTab } from "./AgentConfigTab";
 import { ProviderSection } from "./ProviderSection";
 import { AboutSection } from "./settings/AboutSection";
+import { AssetLibrarySection } from "./settings/asset-library/AssetLibrarySection";
 import { AccessTokensSection } from "./settings/agent-access/AccessTokensSection";
 import { ExternalAgentSection } from "./settings/agent-access/ExternalAgentSection";
 import { ConfigIssueNotice } from "./settings/ConfigIssueNotice";
@@ -49,6 +51,7 @@ const SECTIONS: Record<SettingsSection, SectionDef> = {
   providers: { labelKey: "dashboard:providers", icon: Plug, tier: "bleed" },
   "default-models": { labelKey: "dashboard:settings_default_models", icon: Film, tier: "constrained" },
   endpoints: { labelKey: "dashboard:ce_section_title", icon: Waypoints, tier: "bleed" },
+  "asset-library": { labelKey: "dashboard:settings_asset_library", icon: HardDrive, tier: "constrained" },
   "arcreel-agent": { labelKey: "dashboard:settings_arcreel_agent", icon: Bot, tier: "constrained" },
   "agent-memory": { labelKey: "dashboard:settings_agent_memory", icon: Brain, tier: "bleed" },
   "external-agent": { labelKey: "dashboard:settings_external_agent", icon: Cable, tier: "constrained" },
@@ -62,7 +65,7 @@ const SECTIONS: Record<SettingsSection, SectionDef> = {
 
 /** 侧栏分组与顺序。市场与使用记录各自单独成项，不设分组标题。 */
 const SECTION_GROUPS: { id: string; labelKey?: string; sections: SettingsSection[] }[] = [
-  { id: "generation", labelKey: "dashboard:settings_group_generation", sections: ["providers", "default-models", "endpoints"] },
+  { id: "generation", labelKey: "dashboard:settings_group_generation", sections: ["providers", "default-models", "endpoints", "asset-library"] },
   {
     id: "agent",
     labelKey: "dashboard:settings_group_agent",
@@ -149,6 +152,8 @@ function SectionContent({ section }: { section: SettingsSection }) {
       return <MediaModelSection />;
     case "endpoints":
       return <EndpointsSection />;
+    case "asset-library":
+      return <AssetLibrarySection />;
     case "arcreel-agent":
       return <AgentConfigTab />;
     case "agent-memory":

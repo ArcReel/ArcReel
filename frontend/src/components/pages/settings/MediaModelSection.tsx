@@ -26,6 +26,8 @@ import { TextTierFields } from "@/components/shared/TextTierFields";
 import { videoOptionMetaRenderer } from "@/components/shared/video-option-meta";
 import { VideoModelSpecBar } from "@/components/shared/VideoModelSpecBar";
 import { InlineWarning } from "@/components/shared/InlineWarning";
+import { ModelLifecycleNotice } from "@/components/shared/ModelLifecycleNotice";
+import { NarrationVoiceInput } from "@/components/shared/NarrationVoiceInput";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
 import { PageShellFooter } from "@/components/shared/page-shell/PageShell";
 import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
@@ -34,6 +36,7 @@ import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { useDisplayNames } from "@/hooks/useDisplayNames";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
+import { useTtsModelCapabilities } from "@/hooks/useTtsModelCapabilities";
 import {
   catalogDurations,
   getCustomProviderModels,
@@ -199,6 +202,8 @@ export function MediaModelSection() {
   const unit = useEditUnit({ source, save: saveFields });
   const fields = unit.value;
   const setFields = unit.setValue;
+  // 默认音频模型留空（自动选择）时不列音色：实际模型由运行时推断，列出某一家的音色会误导
+  const audioVoices = useTtsModelCapabilities(fields.default_audio_backend ?? "")?.voices ?? [];
 
   if (!settings || !options) {
     return (
@@ -231,8 +236,10 @@ export function MediaModelSection() {
         {
           key: "i2v",
           ...bucketLabels.i2v,
+          bucket: "i2v",
           value: currentVideoI2V,
           options: candidates?.video.buckets.i2v ?? [],
+          filtered: candidates?.video.filtered.i2v,
           effective: currentVideo || undefined,
           auto: auto?.i2v,
           onChange: (v) => setFields((prev) => ({ ...prev, default_video_backend_i2v: v })),
@@ -240,8 +247,10 @@ export function MediaModelSection() {
         {
           key: "r2v",
           ...bucketLabels.r2v,
+          bucket: "r2v",
           value: currentVideoR2V,
           options: candidates?.video.buckets.r2v ?? [],
+          filtered: candidates?.video.filtered.r2v,
           effective: currentVideo || undefined,
           auto: auto?.r2v,
           onChange: (v) => setFields((prev) => ({ ...prev, default_video_backend_r2v: v })),
@@ -255,8 +264,10 @@ export function MediaModelSection() {
         {
           key: "t2i",
           ...bucketLabels.t2i,
+          bucket: "t2i",
           value: currentImageT2I,
           options: candidates?.image.buckets.t2i ?? [],
+          filtered: candidates?.image.filtered.t2i,
           effective: currentImage || undefined,
           auto: auto?.t2i,
           onChange: (v) => setFields((prev) => ({ ...prev, default_image_backend_t2i: v })),
@@ -264,8 +275,10 @@ export function MediaModelSection() {
         {
           key: "i2i",
           ...bucketLabels.i2i,
+          bucket: "i2i",
           value: currentImageI2I,
           options: candidates?.image.buckets.i2i ?? [],
+          filtered: candidates?.image.filtered.i2i,
           effective: currentImage || undefined,
           auto: auto?.i2i,
           onChange: (v) => setFields((prev) => ({ ...prev, default_image_backend_i2i: v })),
@@ -325,6 +338,8 @@ export function MediaModelSection() {
     complex: fields.text_backend_complex ?? "",
   };
 
+  const lifecycle = candidates?.lifecycle;
+
   const candidatesSubFieldsError = candidatesError
     ? { onRetry: () => void reloadCandidates(), retrying: candidatesRetrying }
     : undefined;
@@ -352,6 +367,7 @@ export function MediaModelSection() {
             renderOptionMeta={renderVideoOptionMeta}
             subFields={videoSubFields}
             subFieldsError={candidatesSubFieldsError}
+            lifecycle={lifecycle}
           >
             {videoSpecBackend && (
               <VideoModelSpecBar
@@ -447,6 +463,7 @@ export function MediaModelSection() {
             modelNames={allModelNames}
             subFields={imageSubFields}
             subFieldsError={candidatesSubFieldsError}
+            lifecycle={lifecycle}
           />
         ) : (
           <NoProviders message={t("no_image_providers_hint")} />
@@ -476,6 +493,7 @@ export function MediaModelSection() {
               complex: currentTextDefault || undefined,
             }}
             auto={auto?.text}
+            lifecycle={lifecycle}
           />
         ) : (
           <NoProviders message={t("no_text_providers_hint")} />
@@ -485,31 +503,41 @@ export function MediaModelSection() {
       {/* 旁白配音：模型、音色与语速只是新建 TTS 配音项目的预填值，说明放在通道开头。 */}
       <ChannelCard title={t("default_models_channel_audio")} description={t("global_tts_defaults_prefill_hint")}>
         {audioBackends.length > 0 ? (
-          <ProviderModelSelect
-            value={currentAudioBackend}
-            options={audioBackends}
-            providerNames={allProviderNames}
-            modelNames={allModelNames}
-            onChange={(v) => setFields((prev) => ({ ...prev, default_audio_backend: v }))}
-            allowDefault
-            defaultLabel={t("auto_select")}
-            defaultHint={t("auto")}
-            aria-label={t("default_audio_model")}
-          />
+          <div className="flex flex-col gap-3">
+            <ProviderModelSelect
+              value={currentAudioBackend}
+              options={audioBackends}
+              providerNames={allProviderNames}
+              modelNames={allModelNames}
+              onChange={(v) => setFields((prev) => ({ ...prev, default_audio_backend: v }))}
+              allowDefault
+              defaultLabel={t("auto_select")}
+              defaultHint={t("auto")}
+              aria-label={t("default_audio_model")}
+            />
+            <ModelLifecycleNotice
+              value={currentAudioBackend}
+              notices={lifecycle}
+              modelNames={allModelNames}
+              onSwitch={(v) => setFields((prev) => ({ ...prev, default_audio_backend: v }))}
+            />
+          </div>
         ) : (
           <NoProviders message={t("no_audio_providers_hint")} />
         )}
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="narration-voice-input">{t("narration_voice_label")}</Label>
-          <Input
+          <NarrationVoiceInput
             id="narration-voice-input"
-            type="text"
             aria-describedby="narration-voice-hint"
             value={currentNarrationVoice}
-            onChange={(e) => setFields((prev) => ({ ...prev, narration_voice: e.target.value }))}
+            onChange={(narration_voice) => setFields((prev) => ({ ...prev, narration_voice }))}
+            voices={audioVoices}
           />
-          <FieldHint id="narration-voice-hint">{t("narration_voice_hint")}</FieldHint>
+          <FieldHint id="narration-voice-hint">
+            {audioVoices.length > 0 ? t("narration_voice_hint_with_voices") : t("narration_voice_hint")}
+          </FieldHint>
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="narration-speed-input">{t("narration_speed_label")}</Label>

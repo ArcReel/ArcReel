@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import update
 
 from arcreel_catalog_core import DurationConstraints
-from lib.catalog.query import factory_snapshot
+from lib.catalog.query import catalog_data, factory_snapshot
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import make_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -20,7 +20,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFactsFailure,
     evaluate_video_request_facts,
 )
-from tests.catalog_support import install_catalog, with_entry_facts
+from tests.catalog_support import install_catalog, with_entry_changes, with_entry_facts
 from tests.factories import seed_endpoint_fixed_video_model
 
 VEO_PROVIDER, VEO_MODEL = "gemini-aistudio", "veo-3.1-generate-preview"
@@ -29,7 +29,12 @@ VIDU2 = "vidu/vidu2.0"
 
 
 @pytest.fixture
-def resolver(db_factory) -> ConfigResolver:
+def resolver(db_factory, monkeypatch) -> ConfigResolver:
+    # 请求事实用例单独验证档位与能力，不受模型关停日期影响。
+    install_catalog(
+        monkeypatch,
+        with_entry_changes(factory_snapshot(), VEO_PROVIDER, VEO_MODEL, discontinued=False, shutdown_date=None),
+    )
     return ConfigResolver(db_factory)
 
 
@@ -253,7 +258,7 @@ async def test_custom_model_constraint_override_replaces_entry_constraints(resol
 async def test_constraints_narrowing_to_nothing_fail_instead_of_falling_back(resolver, monkeypatch):
     constraints = DurationConstraints(by_resolution={"1080p": (10,)}, with_reference_images=(8,))
     install_catalog(
-        monkeypatch, with_entry_facts(factory_snapshot(), VEO_PROVIDER, VEO_MODEL, duration_constraints=constraints)
+        monkeypatch, with_entry_facts(catalog_data(), VEO_PROVIDER, VEO_MODEL, duration_constraints=constraints)
     )
 
     facts = await _read(resolver, _with_resolution({"video_provider_i2v": VEO}, VEO, "1080p"))

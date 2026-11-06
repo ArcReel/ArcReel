@@ -20,6 +20,7 @@ from lib.project.project_manager import ProjectManager
 from server.error_handlers import register_error_handlers
 from server.routers import asset_sheets
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
+from tests.fakes import use_project_manager
 
 PROJECT = "demo"
 
@@ -50,14 +51,14 @@ async def sheet_client(
                     "model_id": "text-image",
                     "display_name": "Text image",
                     "endpoint": "openai-images-generations",
-                    # 按条目计价：Grok Imagine Pro 每张 0.07 USD
-                    "entry_binding": "xai/grok-imagine-image-pro",
+                    # 按条目计价：万相 2.7 图片每张 0.2 CNY，只按出图张数计费
+                    "entry_binding": "alibaba/wan2.7-image",
                 },
                 {
                     "model_id": "edit-image",
                     "display_name": "Edit image",
                     "endpoint": "openai-images-edits",
-                    "entry_binding": "xai/grok-imagine-image-pro",
+                    "entry_binding": "alibaba/wan2.7-image",
                     "multiplier": 2.0,
                 },
             ],
@@ -74,7 +75,7 @@ async def sheet_client(
         ),
     )
 
-    monkeypatch.setattr(asset_sheets, "get_project_manager", lambda: sheet_projects)
+    use_project_manager(monkeypatch, sheet_projects)
     monkeypatch.setattr(asset_sheets, "get_generation_queue", lambda: queue)
     monkeypatch.setattr(asset_sheets, "async_session_factory", session_factory)
     app = FastAPI()
@@ -150,7 +151,7 @@ async def test_preview_lists_targets_skips_and_cost_without_queueing(
             "reason": "missing_description",
         }
     ]
-    assert body["estimated_cost"] == {"USD": pytest.approx(0.07 + 0.07 * 2)}
+    assert body["estimated_cost"] == {"CNY": pytest.approx(0.2 + 0.2 * 2)}
     assert body["unpriced_count"] == 0
 
 

@@ -18,8 +18,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { InlineWarning } from "@/components/shared/InlineWarning";
+import { ModelLifecycleNotice, type ModelLifecycleNotices } from "@/components/shared/ModelLifecycleNotice";
 import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
-import type { GenerationTypeBucket } from "@/types/system";
+import type { BucketDimension, FilteredCandidate, GenerationTypeBucket } from "@/types/system";
 
 /** 任务类型桶的界面标签与覆盖说明，图片 / 视频两处调用点共用一份文案。 */
 export function useGenerationTypeBucketLabels(): Record<GenerationTypeBucket, { label: string; caption?: string }> {
@@ -48,6 +49,10 @@ export interface LayeredSubField {
   effective?: string;
   /** 各层全空时自动选中的模型，语义同 `ProviderModelSelect` 的 `autoValue`。 */
   auto?: string | null;
+  /** 细分项对应的任务类型桶，下线提示据此取这一处的切换目标；文本档位不传，按默认层取。 */
+  bucket?: GenerationTypeBucket;
+  /** 默认层里有、这一项因能力不满足而没有列出的模型及原因（候选接口的 `filtered`），列在下拉末尾、不能选。 */
+  filtered?: FilteredCandidate[];
   onChange: (next: string) => void;
 }
 
@@ -95,6 +100,8 @@ export interface LayeredModelFieldsProps {
   };
   /** 折叠区之后常驻的补充说明（如文本档位的 Agent 边界）。 */
   footnote?: React.ReactNode;
+  /** 下线提示（候选接口的 `lifecycle`）：默认层与各细分项选中的模型即将下线或已下线时，在各自下拉下方提示。 */
+  lifecycle?: ModelLifecycleNotices;
 }
 
 export function LayeredModelFields({
@@ -113,9 +120,14 @@ export function LayeredModelFields({
   subFields,
   subFieldsError,
   footnote,
+  lifecycle,
 }: LayeredModelFieldsProps) {
   const { t } = useTranslation(["templates", "common"]);
   const fields = subFields ?? [];
+  const unmetReason = (unmet: BucketDimension[]) =>
+    unmet.length > 0
+      ? unmet.map((dimension) => t(`model_bucket_unmet_${dimension}`)).join(t("model_bucket_unmet_separator"))
+      : t("model_bucket_unmet_unknown");
   const configuredCount = fields.filter((f) => !!f.value).length;
   const hasError = !!subFieldsError;
 
@@ -150,6 +162,12 @@ export function LayeredModelFields({
         autoValue={defaultAuto}
         aria-label={defaultLabel}
         renderOptionMeta={renderOptionMeta}
+      />
+      <ModelLifecycleNotice
+        value={defaultValue}
+        notices={lifecycle}
+        modelNames={modelNames}
+        onSwitch={onDefaultChange}
       />
 
       {children}
@@ -198,6 +216,18 @@ export function LayeredModelFields({
                       renderOptionMeta={
                         renderOptionMeta && ((fullValue: string) => renderOptionMeta(fullValue, field.key))
                       }
+                      unavailable={field.filtered?.map((item) => ({
+                        value: item.option,
+                        reason: unmetReason(item.unmet),
+                      }))}
+                      unavailableLabel={t("model_bucket_filtered_group", { purpose: field.label })}
+                    />
+                    <ModelLifecycleNotice
+                      value={field.value}
+                      notices={lifecycle}
+                      layer={field.bucket}
+                      modelNames={modelNames}
+                      onSwitch={field.onChange}
                     />
                     {field.caption && <p className="text-xs text-muted-foreground">{field.caption}</p>}
                   </div>

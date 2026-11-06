@@ -16,24 +16,24 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.custom_provider import make_provider_id
-from lib.custom_provider.capabilities import synthesize_video_capabilities, system_video_capabilities
+from lib.custom_provider.capabilities import synthesize_video_capabilities, two_sided_video_capabilities
 from lib.custom_provider.loader import load_custom_backend
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import use_project_manager
+from tests.fakes import use_project_manager, use_projects_session_factory
 
 # 系统判定 last_frame=False、max_reference_images=1 —— 覆盖前后差异可断言
 VIDEO_ENDPOINT = "openai-video"
-VIDEO_MODEL = "sora-2"
+VIDEO_MODEL = "relay-sora"
 
 # openai-video 的 delegate 不序列化 end_image（见 _check_capability_overrides 的
 # end_image_capable 门槛），last_frame 覆盖为 True 的用例须换一个真正支持尾帧的 endpoint。
-# ark-seedance 的 1.0 pro fast 系统判定 last_frame=False（docs/api-docs/providers/ark.md
+# ark-seedance-2 端点下 1.0 pro fast 系统判定 last_frame=False（docs/api-docs/providers/ark.md
 # 能力表标 "-"），可类比断言覆盖前后差异；不用 seedance-2 系列是因为那两系模型系统判定
 # 本身就是 True，无法体现覆盖生效前后的差异。
-LAST_FRAME_ENDPOINT = "ark-seedance"
+LAST_FRAME_ENDPOINT = "ark-seedance-2"
 LAST_FRAME_MODEL = "doubao-seedance-1-0-pro-fast-251015"
 
 
@@ -111,11 +111,11 @@ class TestModelListExposesCapabilities:
         assert models[0]["capability_overrides"] is None
 
     def test_system_capabilities_matches_synthesis_source(self, capability_client: TestClient):
-        """判定值不是 API 里另写一份，而是合成函数的系统判定分支。"""
+        """判定值不是 API 里另写一份，而是合成函数在覆盖之前的两侧求值结果（调用通道与模型条目）。"""
         pid = _create_provider(capability_client, [_video_model()])
 
         models = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
-        expected = system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
+        expected = two_sided_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
         assert models[0]["system_capabilities"] == {
             "text_to_video": expected.text_to_video,
             "first_frame": expected.first_frame,
@@ -761,7 +761,7 @@ class TestResolverReturnsEffectiveCapabilities:
         pid = await self._seed(db_session, overrides=None)
 
         caps = await self._resolve(db_session, pid)
-        system = system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
+        system = two_sided_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
         assert caps["last_frame"] is system.last_frame
         assert caps["first_frame"] is system.first_frame
         assert caps["max_reference_images"] == system.max_reference_images
@@ -773,7 +773,7 @@ class TestResolverReturnsEffectiveCapabilities:
         )
 
         caps = await self._resolve(db_session, pid, model_id=LAST_FRAME_MODEL)
-        assert system_video_capabilities(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL).last_frame is False
+        assert two_sided_video_capabilities(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL).last_frame is False
         assert caps["last_frame"] is True
 
     async def test_override_ignored_when_endpoint_lacks_end_image_support(self, db_session: AsyncSession):
@@ -784,7 +784,7 @@ class TestResolverReturnsEffectiveCapabilities:
         caps = await self._resolve(db_session, pid)
         assert caps["last_frame"] is False
 
-    @patch("lib.custom_provider.endpoints.ArkVideoBackend", new=MagicMock())
+    @patch.dict("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", {"ark-seedance-2": MagicMock()})
     async def test_resolver_matches_execution_layer(self, db_session: AsyncSession):
         """展示层与执行层出自同一合成函数：逐字段比对 resolver 与装载出的 backend。"""
         pid = await self._seed(
@@ -840,7 +840,7 @@ class TestResolverReturnsEffectiveCapabilities:
         pid = make_provider_id(provider.id)
 
         caps = await self._resolve(db_session, pid, model_id="disabled-model")
-        system = system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
+        system = two_sided_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
         assert caps["last_frame"] is system.last_frame
         assert caps["first_frame"] is system.first_frame
 
@@ -876,7 +876,7 @@ class TestResolverReturnsEffectiveCapabilities:
         pid = make_provider_id(provider.id)
 
         caps = await self._resolve(db_session, pid, model_id="repurposed-model")
-        system = system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
+        system = two_sided_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
         assert caps["last_frame"] is system.last_frame
         assert caps["first_frame"] is system.first_frame
 
@@ -940,7 +940,7 @@ class TestVideoCapabilitiesEndpoint:
             def load_project(self, name: str) -> dict:
                 return {"name": name, "video_backend": f"{provider_id}/{model_id}"}
 
-        monkeypatch.setattr(projects_mod, "async_session_factory", custom_providers_app_session_factory)
+        use_projects_session_factory(monkeypatch, custom_providers_app_session_factory)
         use_project_manager(monkeypatch, _FakePM())
 
         app = FastAPI()
@@ -956,7 +956,7 @@ class TestVideoCapabilitiesEndpoint:
         with self._client(monkeypatch, custom_providers_app_session_factory, pid) as capability_client:
             body = capability_client.get("/api/v1/projects/demo/video-capabilities").json()
 
-        system = system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
+        system = two_sided_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
         assert body["first_frame"] is system.first_frame
         assert body["last_frame"] is system.last_frame is False
 
@@ -972,5 +972,19 @@ class TestVideoCapabilitiesEndpoint:
         ) as capability_client:
             body = capability_client.get("/api/v1/projects/demo/video-capabilities").json()
 
-        assert system_video_capabilities(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL).last_frame is False
+        assert two_sided_video_capabilities(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL).last_frame is False
         assert body["last_frame"] is True
+
+
+def test_image_reference_limit_override_roundtrip(capability_client: TestClient):
+    model = {
+        "model_id": "grok-imagine-image",
+        "display_name": "Image",
+        "endpoint": "openai-images",
+        "is_enabled": True,
+        "capability_overrides": {"image_to_image": True, "max_reference_images": 8},
+    }
+    pid = _create_provider(capability_client, [model])
+    url = f"/api/v1/custom-providers/{pid}"
+    saved = capability_client.get(url).json()["models"][0]
+    assert saved["capability_overrides"] == model["capability_overrides"]

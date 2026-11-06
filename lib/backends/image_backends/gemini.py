@@ -39,19 +39,13 @@ logger = logging.getLogger(__name__)
 # 默认图片模型
 DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
 
-# Gemini 3 图像模型单请求最多混合 14 张参考图。
-# 参考：https://ai.google.dev/gemini-api/docs/image-generation
-_MAX_REFERENCE_IMAGES = 14
-# 自定义供应商（中转站）仍可能沿用带 -preview 的旧名，一并认。
-_MODELS_WITH_14_REFERENCES = frozenset(
-    {"gemini-3-pro-image", "gemini-3.1-flash-image", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview"}
-)
-
 
 class GeminiImageBackend:
     """Gemini 图片生成后端，支持 AI Studio 和 Vertex AI。"""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+    # 通道本身不限参考图张数：Gemini 各代图像模型的上限是模型事实，记在条目上。
+    CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
         self,
@@ -114,12 +108,8 @@ class GeminiImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return set(self.CHANNEL_CAPABILITIES)
 
-    async def reference_image_limit(self) -> int:
-        return self._reference_limit
-
-    @property
-    def _reference_limit(self) -> int:
-        return _MAX_REFERENCE_IMAGES if self._image_model in _MODELS_WITH_14_REFERENCES else 0
+    async def reference_image_limit(self) -> int | None:
+        return self.CHANNEL_REFERENCE_LIMIT
 
     @staticmethod
     def _usage(image_size: str | None) -> Usage:
@@ -147,10 +137,6 @@ class GeminiImageBackend:
         # 2. 构建 contents：参考图按数组序位排在前，prompt 置于末尾；
         #    参考图的身份由 prompt 内的 Reference_Images 声明行按「图N」指认，图片之间不夹任何文本标签。
         refs = request.reference_images
-        limit = self._reference_limit
-        if limit and len(refs) > limit:
-            logger.warning("Gemini 参考图数量 %d 超过上限 %d，截断", len(refs), limit)
-            refs = refs[:limit]
         # 打开并解码参考图是阻塞 I/O，逐张卸载到线程后并发等待，避免堵住事件循环
         contents: list = await asyncio.gather(*[asyncio.to_thread(self._load_image_detached, ref.path) for ref in refs])
         contents.append(request.prompt)

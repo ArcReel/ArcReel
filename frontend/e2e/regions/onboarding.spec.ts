@@ -15,7 +15,7 @@ const DEMO_PATH = "/app/projects/onboarding_demo";
 const UNSEEN: ApiOverrides = { "GET /api/v1/onboarding/status": { status: 200, body: { seen: false } } };
 const EMPTY_LOBBY: ApiOverrides = { ...UNSEEN, "GET /api/v1/projects": { status: 200, body: { projects: [] } } };
 
-// 气泡的标题与按钮按 driver.js 的类名取，越南语场景也能复用。
+// 气泡的标题与按钮按 driver.js 的类名取，各语言场景都能复用。
 const tour = (page: Page) => page.locator(".driver-popover");
 const tourTitle = (page: Page) => tour(page).locator(".driver-popover-title");
 
@@ -143,23 +143,27 @@ defineRegionScenarios("新手引导", [
       await expect(tour(page)).toBeInViewport({ ratio: 1 });
     },
   },
-  {
-    name: "越南语文案最长：每一步的气泡都完整落在视口内",
+  ...([
+    ["vi", "越南语", "Chào mừng đến với ArcReel"],
+    ["ru", "俄语", "Добро пожаловать в ArcReel"],
+  ] as const).map(([locale, label, welcomeTitle]) => ({
+    name: `${label}：每一步的气泡都完整落在视口内`,
     path: LOBBY_PATH,
     api: UNSEEN,
-    ready: async (page) => {
-      await page.evaluate(() => localStorage.setItem("i18nextLng", "vi"));
+    ready: async (page: Page) => {
+      await page.evaluate((language) => localStorage.setItem("i18nextLng", language), locale);
       await page.reload();
       await tourReady(page);
     },
-    act: async (page) => {
+    act: async (page: Page) => {
+      await expect(tourTitle(page)).toHaveText(welcomeTitle);
       await expect(tour(page)).toBeInViewport({ ratio: 1 });
       for (let step = 2; step <= 12; step++) {
         await next(page);
         await expect(tour(page)).toBeInViewport({ ratio: 1 });
       }
     },
-  },
+  })),
   {
     name: "演示工作台：顶栏「演示 · 只读」徽标聚焦后显示说明",
     path: DEMO_PATH,

@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Callable, Generator, Mapping, Sequenc
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from instructor.core import InstructorRetryException
 
@@ -1117,21 +1117,31 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     模块那一处。真实 ``ProjectManager`` 与只实现用到方法的替身都可以传。
     """
     for_pm = lambda: pm  # noqa: E731 -- 同一个工厂装到下列每个调用方
+    monkeypatch.setattr("lib.asset_library.ingest.get_project_manager", for_pm)
     monkeypatch.setattr("lib.config.resolver.get_project_manager", for_pm)
     monkeypatch.setattr("lib.project.project_migration_guard.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.asset_sheets.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.assets.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.characters.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.derivative_uploads.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.episode_drafts.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.file_view.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.files.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.generate.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.grids.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.object_storage.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.products.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.projects.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.provider_asset_links.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.project_migration.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.project_trash.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.reference_videos.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.shot_uploads.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.versions.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.currency.upload_finalize.get_project_manager", for_pm)
+    monkeypatch.setattr("server.services.grid.grid_split.get_project_manager", for_pm)
+    monkeypatch.setattr("server.services.project.end_frame.get_project_manager", for_pm)
+    monkeypatch.setattr("server.services.project.provider_asset_import.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.tasks.generation_context.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.tasks.generation_tasks.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.tasks.image_edit_tasks.get_project_manager", for_pm)
@@ -1142,10 +1152,21 @@ def use_generation_context(monkeypatch, resolve: Callable[..., Any]) -> None:
     """生成任务执行链各入口的 ``resolve_generation_context`` 都换成 *resolve*（返回固定上下文的 async 函数）。
 
     生成任务、正式图提交与参考视频任务各自在模块顶部导入这个解析函数，一处换掉就有一条链拿到真实解析。
+
+    ``MagicMock`` 替身生成器没有显式给出 ``choose_reference_image_assets`` 时，按「没有适用的供应商素材关联」
+    补上：每张参考图都照常发送图片内容。选用规则本身由 ``tests/integration/lib/asset_library`` 覆盖。
     """
-    monkeypatch.setattr("server.services.tasks.formal_image_commit.resolve_generation_context", resolve)
-    monkeypatch.setattr("server.services.tasks.generation_tasks.resolve_generation_context", resolve)
-    monkeypatch.setattr("server.services.tasks.reference_video_tasks.resolve_generation_context", resolve)
+
+    async def _resolve(*args, **kwargs):
+        ctx = await resolve(*args, **kwargs)
+        generator = getattr(ctx, "generator", None)
+        if isinstance(generator, MagicMock) and not isinstance(generator.choose_reference_image_assets, AsyncMock):
+            generator.choose_reference_image_assets = AsyncMock(side_effect=lambda sources: (None,) * len(sources))
+        return ctx
+
+    monkeypatch.setattr("server.services.tasks.formal_image_commit.resolve_generation_context", _resolve)
+    monkeypatch.setattr("server.services.tasks.generation_tasks.resolve_generation_context", _resolve)
+    monkeypatch.setattr("server.services.tasks.reference_video_tasks.resolve_generation_context", _resolve)
 
 
 def use_video_thumbnail_extractor(monkeypatch, extract: Callable[..., Any]) -> None:
@@ -1168,6 +1189,28 @@ def bind_session_factory(monkeypatch, factory) -> None:
     monkeypatch.setattr("lib.db.async_session_factory", factory)
 
 
+def use_projects_session_factory(monkeypatch, factory) -> None:
+    """项目路由开数据库会话改用 *factory*。
+
+    ``server.routers.projects`` 在模块顶部绑定了 ``async_session_factory``（归档导入的收尾与正式提交、配置解析都经它），
+    :func:`bind_session_factory` 替换不到。
+    """
+    monkeypatch.setattr("server.routers.projects.async_session_factory", factory)
+
+
+def use_assets_router_sessions(monkeypatch, factory) -> None:
+    """全局资产库路由经 *factory* 开数据库会话：它在模块顶部绑定了 ``async_session_factory``。"""
+    monkeypatch.setattr("server.routers.assets.async_session_factory", factory)
+
+
+def use_object_storage_sdk(monkeypatch, factory: Callable[..., Any]) -> None:
+    """对象存储的网络边界：``create_sdk_client`` 改调 *factory*（收 ``ObjectStorageConfig``，返回 TOS SDK 客户端替身）。
+
+    TOS SDK 基于 requests，不经 httpx，respx 拦不到；所有对象存取都经这一处构造客户端。
+    """
+    monkeypatch.setattr("lib.object_storage.client.create_sdk_client", factory)
+
+
 def use_sdk_client(monkeypatch, factory: Callable[..., Any]) -> None:
     """``SessionManager`` 建 SDK 客户端时改调 *factory*（收 ``options``，通常返回 :class:`FakeSDKClient`）。"""
     monkeypatch.setattr("server.agent_runtime.session_manager.ClaudeSDKClient", factory)
@@ -1179,6 +1222,14 @@ def use_artifact_registration(monkeypatch, register: Callable[..., Any]) -> None
     写盘出口在函数内晚导入 ``register_current_artifact_if_provable``，替换 ``artifact_activation`` 上的名字即生效。
     """
     monkeypatch.setattr("lib.artifacts.artifact_activation.register_current_artifact_if_provable", register)
+
+
+def use_upload_claim_registration(monkeypatch, register: Callable[..., Any]) -> None:
+    """用户上传成品的产物登记（``register_current_resource_artifact``）改调 *register*，用来注入登记失败。
+
+    上传与导入的正式写入在 ``server.services.currency.upload_finalize`` 里登记，提交钩子失败时整次写入回滚。
+    """
+    monkeypatch.setattr("server.services.currency.upload_finalize.register_current_resource_artifact", register)
 
 
 def use_provider_env(monkeypatch, load: Callable[..., Any]) -> None:

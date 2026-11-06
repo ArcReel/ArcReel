@@ -19,12 +19,13 @@ import asyncio
 import logging
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 import httpx
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
@@ -63,7 +64,8 @@ from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.providers import PROVIDER_DASHSCOPE
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import capabilities_by_names
+from lib.backends.video_backends.name_family import EntryBoundCapabilities, match_by_names
+from lib.backends.video_capabilities import reference_image_limit
 from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
@@ -108,23 +110,15 @@ DEFAULT_MODEL = "happyhorse-1.1-i2v"
 _VIDEO_ENDPOINT = "/services/aigc/video-generation/video-synthesis"
 
 
-# wan2.7-r2v 的 reference_voice 逐段挂在参考素材项上，故音频段数上限等同参考素材总数上限
-# （官方：参考图像 + 参考视频 ≤ 5）。
-_WAN27_R2V_MAX_REFERENCE = 5
-
 # wan2.7 全家族 prompt 上限 5000 字符（官方参数表原文「超过部分会自动截断」，错误码表无对应
 # 条目——超限不报错、直接静默截断并照常计费，故由 gate_video_request 在付费前拒绝）。
 _WAN27_MAX_PROMPT_CHARS = 5000
 
-# wan3.0 单模型覆盖文生/图生/参考生三条路径：首帧 + 尾帧，参考图 10 张，参考音频 5 段、
-# 总时长 15 秒，prompt 上限 20000 字符。prompt 超限与 2.7 同为静默截断且照常计费，同样由
-# gate_video_request 前置拒绝。
+# wan3.0 单模型覆盖文生/图生/参考生三条路径，prompt 上限 20000 字符，超限与 2.7 同为静默截断且照常计费，
+# 同样由 gate_video_request 前置拒绝（参考图、参考音频的数量上限记在模型条目上）。
 # 出处：万相 3.0 发布说明所列能力上限。与其余型号不同，wan3.0 没有可引的一手 API schema——
-# 下方 media 条目类型（last_frame / reference_audio）与 parameters["audio"] 的字面量均按 2.7
+# media 条目类型（last_frame / reference_audio）与 parameters["audio"] 的字面量均按 2.7
 # 形状类推，对端如报参数错误应以此处为首查点。
-_WAN3_MAX_REFERENCE_IMAGES = 10
-_WAN3_MAX_REFERENCE_AUDIO = 5
-_WAN3_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 15.0
 _WAN3_MAX_PROMPT_CHARS = 20000
 _WAN3_MODEL_KEY = "wan3.0-video"
 
@@ -168,7 +162,7 @@ WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"(?<![a-z0-9])image[-_]?(?:to|2)[-_]?vi
 # wan2.7-videoedit（指令式视频编辑）是
 # 万相家族内真实存在的独立模态，但本后端只实现了 t2v/i2v/r2v 三档的请求构造，没有该模态所需的
 # 输入视频传输字段。命中家族正则但落这个模态的 id 须排除出原生路由与已知能力档，否则会带着
-# 统一回落（丢失该模态实际所需的能力声明）发出本后端无法正确构造的请求。两侧标识符边界
+# 通道声明（丢失该模态实际所需的请求形态）发出本后端无法正确构造的请求。两侧标识符边界
 # 避免 "videoeditor" 一类无关词形（"edit" 后紧邻字母）被误判命中。
 WAN_VIDEOEDIT_PATTERN = re.compile(r"(?<![a-z0-9])video[-_]?edit(?![a-z0-9])", re.I)
 
@@ -297,13 +291,13 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
         # 变体的命名形态做任何假设（与 endpoints.py 的判定原则一致）。
         is_known_video_modality = has_known_modality or is_videoedit or is_s2v_or_v2v
     elif family == "wan2x_dot" and is_image_to_video:
-        # wan2x_dot 没有登记任何 VideoCapabilities（profile_key 恒 None，下条注释），image-to-video
-        # 续接语法命中时若仍放行原生路由，_match_profile 会认不得、取统一回落（first_frame
-        # 默认 True，恰好掩盖问题）——但本后端并未为这些未收窄的 2.x 小版本声明过已验证的首帧
+        # wan2x_dot 没有登记任何请求形态档（profile_key 恒 None，下条注释），image-to-video
+        # 续接语法命中时若仍放行原生路由，_match_profile_key 会认不得、取通道声明（first_frame
+        # 为 True，恰好掩盖问题）——但本后端并未为这些未收窄的 2.x 小版本声明过已验证的首帧
         # 请求构造，没有已验证能力/请求 schema 的 id 排除出原生路由，同落下方 5) 的通用视频端点。
         has_known_modality = False
     # wan2x_dot 无法从 model_id 直接归一化出确切 t2v/i2v/r2v 档位（其命名形态未收敛），
-    # profile_key 留空，交由 _match_profile 末尾的兜底子串匹配处理（多数认不得、取统一回落）；
+    # profile_key 留空，交由 _match_profile_key 末尾的兜底子串匹配处理（多数认不得、取通道声明）；
     # 是否收窄同 wan2.7 一样按已知模态门控需要供应商 API 事实与产品判断，不由本字段代为决定。
     return WanClassification(
         family=family,
@@ -322,7 +316,7 @@ def _normalize_wan27_alias(family_suffix: str) -> str:
 
     分两步是因为两段分隔符独立可变（"wan_2.7-r2v" 只有前段是下划线、"wan-2.7_r2v" 只有后段
     是下划线、"wan_2.7_r2v" 两段都是），任一段漏归一化都会导致结果不与 _MODEL_PROFILES 的 key
-    构成子串关系，静默取统一回落。调用方须传入从 wan2.7 标记本身开始的子串（不含标记前
+    构成子串关系，静默退回通道声明。调用方须传入从 wan2.7 标记本身开始的子串（不含标记前
     的装饰前缀），且须先用 WAN2_PATTERN.search 确认命中。
     """
     family_suffix = WAN2_PATTERN.sub("wan2.7", family_suffix)
@@ -330,74 +324,50 @@ def _normalize_wan27_alias(family_suffix: str) -> str:
     return WAN_IMAGE_TO_VIDEO_PATTERN.sub("i2v", family_suffix)
 
 
-# 按 model id 派发能力声明。happyhorse-r2v 仅 reference_image（无 first_frame）；
-# wan2.7-r2v 额外支持首帧与参考音色。
-#
-# audio_track：只有 wan3.0 的请求带音轨开关（``_build_payload`` 里的 ``parameters["audio"]``），
-# 其余型号恒有声——下发该参数会被上游当非法参数拒。两条路径共用同一份声明：这些型号没有参考
-# 生视频专属的请求形态差异，故不另设 reference_route_audio_track。
-_MODEL_PROFILES: dict[str, VideoCapabilities] = {
-    "happyhorse-1.1-t2v": VideoCapabilities(first_frame=False, audio_track=VideoAudioMode.ALWAYS_ON),
-    "happyhorse-1.1-i2v": VideoCapabilities(first_frame=True, audio_track=VideoAudioMode.ALWAYS_ON),
-    "happyhorse-1.1-r2v": VideoCapabilities(
-        first_frame=False, max_reference_images=9, audio_track=VideoAudioMode.ALWAYS_ON
-    ),
-    "happyhorse-1.0-t2v": VideoCapabilities(first_frame=False, audio_track=VideoAudioMode.ALWAYS_ON),
-    "happyhorse-1.0-i2v": VideoCapabilities(first_frame=True, audio_track=VideoAudioMode.ALWAYS_ON),
-    "happyhorse-1.0-r2v": VideoCapabilities(
-        first_frame=False, max_reference_images=9, audio_track=VideoAudioMode.ALWAYS_ON
-    ),
-    "wan2.7-t2v": VideoCapabilities(
-        first_frame=False, max_prompt_chars=_WAN27_MAX_PROMPT_CHARS, audio_track=VideoAudioMode.ALWAYS_ON
-    ),
-    "wan2.7-i2v": VideoCapabilities(
-        first_frame=True, max_prompt_chars=_WAN27_MAX_PROMPT_CHARS, audio_track=VideoAudioMode.ALWAYS_ON
-    ),
-    # 带首帧的参考生视频是 wan2.7-r2v 的官方形态（_build_media 同请求组装
-    # first_frame + reference_image）。
-    "wan2.7-r2v": VideoCapabilities(
-        first_frame=True,
-        max_reference_images=_WAN27_R2V_MAX_REFERENCE,
-        reference_audio_mode=ReferenceAudioMode.DIRECT,
-        max_reference_audio_count=_WAN27_R2V_MAX_REFERENCE,
-        # 音色挂在具体参考素材项上（_attach_reference_voices），不是独立的音色输入通道，
-        # 编排层必须显式给出「谁的声音配哪张图」的映射，不能假设与 reference_audio_files 同序。
-        reference_audio_per_image=True,
-        max_prompt_chars=_WAN27_MAX_PROMPT_CHARS,
-        audio_track=VideoAudioMode.ALWAYS_ON,
-    ),
-    # wan3.0 的参考音频是 media 数组里的独立条目（不像 2.7 挂在参考素材项上），故不声明
-    # reference_audio_per_image，改由 max_reference_audio_total_seconds 约束总量。
-    _WAN3_MODEL_KEY: VideoCapabilities(
-        first_frame=True,
-        last_frame=True,
-        max_reference_images=_WAN3_MAX_REFERENCE_IMAGES,
-        reference_audio_mode=ReferenceAudioMode.DIRECT,
-        max_reference_audio_count=_WAN3_MAX_REFERENCE_AUDIO,
-        max_reference_audio_total_seconds=_WAN3_MAX_REFERENCE_AUDIO_TOTAL_SECONDS,
-        max_prompt_chars=_WAN3_MAX_PROMPT_CHARS,
-    ),
-}
+# 百炼视频调用通道的声明（通道事实）：同一份请求构造对任何型号都发得出首帧、尾帧（media 的 first_frame /
+# last_frame）、参考图（reference_image）与参考音频，不在通道一侧限张数与段数。各型号接受哪些输入、能接受多少
+# 记在模型条目上，与本声明两侧求值（lib.backends.video_capabilities，docs/adr/0104）。
+_CHANNEL_CAPABILITIES = VideoCapabilities(
+    text_to_video=True,
+    first_frame=True,
+    last_frame=True,
+    max_reference_images=None,
+    reference_audio_mode=ReferenceAudioMode.DIRECT,
+    max_reference_audio_count=None,
+)
 
-# 认不得的 model（如代理中转自定义命名）取 name_family 的统一回落（文生视频与首帧），音轨开关按
-# 「无信号不收紧」保持可控。请求侧的对应判定是「无信号不发未知参数」（_build_payload 只对 _is_wan3
-# 命中的型号下发 audio），两者方向不同是有意的：声明侧误判恒有声会把用户的开关锁死，请求侧误发未知
-# 参数会被上游直接拒。
+
+@dataclass(frozen=True)
+class DashScopeVideoEndpoint:
+    """同一异步 API 下不同的音轨、参考图与音色挂载契约。"""
+
+    audio_switch: bool = False
+    reference_required: bool = False
+    reference_audio_per_image: bool = False
+    wan3_host: bool = False
+
+    @property
+    def audio_track(self) -> VideoAudioMode:
+        """音轨形态由请求是否下发 ``parameters.audio`` 决定：不下发时上游按默认出有声成片。
+
+        百炼视频请求没有对所有型号通用的音轨开关，官方出处见 ``docs/api-docs/endpoints/dashscope-video.md``。
+        能力声明、请求与计量都读这一位，不会各说一套。
+        """
+        return VideoAudioMode.CONTROLLABLE if self.audio_switch else VideoAudioMode.ALWAYS_ON
+
+
+# 提示词长度仍按型号识别；目录条目尚无这一维度。
+_MODEL_PROFILES = {
+    "wan2.7-t2v": _WAN27_MAX_PROMPT_CHARS,
+    "wan2.7-i2v": _WAN27_MAX_PROMPT_CHARS,
+    "wan2.7-r2v": _WAN27_MAX_PROMPT_CHARS,
+    _WAN3_MODEL_KEY: _WAN3_MAX_PROMPT_CHARS,
+}
 
 
 def _sent_resolution(request: VideoGenerationRequest) -> str:
-    """下发的分辨率档位：百炼要求大写，未指定时下发 720P。"""
+    """百炼的分辨率参数使用大写，未指定时下发 720P。"""
     return (request.resolution or "720p").upper()
-
-
-def _is_wan3(model: str | None) -> bool:
-    """识别 wan3.0 系列：它与其余型号在请求形态上有三处结构差异。
-
-    一是单模型通吃文生/图生/参考生，参考图缺席是合法请求（其余带参考能力的型号都是 r2v
-    专用，无参考图即无输入）；二是音轨由请求参数控制而非恒开；三是可走独立 maas 域名。
-    三处都按型号名分派，profile 表只承载 VideoCapabilities 声明。
-    """
-    return bool(WAN3_PATTERN.search((model or "").strip().lower()))
 
 
 def _find_known_profile_key(normalized: str, keys: Iterable[str]) -> str | None:
@@ -414,18 +384,18 @@ def _find_known_profile_key(normalized: str, keys: Iterable[str]) -> str | None:
     return None
 
 
-def _match_profile(model: str) -> VideoCapabilities | None:
-    """按名字解析能力档：先精确命中，再容忍代理中转的前后缀装饰；认不得时为 ``None``。
+def _match_profile_key(model: str) -> str | None:
+    """按名字解析请求形态档的 key：先精确命中，再容忍代理中转的前后缀装饰；认不得时为 ``None``。
 
-    infer_endpoint 用 classify_wan_model 的同一结论路由到 dashscope-async-video，故此处也须
-    子串容忍，否则 "proxy/happyhorse-1.0-r2v" / "wan2.7-r2v-0715" 这类装饰名会退回统一回落、丢掉 r2v 的 max_reference_images，_build_media 据此构造出错误 payload。
+    infer_endpoint 用 classify_wan_model 的同一结论路由到 百炼异步视频端点，故此处也须
+    子串容忍，否则 "proxy/happyhorse-1.0-r2v" / "wan2.7-r2v-0715" 这类装饰名会退回通道声明、丢掉 r2v 的请求形态，_build_media 据此构造出错误 payload。
     仅带系列名而无变体后缀（如裸 "happyhorse"）无法判别 t2v/i2v/r2v，按设计认不得。
     """
     normalized = (model or "").strip().lower()
     if not normalized:
         return None
     if normalized in _MODEL_PROFILES:
-        return _MODEL_PROFILES[normalized]
+        return normalized
     classification = classify_wan_model(normalized)
     # has_known_modality=False 表示 infer_endpoint 已把该 id 排除出原生路由（videoedit/s2v/v2v
     # 等未实现模态、或 wan2x_dot 的未验证 image-to-video 续接），此处必须同步认不得
@@ -437,22 +407,18 @@ def _match_profile(model: str) -> VideoCapabilities | None:
         normalized = classification.profile_key
     # 各 profile key（happyhorse-{1.0,1.1}-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v} /
     # wan3.0-video）互不为子串，无歧义，_find_known_profile_key 的边界匹配可安全逐一试探。
-    known = _find_known_profile_key(normalized, _MODEL_PROFILES)
-    if known is not None:
-        return _MODEL_PROFILES[known]
-    return None
+    return _find_known_profile_key(normalized, _MODEL_PROFILES)
 
 
-def _profile_for_model(model: str | None) -> VideoCapabilities:
-    """model 的能力档：名字按 name_family 的规则逐个解析，都认不得时取统一回落。
-
-    __init__ 与 video_capabilities_for_model 共用本函数，保持单一真相源。
-    """
-    return capabilities_by_names(model or "", _match_profile)
+def _profile_key_for_model(model: str | None, entry: CatalogEntry | None = None) -> str | None:
+    """model 的请求形态档 key：名字按 name_family 的规则逐个解析（``entry`` 是对应的条目），都认不得时为 ``None``。"""
+    return match_by_names(model or "", _match_profile_key, entry=entry)
 
 
-class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
-    """阿里百炼视频后端（异步 video-synthesis 端点）。"""
+class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
+    """阿里百炼视频后端（异步 video-synthesis 端点）；本类即通用端点 ``dashscope-video``，不下发音轨开关、固定有声。"""
+
+    endpoint: ClassVar[DashScopeVideoEndpoint] = DashScopeVideoEndpoint()
 
     def __init__(
         self,
@@ -472,7 +438,10 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
         self._transport_layer = transport_layer
-        self._video_capabilities = _profile_for_model(self._model)
+        self._video_capabilities = self.video_capabilities_for_model(self._model)
+
+    def _on_catalog_entry_changed(self) -> None:
+        self._video_capabilities = self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     @property
     def name(self) -> str:
@@ -482,18 +451,19 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
     def model(self) -> str:
         return self._model
 
-    @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
-        """按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
-
-        resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
-        保持 backend 为单一真相源。
-        """
-        return _profile_for_model(model)
+    @classmethod
+    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
+        """端点决定请求形态；只有提示词上限按名字查找。"""
+        return replace(
+            _CHANNEL_CAPABILITIES,
+            audio_track=cls.endpoint.audio_track,
+            reference_audio_per_image=cls.endpoint.reference_audio_per_image,
+            max_prompt_chars=_MODEL_PROFILES.get(_profile_key_for_model(model, entry) or ""),
+        )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model)
+        return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     @property
     def _request_base_url(self) -> str:
@@ -502,7 +472,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         提交与轮询共用同一个：任务 id 只在创建它的 endpoint 上可查，两者分家会让 wan3.0
         任务提交成功后轮询到 404。
         """
-        if self._wan3_base_url and _is_wan3(self._model):
+        if self._wan3_base_url and self.endpoint.wan3_host:
             return self._wan3_base_url
         return self._base_url
 
@@ -532,24 +502,31 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
 
     # ── request building ────────────────────────────────────────────────
 
-    @staticmethod
+    @classmethod
     def metered_usage(
-        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        cls,
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
-        分辨率取实际下发的档位（未指定时下发 720P）；结算的输出秒数取 ``usage.duration``。音轨开关只对 wan3.0
-        下发，其余型号恒有声。参考图张数按执行闸门那份能力（缺省时型号档案）的上限截断后计。
+        分辨率取实际下发的档位（未指定时下发 720P）；结算的输出秒数取 ``usage.duration``。音轨按端点是否下发开关计量，
+        不带开关时与能力声明一致，按有声计量。参考图张数按执行闸门的生效上限计量。
         """
-        caps = request.video_capabilities or DashScopeVideoBackend.video_capabilities_for_model(model)
-        provided = [r for r in (request.reference_images or []) if r] if caps.max_reference_images > 0 else []
+        caps = request.video_capabilities or cls.video_capabilities_for_model(model, entry)
+        image_limit = reference_image_limit(caps)
+        provided = [r for r in (request.reference_images or []) if r] if image_limit.accepts_input else []
+        bound = image_limit.clamp_bound()
         return video_usage(
             request,
             result,
             seconds=request.duration_seconds,
             resolution=_sent_resolution(request),
-            audio=request.generate_audio if _is_wan3(model) else True,
-            reference_images=min(len(provided), caps.max_reference_images),
+            audio=request.generate_audio if cls.endpoint.audio_switch else True,
+            reference_images=len(provided) if bound is None else min(len(provided), bound),
         )
 
     def _build_payload(self, request: VideoGenerationRequest) -> dict:
@@ -572,14 +549,11 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             parameters["ratio"] = request.aspect_ratio
         if request.seed is not None:
             parameters["seed"] = request.seed
-        # 音轨开关只对 wan3.0 下发：其余型号恒有声，下发该参数会被上游当非法参数拒绝。本行就是
-        # `_MODEL_PROFILES` 里 audio_track 声明的执行侧对应物（恒有声型号声明 ALWAYS_ON，wan3.0
-        # 取默认的 CONTROLLABLE），改一侧须同改另一侧。
-        if _is_wan3(self._model):
+        # 只有带音轨开关的端点下发 audio；其他端点不发送未知参数，成片固定有声。
+        if self.endpoint.audio_switch:
             parameters["audio"] = request.generate_audio
-        elif not request.generate_audio and self._video_capabilities.audio_track is VideoAudioMode.ALWAYS_ON:
-            # 恒有声型号发不出静音请求；执行期能力被用户覆盖放宽时才会走到这里，付费前拒绝而不是照常出有声成片。
-            # 认不得的型号按「无信号不收紧」声明可控，这里同样不收紧，沿用不下发开关。
+        elif not request.generate_audio:
+            # 发不出静音请求；执行期能力被用户覆盖放宽时才会走到这里，付费前拒绝而不是照常出有声成片。
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
         return {
@@ -613,13 +587,14 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             media.append({"type": "last_frame", "url": uri})
         reference_items: list[dict] = []
         provided = [r for r in (request.reference_images or []) if r]
-        # r2v 必须有参考图：这是型号档案的事实，不随用户放宽参考图上限转移到 i2v 型号上，也不因用户把上限
+        # 参考生视频端点必须有参考图：不随用户放宽参考图上限转移到其他端点，也不因用户把上限
         # 收窄为 0 而放行无参考图的请求。
-        if not provided and self._video_capabilities.max_reference_images > 0 and not _is_wan3(self._model):
+        if not provided and self.endpoint.reference_required:
             raise VideoCapabilityError("video_reference_images_required", model=self._model)
-        if caps.max_reference_images <= 0 and provided:
+        image_limit = reference_image_limit(caps)
+        if not image_limit.accepts_input and provided:
             raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
-        if caps.max_reference_images > 0:
+        if image_limit.accepts_input:
             # fail-loud：任一声明的参考图缺失/不可读（is_file 不过或 read_bytes 抛 OSError）→ 报错列出文件名
             # 中止。不静默退化为无参考/子集生成（会产出错误结果且照常计费），让用户感知到有图未被使用。
             data_uris: list[str] = []
@@ -635,10 +610,10 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
                 raise VideoCapabilityError(
                     "video_reference_images_unreadable", model=self._model, names=", ".join(unreadable)
                 )
-            limit = caps.max_reference_images
-            if len(data_uris) > limit:
+            bound = image_limit.clamp_bound()
+            if bound is not None and len(data_uris) > bound:
                 raise VideoCapabilityError(
-                    "video_reference_images_exceeded", model=self._model, limit=limit, count=len(data_uris)
+                    "video_reference_images_exceeded", model=self._model, limit=bound, count=len(data_uris)
                 )
             reference_items = [{"type": "reference_image", "url": uri} for uri in data_uris]
         # 音频判定在参考素材循环之外：无参考素材可挂时也要走一遍，否则 wan2.7-i2v 这类无参考图
@@ -646,7 +621,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         # 音频照常发出、由上游裁定；未放宽的能力档带音频在下方 fail-loud。两种挂载形态：per_image 的挂在参考素材项上（wan2.7-r2v），其余走 media
         # 数组里的独立 reference_audio 条目（wan3.0）。
         standalone_audio_items: list[dict] = []
-        if caps.reference_audio_per_image:
+        if self.endpoint.reference_audio_per_image:
             self._attach_reference_voices(reference_items, request)
         else:
             standalone_audio_items = self._build_reference_audio_items(request)
@@ -837,9 +812,46 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             duration_seconds=billing_duration if billing_duration is not None else request.duration_seconds,
             video_uri=video_url,
             task_id=task_id,
-            generate_audio=request.generate_audio,
+            # 结算以这一位为准：不下发开关的端点成片固定有声，续跑升级前以静音提交的任务也照有声上报。
+            generate_audio=request.generate_audio if self.endpoint.audio_switch else True,
         )
 
     @staticmethod
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
         await download_resumable_video(video_url, output_path, label="DashScope")
+
+
+class DashScopeAlwaysOnVideoBackend(DashScopeVideoBackend):
+    """没有音轨开关且固定有声的异步视频请求（HappyHorse 与 wan2.7 的文生、图生）。
+
+    请求契约与通用端点相同；端点名分开保留，供已知型号的预填与已记下端点的模型沿用。
+    """
+
+    endpoint = DashScopeVideoEndpoint()
+
+
+class DashScopeReferenceVideoBackend(DashScopeVideoBackend):
+    """参考生视频请求必须携带参考图。"""
+
+    endpoint = DashScopeVideoEndpoint(reference_required=True)
+
+
+class DashScopeReferenceVoiceVideoBackend(DashScopeVideoBackend):
+    """参考生视频的音色逐项挂在参考图上。"""
+
+    endpoint = DashScopeVideoEndpoint(reference_required=True, reference_audio_per_image=True)
+
+
+class DashScopeWan3VideoBackend(DashScopeVideoBackend):
+    """Wan3：可切换音轨、独立音频条目与 MaaS 域名。"""
+
+    endpoint = DashScopeVideoEndpoint(audio_switch=True, wan3_host=True)
+
+
+DASHSCOPE_VIDEO_BACKENDS = {
+    "dashscope-video": DashScopeVideoBackend,
+    "dashscope-always-on-video": DashScopeAlwaysOnVideoBackend,
+    "dashscope-reference-video": DashScopeReferenceVideoBackend,
+    "dashscope-reference-voice-video": DashScopeReferenceVoiceVideoBackend,
+    "dashscope-wan3-video": DashScopeWan3VideoBackend,
+}

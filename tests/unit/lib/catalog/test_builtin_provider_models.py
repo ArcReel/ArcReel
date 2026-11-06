@@ -41,11 +41,13 @@ class TestListings:
         for provider_id in ("gemini-aistudio", "gemini-vertex", "ark", "grok"):
             assert _models_of(provider_id, media_type), f"{provider_id} has no {media_type} models"
 
-    def test_each_media_type_has_one_default(self):
-        for provider_id in PROVIDER_REGISTRY:
+    def test_declared_defaults_are_callable_and_other_media_types_have_no_default(self):
+        for provider_id, listing in catalog.factory_snapshot().builtin_providers.items():
             for media_type in catalog.provider_media_types(provider_id):
-                defaults = [mid for mid, m in _models_of(provider_id, media_type).items() if m.default]
-                assert len(defaults) == 1, f"{provider_id} has {len(defaults)} default {media_type} models"
+                declared = listing.defaults.get(media_type)
+                model = catalog.get_model(provider_id, declared) if declared is not None else None
+                expected = declared if model is not None and not model.hidden else None
+                assert catalog.default_model(provider_id, media_type) == expected
 
     def test_api_model_name_only_differs_for_amphibious_aliases(self):
         # 只有两栖模型沿用的旧模型键与 API 模型名不同，其余模型键就是 API 模型名。
@@ -154,7 +156,7 @@ class TestVideoDurations:
 
 
 class TestProviderListings:
-    def test_agnes_25_models_are_listed_and_legacy_models_are_hidden(self):
+    def test_agnes_models_and_their_declared_lifecycle_are_listed(self):
         models = catalog.list_models("agnes")
         for model_id in (
             "agnes-3.0-flash",
@@ -167,7 +169,8 @@ class TestProviderListings:
             assert model_id in models
         assert "agnes-image-2.0-flash" not in models
 
-        for model_id in ("agnes-2.0-flash", "agnes-image-2.1-flash", "agnes-video-v2.0"):
+        assert models["agnes-image-2.1-flash"].hidden is False
+        for model_id in ("agnes-2.0-flash", "agnes-video-v2.0"):
             assert models[model_id].hidden is True
 
         assert models["agnes-image-2.5-flash"].resolutions == ["1K", "2K", "3K", "4K"]
@@ -219,7 +222,6 @@ class TestProviderListings:
         # 2.0 mini 仍是默认，2.5 只是可选
         assert seedance_25.default is False
 
-    def test_ark_agent_plan_has_no_seedance_2_5(self):
-        # agent plan 套餐未纳入 2.5，清单不得先于套餐收录
-        models = catalog.list_models("ark-agent-plan")
-        assert not [mid for mid in models if "seedance-2.5" in mid or "seedance-2-5" in mid]
+    def test_ark_agent_plan_includes_the_declared_seedance_2_5_model(self):
+        model = _model("ark-agent-plan", "doubao-seedance-2.5")
+        assert model.supported_durations == list(range(4, 31))

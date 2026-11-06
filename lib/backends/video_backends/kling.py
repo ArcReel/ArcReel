@@ -10,24 +10,23 @@
   每次 HTTP 调用前检查过期、距过期 <60s 按需重签——异步渲染可能超单 token 寿命。
 - ``auth_mode="bearer"``（自定义 endpoint）：接静态 api_key + base_url，旁路 JWT 管理器。
 
-各视频模型能力按 ``_KLING_VIDEO_CAPS`` 表驱动（官方一手核实）：
-- ``kling-v2-5-turbo``：文/图生视频含首尾帧，无音频/参考（默认 model）。
-- ``kling-v3`` / ``kling-v3-omni``：旗舰，首尾帧 + 4K（``mode="4k"``）+ 音画同出；v3-omni 多图主体 R2V。
-- ``kling-v2-6``：支持视频内人声，官方限 1080P。
-- ``kling-video-o1``：图生 + 多图主体 R2V；只能保留参考视频原声、不生成原生人声。
-认不得的 model（bearer 透传原生 model_name）取 name_family 的统一回落能力。
+各视频模型接受哪些输入（文生视频、首尾帧、多图主体参考）记在模型条目上，与本通道的声明两侧求值（docs/adr/0104）。
+音轨字段、尾帧的 pro 档限制由所选调用端点声明；请求档位与执行子路径决定本次生效值，
+再与条目共同求值。多图主体子路径没有音轨字段，各端点均声明该路径无声。
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
 
 import httpx
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
     VideoAudioMode,
     VideoCapabilities,
@@ -50,7 +49,8 @@ from lib.backends.kling_shared import (
 from lib.backends.providers import PROVIDER_KLING
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import match_by_names
+from lib.backends.video_backends.name_family import EntryBoundCapabilities
+from lib.backends.video_capabilities import reference_image_limit
 from lib.billing.metering import Usage
 
 logger = logging.getLogger(__name__)
@@ -62,26 +62,25 @@ _IMAGE2VIDEO = "image2video"
 _MULTI_IMAGE2VIDEO = "multi-image2video"
 _RESUMABLE_SUBPATHS = frozenset({_TEXT2VIDEO, _IMAGE2VIDEO, _MULTI_IMAGE2VIDEO})
 
-# 多图主体（R2V）参考图上限，由 backend caps 单独声明（编排层裁剪与生成时防御同读）。
-# 取保守值：官方文档未明确列出该上限。
+# 多图主体（multi-image2video）子路径一次能承载的参考图张数（通道事实，编排层裁剪与生成时防御同读生效能力）。
+# 各型号接受几张参考图记在模型条目上（官方 3.0 Omni / O1 在无参考视频时可达 7 张），与本值两侧取较小值
+# （docs/adr/0104）；本子路径的请求体沿用保守值 4，由调用端点固定声明。
 _R2V_MAX_REFERENCE_IMAGES = 4
 
 
 @dataclass(frozen=True)
-class _KlingVideoModelCaps:
-    """单个可灵视频模型的能力位（官方一手核实）。"""
+class KlingVideoEndpoint:
+    """可灵调用端点随请求档位与子路径变化的请求形态（官方一手核实）。
 
-    # 文生视频闸：为假的 model 不接受无首帧的请求（_build_payload 处拒）。图生视频没有对应位
-    # ——各档首帧恒可用，video_capabilities_for_model 直接声明 first_frame=True。
-    text_to_video: bool
-    last_frame: bool
-    # last_frame=True 但仅 pro 档可用（官方文档：kling-v2-5-turbo、kling-v2-6 首尾帧均标"仅 pro"）；
-    # std 档提交 image_tail 请求体虽会
-    # 被受理，尾帧约束却不生效——video_capabilities_for_tier 按此位在 std/4k 档收窄 last_frame，
+    型号接受哪些输入（文生视频、尾帧、参考图）是模型事实，记在模型条目上，不在这张表里（docs/adr/0104）。
+    这里只留随请求档位变化、无档位上下文时求不出来的部分。
+    """
+
+    # 尾帧仅 pro 档可用（官方文档：kling-v2-5-turbo、kling-v2-6 首尾帧均标"仅 pro"）；std 档提交 image_tail 请求体
+    # 虽会被受理，尾帧约束却不生效——video_capabilities_for_tier 按此位在 std/4k 档收窄 last_frame，
     # _build_payload 据此拒绝 image_tail，而非放行一个调用方以为已生效实则被忽略的请求；
     # 用户放宽了尾帧时以用户为准。
     last_frame_requires_pro: bool
-    max_reference_images: int
     # 能产出视频内人声（官方能力地图的「音画同出」列）：v2-6 / v3 / v3-omni ✅。该位同时决定请求体
     # 是否携带音频开关 sound——官方各档默认 off，无此能力的 model 不发该字段而非发 "off" 压制。
     # 对外的音轨形态（VideoCapabilities.audio_track）由 `_audio_track_for` 从本位投影，展示层与
@@ -93,63 +92,20 @@ class _KlingVideoModelCaps:
     audio_requires_1080p: bool
 
 
-# 认不得的 model（bearer 透传原生 model_name）按 name_family 的统一回落：文生视频与首帧，不开尾帧，
-# 无参考图；也不下发音频开关，成片恒无声。
-_UNRECOGNIZED_VIDEO_CAPS = _KlingVideoModelCaps(
-    text_to_video=True,
-    last_frame=False,
+# 认不得的 model（bearer 透传原生 model_name）：尾帧不受档位约束，也不下发音频开关，成片恒无声。
+_UNRECOGNIZED_VIDEO_CAPS = KlingVideoEndpoint(
     last_frame_requires_pro=False,
-    max_reference_images=0,
     generate_audio=False,
     audio_requires_1080p=False,
 )
 
-_KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
-    # 文/图生视频、首尾帧（仅 pro 档），无音频/参考。
-    "kling-v2-5-turbo": _KlingVideoModelCaps(
-        text_to_video=True,
-        last_frame=True,
-        last_frame_requires_pro=True,
-        max_reference_images=0,
-        generate_audio=False,
-        audio_requires_1080p=False,
-    ),
-    "kling-v3": _KlingVideoModelCaps(
-        text_to_video=True,
-        last_frame=True,
-        last_frame_requires_pro=False,
-        max_reference_images=0,
-        generate_audio=True,
-        audio_requires_1080p=False,
-    ),
-    "kling-v3-omni": _KlingVideoModelCaps(
-        text_to_video=True,
-        last_frame=True,
-        last_frame_requires_pro=False,
-        max_reference_images=_R2V_MAX_REFERENCE_IMAGES,
-        generate_audio=True,
-        audio_requires_1080p=False,
-    ),
-    "kling-v2-6": _KlingVideoModelCaps(
-        text_to_video=True,
-        last_frame=True,
-        last_frame_requires_pro=True,
-        max_reference_images=0,
-        generate_audio=True,
-        audio_requires_1080p=True,
-    ),
-    "kling-video-o1": _KlingVideoModelCaps(
-        text_to_video=False,
-        last_frame=True,
-        last_frame_requires_pro=False,
-        max_reference_images=_R2V_MAX_REFERENCE_IMAGES,
-        generate_audio=False,
-        audio_requires_1080p=False,
-    ),
-}
+KLING_PRO_SILENT = KlingVideoEndpoint(True, False, False)
+KLING_PRO_AUDIO = KlingVideoEndpoint(True, True, True)
+KLING_AUDIO = KlingVideoEndpoint(False, True, False)
+KLING_SILENT = _UNRECOGNIZED_VIDEO_CAPS
 
 
-def _audio_track_for(caps: _KlingVideoModelCaps) -> VideoAudioMode:
+def _audio_track_for(caps: KlingVideoEndpoint) -> VideoAudioMode:
     """文生 / 图生子路径的成片音轨形态。
 
     这两条子路径的请求体带 ``sound`` 开关，故有音频能力的 model 音轨可控；无音频能力的 model
@@ -159,23 +115,6 @@ def _audio_track_for(caps: _KlingVideoModelCaps) -> VideoAudioMode:
     ``effective_generate_audio_for_model``）。
     """
     return VideoAudioMode.CONTROLLABLE if caps.generate_audio else VideoAudioMode.ALWAYS_OFF
-
-
-def _match_video_caps(name: str) -> _KlingVideoModelCaps | None:
-    """按名字取能力位：剥厂商前缀后 + 去首尾空白 + lower 归一化，再做【精确】命中 _KLING_VIDEO_CAPS。
-    中转前缀分隔符仅认仓库既有约定 ``/``（``vendor/kling-v3-omni``）与 ``:``（``provider:kling-v3-omni``）
-    ——把 ``:`` 统一成 ``/`` 后取最后一段。刻意不把 ``_``/``.`` 当分隔符：它们是 model 名合法字符
-    （wan2. / image-01 / kling-v3-omni 都含），当分隔符会切坏真实 model 名。不按子串猜未知 model（含未来
-    版本 kling-v4）的能力上限：未知 model 的限额可能与已知档不同，误报参考图能力会在请求期触发 provider 400
-    或计费漂移。"""
-    key = name.replace(":", "/").rsplit("/", 1)[-1].strip().lower()
-    return _KLING_VIDEO_CAPS.get(key)
-
-
-def _lookup_video_caps(model: str) -> _KlingVideoModelCaps:
-    """model 的能力位：名字按 name_family 的规则逐个精确命中，都认不得时取统一回落。"""
-    found = match_by_names(model, _match_video_caps)
-    return found if found is not None else _UNRECOGNIZED_VIDEO_CAPS
 
 
 # mode → 输出分辨率档位（可灵官方：std 720P、pro 1080P，4k 档即 4K）。
@@ -235,7 +174,7 @@ def _decode_job_id(job_id: str) -> tuple[str, str, bool | None]:
     return _TEXT2VIDEO, job_id, None
 
 
-class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
+class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdPersistenceMixin):
     """可灵 Kling 视频后端（异步轮询，JWT / Bearer 双模式）。
 
     鉴权 / base_url 装配 / submit-poll 骨架由 ``KlingBackendBase`` 共享；``provider_job_id`` 持久化由
@@ -243,6 +182,8 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     """
 
     _media_label = "视频"
+    endpoint_key = "kling-video-pro-silent"
+    endpoint = KLING_PRO_SILENT
 
     def __init__(
         self,
@@ -266,36 +207,31 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             http_timeout=http_timeout,
             transport_layer=transport_layer,
         )
-        # 按 model 取能力位（归一化前缀/大小写后精确命中）；认不得的 model（bearer 透传）取统一回落。
-        self._caps = _lookup_video_caps(self._model)
 
-    @staticmethod
-    def video_capabilities_for_model(model: str) -> VideoCapabilities:
-        # first_frame 恒真（各档均支持 i2v 首帧）；last_frame / reference_images / 上限按 model 从
-        # _KLING_VIDEO_CAPS 读（_lookup_video_caps 归一化前缀/大小写后精确命中，认不得时取统一回落）。
-        # max_reference_images 只在此处声明（编排层裁剪与生成时防御同读它），取保守值——
-        # 官方文档未明确列出该上限。纯函数（不构造 client /
-        # 不需 api_key），供 custom endpoint resolver 按 model_id 读上限复用。
-        #
-        # last_frame_requires_pro 为真的 model（kling-v2-5-turbo、kling-v2-6）：该位不按 service_tier
-        # 分档——service_tier 是逐请求字段（generation_tasks 入队时选定），本函数只按 model 声明、
-        # 无从得知调用方将选哪档。std/4k 档提交尾帧会被拒绝——有 tier 上下文的调用方走
-        # video_capabilities_for_tier 在 media_generator 处拒；用户覆盖放宽尾帧时，_build_payload
-        # 按执行闸门那份能力照常发出。declare 一个仅在少数档位成立的 True 会让无 tier
-        # 上下文的调用方按此位放行 end_image、多数请求撞硬失败；保守声明 False 更贴近默认档的
-        # 真实执行结果，与认不得的 model 取保守回落同一原则。
-        caps = _lookup_video_caps(model)
+    @classmethod
+    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
+        """可灵调用通道无请求上下文的声明（通道事实）—— 纯函数（不构造 client / 不需 api_key）。
+
+        通道对任何型号都发得出文生（text2video）、首帧与尾帧（image2video 的 ``image_tail``）和多图主体参考
+        （multi-image2video，一次最多 ``_R2V_MAX_REFERENCE_IMAGES`` 张），不收参考音频。各型号接受哪些输入、能接受
+        几张参考图记在模型条目上，与本声明两侧求值（``lib.backends.video_capabilities``，docs/adr/0104）。
+
+        尾帧随调用端点与请求档位变化：``last_frame_requires_pro`` 为真的 model（kling-v2-5-turbo、kling-v2-6）
+        只在 pro 档受理尾帧，本函数无从得知调用方将选哪档，保守声明不开；有档位上下文的调用方走
+        ``video_capabilities_for_tier``，用户覆盖放宽尾帧时 ``_build_payload`` 按执行闸门那份能力照常发出。
+        """
+        caps = cls.endpoint
         return VideoCapabilities(
-            text_to_video=caps.text_to_video,
+            text_to_video=True,
             first_frame=True,
-            last_frame=caps.last_frame and not caps.last_frame_requires_pro,
-            max_reference_images=caps.max_reference_images,
+            last_frame=not caps.last_frame_requires_pro,
+            max_reference_images=_R2V_MAX_REFERENCE_IMAGES,
             audio_track=_audio_track_for(caps),
             reference_route_audio_track=VideoAudioMode.ALWAYS_OFF,
         )
 
-    @staticmethod
-    def effective_generate_audio_for_model(model: str) -> bool:
+    @classmethod
+    def effective_generate_audio_for_model(cls, model: str, entry: CatalogEntry | None = None) -> bool:
         """无逐请求档位上下文时，返回默认执行档真正生效的音频计价参数。
 
         有声受 1080P 约束的 model（v2-6）无从得知调用方将选哪档质量档，保守返回
@@ -303,12 +239,12 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         ``_effective_audio`` 按请求实际质量档与子路径决定——v3-omni 走多图主体子路径时实际无声，
         本接口无从得知是否带参考图而返回 True，方向是高估成本（预估偏保守），不会低报。
         """
-        caps = _lookup_video_caps(model)
+        caps = cls.endpoint
         return caps.generate_audio and not caps.audio_requires_1080p
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model)
+        return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None) -> VideoCapabilities:
         """按实际请求档位收窄的 last_frame 声明，供有请求上下文的调用方使用。
@@ -322,16 +258,14 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         护栏放行条件对齐，避免 pro 档请求被上层静默丢帧（该请求实际会被 `_build_payload` 接受），
         也避免 4k+pro 组合被误判放行（`_resolve_mode` 对该组合解出 ``"4k"`` 而非 ``"pro"``）。
         """
-        caps = _lookup_video_caps(self._model)
+        caps = self.endpoint
         mode = self._resolve_mode_from(resolution, service_tier)
-        last_frame = caps.last_frame and (not caps.last_frame_requires_pro or mode == "pro")
-        return VideoCapabilities(
-            text_to_video=caps.text_to_video,
-            first_frame=True,
-            last_frame=last_frame,
-            max_reference_images=caps.max_reference_images,
-            audio_track=_audio_track_for(caps),
-            reference_route_audio_track=VideoAudioMode.ALWAYS_OFF,
+        return replace(
+            self.video_capabilities_for_model(self._model, self._catalog_entry),
+            last_frame=not caps.last_frame_requires_pro or mode == "pro",
+            audio_track=(
+                VideoAudioMode.ALWAYS_OFF if caps.audio_requires_1080p and mode != "pro" else _audio_track_for(caps)
+            ),
         )
 
     # ── request building ────────────────────────────────────────────────
@@ -353,15 +287,20 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     def _resolve_mode(self, request: VideoGenerationRequest) -> str:
         return self._resolve_mode_from(request.resolution, request.service_tier)
 
-    @staticmethod
+    @classmethod
     def metered_usage(
-        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        cls,
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         可灵请求体没有分辨率字段，输出档位由 ``mode`` 决定：分辨率维度取 mode 对应的档位（std 720p、pro 1080p、
-        4k 4k）。是否有声按实际发出的 ``sound`` 判定；结算取 ``result`` 上同一口径的有声标志（续跑时由 job_id
-        复原，请求里已没有图片字段可推断子路径）。
+        4k 4k）。是否有声按实际发出的 ``sound`` 判定（``entry`` 是模型对应的条目，与请求构造同一个）；结算取
+        ``result`` 上同一口径的有声标志（续跑时由 job_id 复原，请求里已没有图片字段可推断子路径）。
         """
         return video_usage(
             request,
@@ -370,14 +309,16 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             resolution=_MODE_RESOLUTIONS[
                 KlingVideoBackend._resolve_mode_from(request.resolution, request.service_tier)
             ],
-            audio=KlingVideoBackend._effective_audio_for(model, request, subpath=_subpath_for(request)),
+            audio=cls._effective_audio_for(model, request, subpath=_subpath_for(request), entry=entry),
         )
 
     def _effective_audio(self, request: VideoGenerationRequest, *, subpath: str) -> bool:
-        return self._effective_audio_for(self._model, request, subpath=subpath)
+        return self._effective_audio_for(self._model, request, subpath=subpath, entry=self._catalog_entry)
 
-    @staticmethod
-    def _effective_audio_for(model: str, request: VideoGenerationRequest, *, subpath: str) -> bool:
+    @classmethod
+    def _effective_audio_for(
+        cls, model: str, request: VideoGenerationRequest, *, subpath: str, entry: CatalogEntry | None = None
+    ) -> bool:
         """实际是否产出视频内人声：请求要 + model 有 generate_audio 能力 + 走得到音频开关的子路径
         + 满足该 model 的分辨率约束；用户把音轨覆盖为恒有声时不套分辨率约束。
 
@@ -386,6 +327,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         ``subpath`` 必传而非由 ``request.reference_images`` 推断：resume 请求重建时不带图字段
         （见 ``media_generator.resume_video_async``），按参考图推断会把旧格式 job_id 的多图主体
         任务判成有声。generate 侧由 ``_build_payload`` 给出，resume 侧由 job_id 解码得出。
+        分辨率约束与音轨声明均取所选调用端点。
 
         音轨形态读执行闸门那份能力（``request.video_capabilities``，含用户放宽），直接构造的请求
         回落 ``video_capabilities_for_model`` 的声明——与展示层、入队预检同一份。multi-image2video 原生
@@ -394,7 +336,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         """
         if subpath == _MULTI_IMAGE2VIDEO:
             return False
-        audio_track = (request.video_capabilities or KlingVideoBackend.video_capabilities_for_model(model)).audio_track
+        audio_track = (request.video_capabilities or cls.video_capabilities_for_model(model, entry)).audio_track
         if audio_track is VideoAudioMode.ALWAYS_OFF:
             return False
         if audio_track is VideoAudioMode.ALWAYS_ON:
@@ -403,7 +345,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             return True
         if not request.generate_audio:
             return False
-        if _lookup_video_caps(model).audio_requires_1080p:
+        if cls.endpoint.audio_requires_1080p:
             # 官方约束的维度是分辨率（v2-6「生成有声视频时，仅支持生成 1080P」），但可灵请求体没有
             # 分辨率字段：输出档位只由 mode 决定，``request.resolution`` 除识别 4k 档外不进入 payload。
             # 判据因此落在实际发出的 mode 上。声明该位的 model（v2-6）只有 std / pro 两档，pro 即
@@ -442,14 +384,16 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
                 raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
             # 生成时防御（fail-loud）：未声明多图主体能力的 model 不得升级到 R2V 子路径，
             # 超上限的参考图数同样拦截——否则会把必然报错的请求发出去且照常计费。
-            if caps.max_reference_images <= 0:
+            image_limit = reference_image_limit(caps)
+            if not image_limit.accepts_input:
                 raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
-            if len(reference_images) > caps.max_reference_images:
+            bound = image_limit.clamp_bound()
+            if bound is not None and len(reference_images) > bound:
                 raise VideoCapabilityError(
                     "video_reference_images_exceeded",
                     model=self._model,
                     count=len(reference_images),
-                    limit=caps.max_reference_images,
+                    limit=bound,
                 )
             # 多图主体请求体没有 sound 字段；用户把这条路径的音轨覆盖为有声时发不出，付费前拒绝而不是静默出无声成片。
             route_audio = caps.audio_track_for_route("r2v")
@@ -477,11 +421,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
                     # 该 model 的首尾帧仅 pro 档生效时，std/4k 档提交 image_tail 虽会被官方接口受理，
                     # 尾帧约束却不生效——档位感知声明已按档收窄，这里报出档位这一卡点，而非放行一个
                     # 调用方以为已生效实则被忽略的请求。按档拦截只在尾帧未被用户放宽时生效。
-                    if (
-                        self._caps.last_frame
-                        and self._caps.last_frame_requires_pro
-                        and self._resolve_mode(request) != "pro"
-                    ):
+                    if self.endpoint.last_frame_requires_pro and self._resolve_mode(request) != "pro":
                         raise VideoCapabilityError(
                             "video_last_frame_requires_pro", provider=self.name, model=self._model
                         )
@@ -608,3 +548,42 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     @staticmethod
     async def _download_with_retry(download_url: str, output_path: Path) -> None:
         await download_resumable_video(download_url, output_path, label="Kling")
+
+
+class KlingProSilentVideoBackend(KlingVideoBackend):
+    """``kling-video-pro-silent`` 请求契约。"""
+
+    endpoint_key = "kling-video-pro-silent"
+    endpoint = KLING_PRO_SILENT
+
+
+class KlingProAudioVideoBackend(KlingVideoBackend):
+    """``kling-video-pro-audio`` 请求契约。"""
+
+    endpoint_key = "kling-video-pro-audio"
+    endpoint = KLING_PRO_AUDIO
+
+
+class KlingAudioVideoBackend(KlingVideoBackend):
+    """``kling-video-audio`` 请求契约。"""
+
+    endpoint_key = "kling-video-audio"
+    endpoint = KLING_AUDIO
+
+
+class KlingSilentVideoBackend(KlingVideoBackend):
+    """``kling-video-silent`` 请求契约。"""
+
+    endpoint_key = "kling-video-silent"
+    endpoint = KLING_SILENT
+
+
+KLING_BACKENDS: Mapping[str, type[KlingVideoBackend]] = {
+    backend.endpoint_key: backend
+    for backend in (
+        KlingProSilentVideoBackend,
+        KlingProAudioVideoBackend,
+        KlingAudioVideoBackend,
+        KlingSilentVideoBackend,
+    )
+}

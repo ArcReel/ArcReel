@@ -33,7 +33,7 @@ def _make_mock_resolver(**async_methods):
 async def test_resolved_provider_model_and_credentials_reach_the_spec():
     mock_resolver = _make_mock_resolver(
         text_backend_for_task=("ark", "doubao-seed-2-1-lite-260915"),
-        provider_config={"api_key": "ark-key"},
+        provider_config_with_credential=({"api_key": "ark-key"}, None),
     )
 
     with (
@@ -62,7 +62,7 @@ async def test_resolved_provider_model_and_credentials_reach_the_spec():
         # ark-agent-plan 复用 ArkTextBackend（name 报 "ark"）。记账须取解析层 id。
         ("gemini-aistudio", "gemini-3-flash-preview", {"api_key": "test-key", "base_url": ""}, "gemini"),
         ("gemini-vertex", "gemini-3-flash-preview", {"gcs_bucket": "my-bucket"}, "gemini"),
-        ("ark-agent-plan", "doubao-seed-2.0-lite", {"api_key": "ark-plan-key"}, "ark-agent-plan"),
+        ("ark-agent-plan", "doubao-seed-2.1-lite", {"api_key": "ark-plan-key"}, "ark-agent-plan"),
     ],
 )
 async def test_returns_resolver_provider_id_not_registry_backend_name(
@@ -70,7 +70,7 @@ async def test_returns_resolver_provider_id_not_registry_backend_name(
 ):
     mock_resolver = _make_mock_resolver(
         text_backend_for_task=(provider_id, model),
-        provider_config=credentials,
+        provider_config_with_credential=(credentials, None),
     )
 
     with (

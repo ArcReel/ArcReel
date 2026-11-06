@@ -10,10 +10,10 @@ from lib.artifacts.version_manager import (
     InstalledVersionCommit,
     StagedVersionCommit,
     VersionManager,
-    VersionSnapshotCorruptedError,
     _get_versions_file_lock,
 )
 from lib.infra.api_errors import BadRequestError, NotFoundError
+from lib.material.storage import VersionSnapshotCorruptedError
 from lib.project.project_activity import ACTIVITY_FILENAME, record_project_activity, recorded_project_activity
 
 
@@ -686,9 +686,11 @@ def _record(vm: VersionManager, resource_type: str, resource_id: str, version: i
         ("videos", "E1S01", "videos/scene_E1S01.mp4"),
         ("reference_videos", "E1U1", "reference_videos/E1U1.mp4"),
         ("audio", "E1S01", "audio/segment_E1S01.wav"),
+        ("characters", "Alice", "characters/Alice.png"),
+        ("storyboards", "E1S01", "storyboards/scene_E1S01.png"),
     ],
 )
-def test_every_new_media_version_records_its_output_content_digest(
+def test_every_new_version_is_a_content_version_with_its_output_digest(
     tmp_path, operation, resource_type, resource_id, relative
 ):
     vm = VersionManager(tmp_path)
@@ -711,17 +713,10 @@ def test_every_new_media_version_records_its_output_content_digest(
         staged.replace(current)
         version = vm.commit_installed_version(resource_type, resource_id, "p", current_file=current)
 
-    assert _record(vm, resource_type, resource_id, version)["content_digest"] == _digest(b"new-media")
-
-
-def test_image_versions_do_not_record_a_content_digest(tmp_path):
-    vm = VersionManager(tmp_path)
-    current = tmp_path / "characters" / "Alice.png"
-    current.parent.mkdir()
-    current.write_bytes(b"png")
-    version = vm.add_version("characters", "Alice", "p", source_file=current)
-
-    assert "content_digest" not in _record(vm, "characters", "Alice", version)
+    record = _record(vm, resource_type, resource_id, version)
+    assert record["content_digest"] == _digest(b"new-media")
+    assert isinstance(record["content_version_id"], str)
+    assert record["content_version_id"]
 
 
 def _two_audio_versions(tmp_path):
@@ -802,3 +797,30 @@ def test_verify_snapshots_finds_the_record_by_snapshot_path(tmp_path):
         vm.verify_snapshots("audio", {v1_file, v2_file})
 
     assert caught.value.params == {"resource_type": "audio", "resource_id": "E1S01", "version": v1}
+
+
+def test_a_legacy_image_version_becomes_a_stable_content_version_once_referenced(tmp_path):
+    vm = VersionManager(tmp_path)
+    current = tmp_path / "characters" / "Alice.png"
+    current.parent.mkdir()
+    current.write_bytes(b"sheet-v1")
+    v1 = vm.add_version("characters", "Alice", "v1", source_file=current)
+    current.write_bytes(b"sheet-v2")
+    vm.add_version("characters", "Alice", "v2", source_file=current)
+    data = json.loads(vm.versions_file.read_text(encoding="utf-8"))
+    for record in data["characters"]["Alice"]["versions"]:
+        del record["content_version_id"], record["content_digest"]
+    vm.versions_file.write_text(json.dumps(data), encoding="utf-8")
+
+    vm.restore_version("characters", "Alice", v1, current)
+    assert "content_version_id" not in _record(vm, "characters", "Alice", v1)
+
+    content_version = vm.ensure_content_version("characters", "Alice", v1)
+    unchanged = vm.versions_file.read_bytes()
+    again = vm.ensure_content_version("characters", "Alice", v1)
+
+    assert content_version.digest == _digest(b"sheet-v1")
+    assert content_version.locator.path == _record(vm, "characters", "Alice", v1)["file"]
+    assert again == content_version
+    assert vm.versions_file.read_bytes() == unchanged
+    assert _record(vm, "characters", "Alice", v1)["content_version_id"] == content_version.id

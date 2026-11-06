@@ -8,6 +8,7 @@ from typing import Any, cast
 from lib.backends.image_backends.base import ImageBackend, ImageCapability, ImageUsageEstimator
 
 _BACKEND_FACTORIES: dict[str, Callable[..., ImageBackend]] = {}
+_UNDECLARED = object()
 
 
 def register_backend(name: str, factory: Callable[..., ImageBackend]) -> None:
@@ -32,6 +33,28 @@ def channel_capabilities(name: str) -> frozenset[ImageCapability]:
     declared = getattr(factory, "CHANNEL_CAPABILITIES", None)
     if not isinstance(declared, frozenset):
         raise ValueError(f"image backend {name!r} does not declare CHANNEL_CAPABILITIES")
+    return declared
+
+
+def channel_reference_limit(name: str) -> int | None:
+    """读某个内置调用通道静态声明的参考图上限（类属性 ``CHANNEL_REFERENCE_LIMIT``），不构造实例。
+
+    ``None`` 表示通道本身不限张数，上限由条目给出。按模型运行时查询的通道（OpenRouter）在这里给出端点的静态上限，
+    运行时再按模型收窄。
+    """
+    factory = _BACKEND_FACTORIES.get(name)
+    if factory is None:
+        raise ValueError(f"Unknown image backend: {name}")
+    return reference_limit_of(factory)
+
+
+def reference_limit_of(backend_class: object) -> int | None:
+    """调用通道类上的 ``CHANNEL_REFERENCE_LIMIT``；没有声明时抛 ``ValueError``。"""
+    declared = getattr(backend_class, "CHANNEL_REFERENCE_LIMIT", _UNDECLARED)
+    if declared is _UNDECLARED:
+        raise ValueError(f"image backend {backend_class!r} does not declare CHANNEL_REFERENCE_LIMIT")
+    if declared is not None and (not isinstance(declared, int) or isinstance(declared, bool) or declared <= 0):
+        raise ValueError(f"image backend {backend_class!r} declares invalid CHANNEL_REFERENCE_LIMIT {declared!r}")
     return declared
 
 

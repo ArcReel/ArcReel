@@ -2,7 +2,7 @@
 
 每个 issue 一份 `.afk/<batch-id>/handoff-<N>.md`；stage 集成审查与 review loop 共用 `.afk/<batch-id>/handoff-stage-<K>.md`。handoff 是交接便签，不是工作日志。
 
-各角色追加自己的「实现」「集成审查」「Base sync」或「审查循环」段。保留下一位执行者需要、但 diff、issue、PR 无法重推的判断：关键取舍、环境限制、未决风险，以及 pushback、故障或冲突处置的依据。已有记录可引用。
+各角色追加自己的「实现」「集成审查」「QA」「QA 修复」「Base sync」或「审查循环」段。保留下一位执行者需要、但 diff、issue、PR 无法重推的判断：关键取舍、环境限制、未决风险，以及不修改的发现、故障或冲突处置的依据。已有记录可引用。
 
 Base sync 段留下 rebase 前后的远程 HEAD；审查硬停时留下远程 HEAD，并说明进展、未决事项及建议的下一步。其余交付信息按各角色契约回报。
 

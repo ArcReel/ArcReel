@@ -557,8 +557,26 @@ class TestModeGating:
             assert excinfo.value.params.get("detail") == "all reference images failed to open"
 
 
+def _image_entry(name: str, output_token_bases: dict[str, int] | None = None):
+    """测试用图片条目：只带输出 token 估算基数（质量档 → 基数），不依赖出厂快照。"""
+    from arcreel_catalog_core import CatalogEntry, ImageFacts
+
+    return CatalogEntry(
+        maker="openai",
+        name=name,
+        media_type="image",
+        display_name=name,
+        facts=ImageFacts(text_to_image=True, image_to_image=True, output_token_bases=output_token_bases or {}),
+    )
+
+
+#: 官方计算器的质量档基数（arcreel-catalog 收录的 GPT Image 2 / GPT Image 2.5）。
+_GPT_IMAGE_2_BASES = {"low": 16, "medium": 48, "high": 96}
+_GPT_IMAGE_2_5_BASES = {"low": 16, "medium": 24, "high": 48, "xhigh": 64, "max": 96}
+
+
 class TestOutputTokenEstimate:
-    """gpt-image-2 输出 token 估算与官方计算器、官方单图价一致。"""
+    """输出 token 估算按条目上的质量档基数套官方计算器公式；条目没收录请求所用质量档时不估算。"""
 
     @pytest.mark.parametrize(
         ("size", "quality", "tokens", "official_price"),
@@ -572,24 +590,31 @@ class TestOutputTokenEstimate:
         ],
     )
     def test_matches_official_table(self, size: str, quality: str, tokens: int, official_price: float) -> None:
-        from lib.backends.image_backends.openai import estimate_gpt_image_2_output_tokens
+        from lib.backends.image_backends.openai import estimate_output_tokens
 
-        assert estimate_gpt_image_2_output_tokens(size, quality) == tokens
+        assert estimate_output_tokens(size, quality, _GPT_IMAGE_2_BASES) == tokens
         # 官方表按 $30 / 百万输出 token 折成单图价，保留三位小数
         assert round(tokens * 30 / 1_000_000, 3) == official_price
 
-    def test_unknown_quality_or_size_has_no_estimate(self) -> None:
-        from lib.backends.image_backends.openai import estimate_gpt_image_2_output_tokens
+    def test_quality_missing_from_bases_or_unparsable_size_has_no_estimate(self) -> None:
+        from lib.backends.image_backends.openai import estimate_output_tokens
 
-        assert estimate_gpt_image_2_output_tokens("1024x1024", "auto") is None
-        assert estimate_gpt_image_2_output_tokens("1K", "medium") is None
+        assert estimate_output_tokens("1024x1024", "auto", _GPT_IMAGE_2_BASES) is None
+        assert estimate_output_tokens("1024x1024", "medium", {}) is None
+        assert estimate_output_tokens("1K", "medium", _GPT_IMAGE_2_BASES) is None
 
     def test_estimate_usage_uses_request_size_and_quality(self) -> None:
         from lib.backends.image_backends.base import ImageRequestFacts
         from lib.backends.image_backends.openai import OpenAIImageBackend
 
         usage = OpenAIImageBackend.estimate_usage(
-            ImageRequestFacts(model="gpt-image-2", aspect_ratio="9:16", image_size="1K", reference_count=0)
+            ImageRequestFacts(
+                model="gpt-image-2",
+                aspect_ratio="9:16",
+                image_size="1K",
+                reference_count=0,
+                entry=_image_entry("gpt-image-2", _GPT_IMAGE_2_BASES),
+            )
         )
         assert usage.dimensions == {"resolution": "1008x1792", "quality": "medium"}
         assert usage.quantities["image_output_tokens"] == 1234
@@ -597,15 +622,56 @@ class TestOutputTokenEstimate:
         assert usage.quantities["uncached_input_tokens"] == 0
         assert usage.quantities["uncached_image_input_tokens"] == 0
 
+    @pytest.mark.parametrize(
+        ("image_size", "aspect_ratio", "tokens"),
+        [
+            # 1K → medium：2.5 的 medium 基数是 24（gpt-image-2 是 48），同尺寸 token 约为四分之一
+            ("1K", "1:1", 439),
+            # 2K → high：2.5 的 high 基数是 48，1440x1440
+            ("2K", "1:1", 2_347),
+        ],
+    )
+    def test_gpt_image_2_5_is_estimated_from_its_entry(self, image_size: str, aspect_ratio: str, tokens: int) -> None:
+        from lib.backends.image_backends.base import ImageRequestFacts
+        from lib.backends.image_backends.openai import OpenAIImageBackend
+
+        usage = OpenAIImageBackend.estimate_usage(
+            ImageRequestFacts(
+                model="gpt-image-2.5",
+                aspect_ratio=aspect_ratio,
+                image_size=image_size,
+                entry=_image_entry("gpt-image-2.5", _GPT_IMAGE_2_5_BASES),
+            )
+        )
+        assert usage.quantities["image_output_tokens"] == tokens
+
+    def test_model_name_does_not_decide_whether_tokens_are_estimated(self) -> None:
+        """估算只看条目：不透明的 API 模型名绑到收录了基数的条目也能估；gpt-image-2 的名字配上没收录基数的条目不估。"""
+        from lib.backends.image_backends.base import ImageRequestFacts
+        from lib.backends.image_backends.openai import OpenAIImageBackend
+
+        def output(model: str, entry) -> object:
+            facts = ImageRequestFacts(model=model, aspect_ratio="1:1", image_size="1K", entry=entry)
+            return OpenAIImageBackend.estimate_usage(facts).quantities.get("image_output_tokens")
+
+        assert output("relay-image-xyz", _image_entry("gpt-image-2", _GPT_IMAGE_2_BASES)) == 1756
+        assert output("gpt-image-2", _image_entry("gpt-image-2")) is None
+        assert output("gpt-image-2", None) is None
+        # 条目只收录了部分质量档：请求用的 medium 不在里面，不估算
+        assert output("gpt-image-2", _image_entry("gpt-image-2", {"low": 16})) is None
+
     def test_estimate_without_quality_or_with_references_leaves_tokens_unknown(self) -> None:
         from lib.backends.image_backends.base import ImageRequestFacts
         from lib.backends.image_backends.openai import OpenAIImageBackend
 
+        entry = _image_entry("gpt-image-2", _GPT_IMAGE_2_BASES)
         no_quality = OpenAIImageBackend.estimate_usage(
-            ImageRequestFacts(model="gpt-image-2", aspect_ratio="9:16", image_size=None)
+            ImageRequestFacts(model="gpt-image-2", aspect_ratio="9:16", image_size=None, entry=entry)
         )
         assert "image_output_tokens" not in no_quality.quantities
         with_refs = OpenAIImageBackend.estimate_usage(
-            ImageRequestFacts(model="gpt-image-2", aspect_ratio="9:16", image_size="1K", reference_count=None)
+            ImageRequestFacts(
+                model="gpt-image-2", aspect_ratio="9:16", image_size="1K", reference_count=None, entry=entry
+            )
         )
         assert "uncached_image_input_tokens" not in with_refs.quantities

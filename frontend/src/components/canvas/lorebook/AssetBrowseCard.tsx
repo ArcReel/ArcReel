@@ -1,6 +1,8 @@
 import { memo, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  CloudDownload,
+  CloudUpload,
   Combine,
   History,
   ImageUp,
@@ -16,8 +18,11 @@ import {
 } from "lucide-react";
 import { API } from "@/api";
 import { AddToLibraryDialog, type LibraryImportPreview } from "@/components/assets/AddToLibraryDialog";
+import { ProviderAssetBrowserDialog } from "@/components/assets/ProviderAssetBrowserDialog";
+import { ProviderAssetUploadDialog } from "@/components/assets/ProviderAssetUploadDialog";
 import { ASSET_SHEET_TYPE_ICON } from "@/components/assets/asset-type-icons";
 import { CrossfadeImage } from "@/components/canvas/shared/CrossfadeImage";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { ImageEditDialog } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { TruncatedText } from "@/components/shared/TruncatedText";
@@ -41,7 +46,7 @@ import { ProjectAssetDeleteDialog } from "./ProjectAssetDeleteDialog";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
 import type { AssetSheetStatusRow } from "@/types";
 
-type DialogKey = "image-edit" | "versions" | "library" | "merge" | "delete";
+type DialogKey = "image-edit" | "versions" | "library" | "merge" | "delete" | "provider-assets" | "provider-upload";
 
 export interface AssetBrowseCardProps {
   projectName: string;
@@ -96,6 +101,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   const uploadRef = useRef<HTMLInputElement>(null);
   const [dialog, setDialog] = useState<DialogKey | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -110,8 +116,8 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   const imageUrl = sheetUrl && sheetUrl !== failedUrl ? sheetUrl : null;
 
   // 资产图被生成、局部修改、上传或版本恢复占用，或资产正在删除时，兄弟操作一起禁用。
-  const busy = externalBusy || generating || uploading || restoring || deleting;
-  const writing = uploading || restoring || deleting;
+  const busy = externalBusy || generating || uploading || importing || restoring || deleting;
+  const writing = uploading || importing || restoring || deleting;
   useEffect(() => {
     if (!writing || !onWritingChange) return;
     onWritingChange(name, true);
@@ -211,6 +217,14 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                       <ImageUp aria-hidden />
                       {t("assets:upload_sheet")}
                     </DropdownMenuItem>
+                    <DropdownMenuItem disabled={!asset.sheetPath} onClick={() => setDialog("provider-upload")}>
+                      <CloudUpload aria-hidden />
+                      {t("assets:provider_asset_upload")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled={busy} onClick={() => openGuarded("provider-assets")}>
+                      <CloudDownload aria-hidden />
+                      {t("assets:provider_asset_select_from_library")}
+                    </DropdownMenuItem>
                     <DropdownMenuItem disabled={busy || !imageUrl} onClick={() => openGuarded("image-edit")}>
                       <PenLine aria-hidden />
                       {t("dashboard:image_edit_action")}
@@ -268,6 +282,23 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             onChange={(event) => void handleUpload(event)}
           />
           {staleConfirm.dialog}
+          <ProviderAssetBrowserDialog
+            open={dialog === "provider-assets"}
+            onOpenChange={closeDialog}
+            projectName={projectName}
+            resourceType={VERSION_RESOURCE[type]}
+            resourceId={name}
+            checkBusy={() => rejectIfAssetBusy(type, projectName, name, t, "assets:gallery_busy_hint") || busy}
+            onImportingChange={setImporting}
+            onImported={() => refreshAfterWrite(projectName, t)}
+          />
+          <ProviderAssetUploadDialog
+            open={dialog === "provider-upload"}
+            onOpenChange={closeDialog}
+            projectName={projectName}
+            resourceType={VERSION_RESOURCE[type]}
+            resourceId={name}
+          />
           <ImageEditDialog
             open={dialog === "image-edit"}
             onOpenChange={closeDialog}

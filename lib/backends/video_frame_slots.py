@@ -13,7 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
+from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoCapabilityError
+from lib.backends.input_limits import InputLimit
+from lib.backends.video_capabilities import reference_audio_count_limit, reference_image_limit
 
 if TYPE_CHECKING:
     from PIL import Image
@@ -163,31 +165,34 @@ def gate_video_request(
         raise VideoCapabilityError("video_last_frame_unsupported", provider=provider, model=model)
 
     if reference_images:
-        limit = 0 if caps is None else caps.max_reference_images
-        if limit <= 0:
+        # 上限是条目与调用通道两侧求值的生效值（lib.backends.video_capabilities）：0 为不接受，None 为未收录
+        # （不在这里拦数量，超出部分由上游拒绝）。
+        image_limit = InputLimit.unsupported() if caps is None else reference_image_limit(caps)
+        if not image_limit.accepts_input:
             raise VideoCapabilityError("video_reference_images_unsupported", provider=provider, model=model)
-        if len(reference_images) > limit:
+        bound = image_limit.clamp_bound()
+        if bound is not None and len(reference_images) > bound:
             raise VideoCapabilityError(
                 "video_reference_images_exceeded",
                 provider=provider,
                 model=model,
-                limit=limit,
+                limit=bound,
                 count=len(reference_images),
             )
 
     if reference_audio_files:
         # 不支持音色输入的模型收到音频不静默丢弃：静默丢弃会生成一段音色随机的视频并照常
         # 扣费，用户以为角色声音已受控，直到成片拼接才发现跨片段音色不一致。
-        mode = ReferenceAudioMode.NONE if caps is None else caps.reference_audio_mode
-        if mode == ReferenceAudioMode.NONE:
+        audio_limit = InputLimit.unsupported() if caps is None else reference_audio_count_limit(caps)
+        if not audio_limit.accepts_input:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=provider, model=model)
-        audio_limit = 0 if caps is None else caps.max_reference_audio_count
-        if len(reference_audio_files) > audio_limit:
+        audio_bound = audio_limit.clamp_bound()
+        if audio_bound is not None and len(reference_audio_files) > audio_bound:
             raise VideoCapabilityError(
                 "video_reference_audio_exceeded",
                 provider=provider,
                 model=model,
-                limit=audio_limit,
+                limit=audio_bound,
                 count=len(reference_audio_files),
             )
 

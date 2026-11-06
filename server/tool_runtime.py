@@ -20,6 +20,7 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.agent.profile_manifest import ContentMode
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
@@ -290,10 +291,12 @@ class Services:
     workflow_planner: WorkflowPlanner
     capabilities: ConfigResolver
     queue: GenerationQueue = field(default_factory=get_generation_queue)
+    #: 读写数据库记录（如供应商素材关联）的会话工厂。
+    sessions: async_sessionmaker[AsyncSession] = field(default_factory=lambda: async_session_factory)
 
     @classmethod
     def defaults(cls, projects: ProjectManager) -> Services:
-        """生产缺省协作者：该项目管理器的工作流规划器、读数据库的配置解析器与全局生成队列。"""
+        """生产缺省协作者：该项目管理器的工作流规划器、读数据库的配置解析器、全局生成队列与会话工厂。"""
         return cls(
             projects=projects,
             workflow_planner=WorkflowPlanner(projects),
@@ -2492,7 +2495,7 @@ PROJECT_SETTINGS = (
 PROJECT_OVERVIEW_FIELDS = ("synopsis", "genre", "theme", "world_setting")
 EPISODE_META_FIELDS = ("title",)
 
-_SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi")
+_SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi", "ru")
 _POSITIVE_INT_SETTINGS = (EPISODE_TARGET_UNITS_FIELD,)
 
 

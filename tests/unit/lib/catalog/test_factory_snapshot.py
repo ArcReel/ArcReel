@@ -40,10 +40,9 @@ def test_every_listed_media_type_has_a_call_channel(provider_id: str):
 
 
 def test_agent_plan_model_sharing_an_entry_takes_the_maker_facts():
-    # 方舟 Agent Plan 的 minimax-m2.7 与 MiniMax 供应商的 MiniMax-M2.7 名字归一化后相同，按目录格式只能共用
-    # 一个条目，事实取 MiniMax 官方的登记。
-    plan = catalog.get_model("ark-agent-plan", "minimax-m2.7")
-    maker = catalog.get_model("minimax", "MiniMax-M2.7")
+    # 两个供应商引用同一个模型条目，共享它的事实。
+    plan = catalog.get_model("ark-agent-plan", "deepseek-v4-pro")
+    maker = catalog.get_model("dashscope", "deepseek-v4-pro")
 
     assert plan is not None
     assert maker is not None

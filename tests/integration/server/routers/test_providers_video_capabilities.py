@@ -29,7 +29,7 @@ from tests.factories import make_display_names
 from tests.fakes import use_project_manager
 
 #: registry 里声明了「1080p 只剩 8 秒」的型号，用来观察真实 resolver 算出的收窄结果。
-VEO = "gemini-aistudio/veo-3.1-generate-preview"
+VEO = "gemini-vertex/veo-3.1-generate-001"
 
 
 def _app() -> FastAPI:
@@ -125,8 +125,8 @@ class TestRealResolverResponse:
             )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["provider_id"] == "gemini-aistudio"
-        assert body["model"] == "veo-3.1-generate-preview"
+        assert body["provider_id"] == "gemini-vertex"
+        assert body["model"] == "veo-3.1-generate-001"
         assert body["supported_durations"] == [4, 6, 8]
         # excluded 在 Python 侧是 int 键；经 JSON 后只能是字符串键，前端按 String(duration) 查表。
         assert body["duration_constraints"] == {
@@ -251,7 +251,7 @@ def test_facts_failure_reports_its_problem_code(real_resolver_client, set_video_
     set_video_request_facts(
         VideoRequestFactsFailure(
             "reference_supported_durations_incompatible",
-            (("provider", "gemini-aistudio"), ("model", "veo-3.1-generate-preview"), ("resolution", "4k")),
+            (("provider", "gemini-vertex"), ("model", "veo-3.1-generate-001"), ("resolution", "4k")),
         )
     )
     with real_resolver_client as client:
@@ -261,7 +261,7 @@ def test_facts_failure_reports_its_problem_code(real_resolver_client, set_video_
         )
     assert response.status_code == 422
     assert response.json()["detail"] == zh_errors.MESSAGES["reference_supported_durations_incompatible"].format(
-        **make_display_names().apply({"provider": "gemini-aistudio", "model": "veo-3.1-generate-preview"})
+        **make_display_names().apply({"provider": "gemini-vertex", "model": "veo-3.1-generate-001"})
     )
 
 

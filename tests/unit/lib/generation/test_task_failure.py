@@ -104,6 +104,30 @@ class TestRenderKnownCodes:
             encoded, _translator("en"), make_display_names("en")
         )
 
+    @pytest.mark.parametrize(
+        ("params", "expected"),
+        [
+            (
+                {"shutdown_date": "2026-11-24", "successor": "bytedance/doubao-seedream-5-0-pro"},
+                "该模型已于 2026-11-24 下线，官方建议改用 Seedream 5.0 Pro；",
+            ),
+            ({"shutdown_date": "2026-11-24"}, "该模型已于 2026-11-24 下线；"),
+            ({"successor": "openai/gpt-5.6-sol"}, "该模型已下线，官方建议改用 GPT-5.6 Sol；"),
+            # 目录里查不到后继条目时，回退为条目引用
+            ({"successor": "acme/never-registered"}, "该模型已下线，官方建议改用 acme/never-registered；"),
+            ({}, "该模型已下线；"),
+        ],
+    )
+    def test_discontinued_model_omits_what_the_entry_does_not_record(self, params, expected):
+        """下线报错写明下线日期与后继（条目显示名）；条目没有登记的那一句整句省去，不留空占位。"""
+        encoded = encode_failure(
+            "model_discontinued", provider="ark", model="doubao-seedream-5-0-lite-260128", **params
+        )
+        rendered = render_failure(encoded, _translator("zh"), make_display_names("zh"))
+        assert rendered is not None
+        assert expected in rendered
+        assert "{" not in rendered
+
     def test_renders_code_only(self):
         encoded = encode_failure("restart_lost_image")
         zh = render_failure(encoded, _translator("zh"), make_display_names("zh"))

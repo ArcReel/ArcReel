@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import cast
 
 from lib.artifacts.artifact_manifest import ArtifactBasis
-from lib.infra.content_digest import sha256_file
+from lib.material.work_files import material_file_digest
 from lib.prompts.prompt_utils import render_storyboard_video_prompt
 
 
@@ -39,7 +39,7 @@ def _build_video_visual_basis(
         kind_version=1,
         inputs={
             "semantics": semantics,
-            "files": [{"role": role, "sha256": sha256_file(path)} for role, path in files],
+            "files": [{"role": role, "sha256": material_file_digest(path)} for role, path in files],
         },
     )
 

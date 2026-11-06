@@ -49,6 +49,7 @@ function item(overrides: Partial<ProviderModelItem> = {}): ProviderModelItem {
     official: false,
     flags: ["unpriced"],
     price: null,
+    lifecycle: { status: "available", shutdown_date: null, successor: null },
     endpoint: "newapi-video",
     ...overrides,
   };
@@ -65,6 +66,7 @@ function unmatchedVideo(overrides: Partial<ProviderModelDetail> = {}): ProviderM
     capabilities: {
       media_type: "video",
       editable: ["durations", "duration_constraints", "resolutions", "first_frame", "last_frame", "audio_track"],
+      displayed: ["durations", "duration_constraints", "resolutions", "first_frame", "last_frame", "audio_track"],
       base: {
         durations: [4, 8],
         duration_constraints: null,
@@ -80,6 +82,7 @@ function unmatchedVideo(overrides: Partial<ProviderModelDetail> = {}): ProviderM
     resolution: null,
     path_overrides: null,
     requests: [],
+    endpoint_options: [],
     ...overrides,
   };
 }
@@ -137,6 +140,32 @@ describe("ProviderModelSheet", () => {
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ model_id: "relay-video" }), "relay-video");
   });
 
+  it("saves and reads back the image reference limit override", async () => {
+    const base = { text_to_image: true, image_to_image: false, max_reference_images: 0 };
+    const detail = unmatchedVideo({
+      model: item({ media_type: "image", endpoint: "openai-images" }),
+      endpoint: "openai-images",
+      capabilities: { media_type: "image", editable: ["image_to_image", "max_reference_images"],
+        displayed: ["image_to_image", "max_reference_images"], base, overrides: {}, effective: base },
+      entry: { ...veoDetail().entry!, maker: "xai", name: "grok-imagine-image", media_type: "image",
+        display_name: "Image", facts: { text_to_image: true, image_to_image: true } },
+    });
+    const saved: ProviderModelDetail = { ...detail, capabilities: { ...detail.capabilities,
+      overrides: { max_reference_images: 8 }, effective: { ...base, image_to_image: true, max_reference_images: 8 } } };
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(detail);
+    const update = vi.spyOn(API, "updateProviderModel").mockResolvedValue(saved);
+    renderSheet();
+    await infoSection();
+    const area = screen.getByRole("list");
+    fireEvent.click(within(area).getByRole("button", { name: "修改「参考图上限」" }));
+    fireEvent.change(within(area).getByRole("textbox", { name: "「参考图上限」的值" }), { target: { value: "8" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("custom-3", "relay-video", { capability_overrides: { max_reference_images: 8 } }),
+    );
+    expect(within(area).getByRole("textbox", { name: "「参考图上限」的值" })).toHaveValue("8");
+  });
+
   it("clears the overrides when the last changed dimension is restored", async () => {
     vi.spyOn(API, "getProviderModel").mockResolvedValue(
       unmatchedVideo({ capabilities: { ...unmatchedVideo().capabilities, overrides: { durations: [5] } } }),
@@ -177,7 +206,7 @@ describe("ProviderModelSheet", () => {
       ...unmatchedVideo(),
       model: item({ model_id: "veo-3", official: true, endpoint: null, flags: [] }),
       multiplier: null,
-      capabilities: { media_type: "video", editable: [], base: {}, overrides: {}, effective: {} },
+      capabilities: { media_type: "video", editable: [], displayed: [], base: {}, overrides: {}, effective: {} },
       endpoint: null,
     });
     renderSheet({ providerId: "gemini-aistudio", providerName: "Gemini", custom: undefined, open: { modelId: "veo-3", key: 1 } });
@@ -189,6 +218,74 @@ describe("ProviderModelSheet", () => {
     expect(screen.queryByRole("textbox", { name: "倍率" })).not.toBeInTheDocument();
     expect(screen.queryByText("这个供应商支持的参数")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /移除/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the effective capabilities of an official model read-only", async () => {
+    const effective = { durations: [4, 8], resolutions: null, last_frame: false, max_reference_images: 3 };
+    vi.spyOn(API, "getProviderModel").mockResolvedValue({
+      ...unmatchedVideo(),
+      model: item({ model_id: "veo-3", official: true, endpoint: null, flags: [] }),
+      multiplier: null,
+      capabilities: { media_type: "video", editable: [], displayed: ["durations", "resolutions", "last_frame", "max_reference_images"], base: effective, overrides: {}, effective },
+      endpoint: null,
+    });
+    renderSheet({ providerId: "gemini-aistudio", providerName: "Gemini", custom: undefined, open: { modelId: "veo-3", key: 1 } });
+
+    expect(await screen.findByText("这个供应商支持的参数")).toBeInTheDocument();
+    expect(screen.getByText("这些值跟随官方数据，不能修改。")).toBeInTheDocument();
+    expect(within(rowOf("可选时长")).getByText("4, 8 秒")).toBeInTheDocument();
+    expect(within(rowOf("分辨率")).getByText("未收录")).toBeInTheDocument();
+    expect(within(rowOf("尾帧")).getByText("不支持")).toBeInTheDocument();
+    expect(within(rowOf("参考图上限")).getByText("3")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^修改「/ })).not.toBeInTheDocument();
+  });
+
+  it("shows image-to-image as unsupported when the entry records zero reference images, as candidates and execution do", async () => {
+    // 服务端按候选、执行同一个求值结果给出：条目记 0 张时图生图不支持
+    const effective = { text_to_image: true, image_to_image: false, max_reference_images: 0 };
+    vi.spyOn(API, "getProviderModel").mockResolvedValue({
+      ...unmatchedVideo(),
+      model: item({ model_id: "grok-imagine-image", media_type: "image", official: true, endpoint: null, flags: [] }),
+      multiplier: null,
+      capabilities: {
+        media_type: "image",
+        editable: [],
+        displayed: ["text_to_image", "image_to_image", "max_reference_images"],
+        base: effective,
+        overrides: {},
+        effective,
+      },
+      endpoint: null,
+    });
+    renderSheet({ providerId: "grok", providerName: "Grok", custom: undefined, open: { modelId: "grok-imagine-image", key: 1 } });
+
+    await screen.findByText("这个供应商支持的参数");
+    expect(within(rowOf("文生图")).getByText("支持")).toBeInTheDocument();
+    expect(within(rowOf("图生图")).getByText("不支持")).toBeInTheDocument();
+    expect(within(rowOf("参考图上限")).getByText("0")).toBeInTheDocument();
+  });
+
+  it("shows text-to-image and image-to-image of a ComfyUI image model read-only, from its node bindings", async () => {
+    const effective = { text_to_image: true, image_to_image: true, max_reference_images: 2 };
+    vi.spyOn(API, "getProviderModel").mockResolvedValue({
+      ...unmatchedVideo(),
+      model: item({ model_id: "my-flux-workflow", media_type: "image", endpoint: "ce-7" }),
+      capabilities: {
+        media_type: "image",
+        editable: [],
+        displayed: ["text_to_image", "image_to_image", "max_reference_images"],
+        base: effective,
+        overrides: {},
+        effective,
+      },
+      endpoint: "ce-7",
+    });
+    renderSheet({ open: { modelId: "my-flux-workflow", key: 1 } });
+
+    await screen.findByText("这个供应商支持的参数");
+    const rows = within(rowOf("文生图").closest("ul")!).getAllByRole("listitem").map((row) => row.textContent);
+    expect(rows).toEqual(["文生图支持", "图生图支持", "参考图上限2"]);
+    expect(screen.queryByRole("button", { name: /^修改「/ })).not.toBeInTheDocument();
   });
 
   it("warns that modified request URLs go back to default when the endpoint changes, and saves without them", async () => {
@@ -215,6 +312,31 @@ describe("ProviderModelSheet", () => {
     await waitFor(() =>
       expect(update).toHaveBeenCalledWith("custom-3", "relay-video", { endpoint: "xai-video", path_overrides: null }),
     );
+  });
+
+  it("lets a model added under a builtin provider pick only that provider's endpoints", async () => {
+    const user = userEvent.setup();
+    const detail = unmatchedVideo({
+      model: item({ model_id: "acme-video", api_model_name: "acme-video", endpoint: null }),
+      endpoint: "minimax-hailuo-v1",
+      endpoint_options: [
+        { key: "minimax-hailuo-v1", display_name_key: "", display_name: "MiniMax 海螺" },
+        { key: "minimax-h3", display_name_key: "", display_name: "MiniMax H3" },
+      ],
+    });
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(detail);
+    const update = vi.spyOn(API, "updateProviderModel").mockResolvedValue(detail);
+    renderSheet({ providerId: "minimax", providerName: "MiniMax", custom: undefined, open: { modelId: "acme-video", key: 1 } });
+
+    await user.click(await screen.findByRole("combobox", { name: "调用端点" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["MiniMax 海螺", "MiniMax H3"]);
+    await user.click(screen.getByRole("option", { name: "MiniMax H3" }));
+
+    // 参数随调用端点变化，换了端点先保存再改
+    expect(screen.getByText("调用端点已更换。保存后，再按新的调用端点修改这些参数。")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "在调用端点中打开" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith("minimax", "acme-video", { endpoint: "minimax-h3" }));
   });
 
   it("opens the model's endpoint with a way back to this provider", async () => {

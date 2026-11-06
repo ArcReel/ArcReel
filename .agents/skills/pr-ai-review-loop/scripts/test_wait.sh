@@ -23,6 +23,15 @@ cat > "$TMP_ROOT/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$WAIT_TEST_ROOT/gh-args"
+if [[ "$*" == *graphql* || "$*" == *--paginate* || "$1" != api ]]; then
+  echo 'HTTP 403: only named REST routes are available' >&2
+  exit 1
+fi
+
+if [[ -n "${WAIT_TEST_FORBIDDEN_ROUTE:-}" && "$* " == *"$WAIT_TEST_FORBIDDEN_ROUTE"* ]]; then
+  cat "$WAIT_TEST_DATA/security_forbidden.txt" >&2
+  exit 1
+fi
 
 mode=${WAIT_TEST_MODE:-review_change}
 if [[ "$mode" == "slow_probe" ]]; then
@@ -40,9 +49,13 @@ next_count() {
   printf '%s\n' "$count"
 }
 
-if [[ "$1 $2" == "repo view" ]]; then
+if [[ "$1 $2" == "api repos/{owner}/{repo}" ]]; then
   printf '%s\n' 'ArcReel/ArcReel'
-elif [[ "$*" == *'reviews(first:100'* ]]; then
+elif [[ "$*" == *'/pulls/1767/reviews?'* ]]; then
+  if [[ "$mode" == "paged_review_change" && "$*" == *'&page=1' ]]; then
+    jq -cn '[range(1;101) | {id:.,submitted_at:"2026-08-11T00:00:00Z",updated_at:"2026-08-11T00:00:00Z",state:"COMMENTED",commit_id:"abc"}]'
+    exit 0
+  fi
   count=$(next_count review)
   if [[ "$mode" == "hung_probe" ]]; then
     exec /bin/sleep 2
@@ -79,26 +92,29 @@ elif [[ "$*" == *'reviews(first:100'* ]]; then
     esac
   fi
   submitted_at='2026-08-11T00:00:00Z'
-  if [[ "$mode" == "review_change" && "$count" -gt 1 ]]; then
+  if [[ ( "$mode" == "review_change" || "$mode" == "paged_review_change" ) && "$count" -gt 1 ]]; then
     submitted_at='2026-08-11T00:01:00Z'
   fi
-  printf '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"id":"R1","submittedAt":"%s","updatedAt":"%s","state":"COMMENTED","commit":{"oid":"abc"}}]}}}}}\n' "$submitted_at" "$submitted_at"
-elif [[ "$*" == *'comments(first:100'* ]]; then
+  body='original review'
+  if [[ "$mode" == "review_body_change" && "$count" -gt 1 ]]; then body='edited review'; fi
+  printf '[{"id":"R1","submitted_at":"%s","state":"COMMENTED","commit_id":"abc","body":"%s"}]\n' "$submitted_at" "$body"
+elif [[ "$*" == *'/issues/1767/comments?'* ]]; then
   count=$(next_count issue_comment)
-  head_sha=${WAIT_TEST_HEAD:-abc}
   updated_at='2026-08-11T00:00:00Z'
   reaction_count=0
-  if [[ "$mode" == "head_change" && "$count" -gt 1 ]]; then
-    head_sha=def
-  fi
   if [[ "$mode" == "issue_comment_change" && "$count" -gt 1 ]]; then
     updated_at='2026-08-11T00:01:00Z'
   fi
   if [[ "$mode" == "comment_reaction_change" && "$count" -gt 1 ]]; then
     reaction_count=1
   fi
-  printf '{"data":{"repository":{"pullRequest":{"headRefOid":"%s","comments":{"nodes":[{"id":"C1","updatedAt":"%s","reactionGroups":[{"content":"EYES","reactors":{"totalCount":%s}}]}]}}}}}\n' \
-    "$head_sha" "$updated_at" "$reaction_count"
+  printf '[{"id":"C1","updated_at":"%s","reactions":{"eyes":%s}}]\n' \
+    "$updated_at" "$reaction_count"
+elif [[ "$*" == *'/pulls/1767' ]]; then
+  count=$(<"$WAIT_TEST_ROOT/issue_comment-count")
+  head_sha=${WAIT_TEST_HEAD:-abc}
+  if [[ "$mode" == "head_change" && "$count" -gt 1 ]]; then head_sha=def; fi
+  printf '{"head":{"sha":"%s"}}\n' "$head_sha"
 elif [[ "$*" == *'/issues/1767/reactions'* ]]; then
   count=$(next_count reaction)
   content=eyes
@@ -145,6 +161,10 @@ elif [[ "$*" == *'/code-scanning/alerts?'* ]]; then
     alert_scope=base_security
   fi
   count=$(next_count "$alert_scope")
+  if [[ "$mode" == "security_rate_limit_once" && "$alert_scope" == security && "$count" -eq 2 ]]; then
+    echo 'HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.' >&2
+    exit 1
+  fi
   if [[ "$mode" == "security_unavailable" ]]; then
     echo 'HTTP 404: no analysis found' >&2
     exit 1
@@ -188,12 +208,12 @@ reset_case() {
 run_wait() {
   local mode="$1"
   shift
-  WAIT_TEST_MODE="$mode" WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" \
+  WAIT_TEST_MODE="$mode" WAIT_TEST_ROOT="$TMP_ROOT" WAIT_TEST_DATA="$SCRIPT_DIR/testdata" PATH="$TMP_ROOT/bin:$PATH" \
     bash "$WAIT_SH" "${REPO_ARGS[@]}" 1767 "$@" \
     > "$TMP_ROOT/result.out" 2> "$TMP_ROOT/result.err"
 }
 
-for signal in head review issue_comment reaction comment_reaction inline check security base_security; do
+for signal in review_body paged_review head review issue_comment reaction comment_reaction inline check security base_security; do
   reset_case
   run_wait "${signal}_change" --max 180
   [[ "$(<"$TMP_ROOT/sleeps")" == "60" ]] || fail "expected $signal change after one interval"
@@ -283,3 +303,30 @@ run_wait security_unavailable --max 60
 [[ "$(<"$TMP_ROOT/sleeps")" == "60" ]] || fail "expected unavailable code scanning to remain a stable signal"
 grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected unavailable code scanning not to abort waiting"
 echo "PASS: an unavailable code-scanning endpoint remains observable without blocking the loop"
+
+for route in '/code-scanning/alerts?' 'ref=refs/pull/' '/code-scanning/alerts?state=open'; do
+  for signal in review check; do
+    reset_case
+    WAIT_TEST_FORBIDDEN_ROUTE="$route" run_wait "${signal}_change" --max 180
+    [[ "$(<"$TMP_ROOT/sleeps")" == "60" ]] || fail "expected $signal change after one interval with forbidden $route"
+    grep -q '^WAIT_CHANGE:' "$TMP_ROOT/result.out" || fail "expected $signal change despite forbidden $route"
+    [[ ! -s "$TMP_ROOT/result.err" ]] || fail "expected optional 403 not to report an error"
+  done
+done
+echo "PASS: forbidden PR/base code scanning still allows review and check changes to wake the wait"
+
+reset_case
+run_wait security_rate_limit_once --max 70
+[[ "$(paste -sd, "$TMP_ROOT/sleeps")" == "60,2,8" ]] || fail "expected a rate-limited code-scanning 403 to retry"
+grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected a rate-limited code-scanning 403 not to read as a security change"
+echo "PASS: rate-limited code scanning retries instead of turning unavailable"
+
+for route in '/pulls/1767 ' '/issues/1767/comments?' '/issues/1767/reactions' '/pulls/1767/reviews?' '/pulls/1767/comments' '/check-runs?'; do
+  reset_case
+  if WAIT_TEST_FORBIDDEN_ROUTE="$route" run_wait flat --max 180; then
+    fail "expected required $route permission error to fail"
+  fi
+  [[ ! -s "$TMP_ROOT/sleeps" ]] || fail "expected required 403 to fail without retries"
+  grep -q '^WAIT_ERROR:' "$TMP_ROOT/result.err" || fail "expected required 403 to report WAIT_ERROR"
+done
+echo "PASS: required endpoint permission errors still fail immediately"

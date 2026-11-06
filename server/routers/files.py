@@ -11,7 +11,7 @@ import os
 import shutil
 import stat
 import tempfile
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,7 +25,7 @@ from fastapi.responses import PlainTextResponse
 from lib.bgm.library import BGM_DIR, BGM_EXTENSIONS, BGM_MAX_BYTES, BgmTrack
 from lib.bgm.service import BgmError, BgmLibraryService
 from lib.catalog.errors import ModelNotInCatalogError
-from lib.config.resolver import VisionCapabilityError
+from lib.config.resolver import NoAvailableProviderError, VisionCapabilityError
 from lib.episode.episode_ledger import is_derived_episode_name
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
@@ -52,12 +52,16 @@ from lib.episode.source_file_changes import (
 )
 from lib.episode.source_kinds import SourceKind
 from lib.episode.source_trash import trash_source_file
-from lib.infra.api_errors import BadRequestError, NotFoundError
+from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
+from lib.infra.data_root_layout import GLOBAL_ASSETS_DIRNAME
 from lib.infra.image_thumbnails import ensure_image_thumbnail, is_thumbnail_source, snap_thumbnail_width
-from lib.infra.image_utils import normalize_uploaded_image, validate_image_bytes
+from lib.infra.image_utils import IMAGE_FILE_EXTENSIONS, normalize_uploaded_image, validate_image_bytes
 from lib.infra.json_io import atomic_write_bytes
 from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.material.formal_objects import formal_commit
+from lib.material.global_library import ensure_global_image
+from lib.material.work_files import ensure_work_file, hold_work_file
 from lib.project.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
 from lib.project.project_change_hints import (
     build_change_label,
@@ -102,7 +106,7 @@ router = APIRouter()
 #: 上传源文时的登记方式：整本源文的文件，或一集自带原文的集。
 SourceUploadRole = Literal["whole_source", "episode"]
 
-_IMAGE_EXTS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".webp")
+_IMAGE_EXTS: tuple[str, ...] = IMAGE_FILE_EXTENSIONS
 
 # 公开端点：前端经 <img src> / <video src> / <audio src> 加载，浏览器原生请求带不了
 # Authorization header。按 ADR 0071「静态媒体维持匿名可读」，公开端点只放行媒体：
@@ -304,8 +308,20 @@ _FORMAL_SHEET_UPLOAD_TYPES = frozenset(ASSET_SPECS)
 ALLOWED_EXTENSIONS = {upload_type: list(spec.allowed_exts) for upload_type, spec in UPLOAD_SPECS.items()}
 
 
+async def _media_work_files() -> AsyncIterator[ExitStack]:
+    # FileResponse 在路由返回后才打开文件，使用登记须保留到整个响应结束。
+    with ExitStack() as holds:
+        yield holds
+
+
 @public_router.get("/files/{project_name}/{path:path}")
-async def serve_project_file(project_name: str, path: str, request: Request, _t: Translator):
+async def serve_project_file(
+    project_name: str,
+    path: str,
+    request: Request,
+    _t: Translator,
+    holds: Annotated[ExitStack, Depends(_media_work_files, scope="request")],
+):
     """服务项目内的媒体文件（图片/视频/音频），范围见 ``is_public_media_path``
 
     图片可带 ``?w=`` 取 WebP 缩略图（档位与回退规则见 ``lib.infra.image_thumbnails``）；
@@ -313,7 +329,7 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
     """
     try:
 
-        def _sync():
+        def _resolve() -> tuple[ProjectManager, Path, Path, tuple[str, ...]]:
             project_manager = get_project_manager()
             project_dir = project_manager.get_project_path(project_name)
 
@@ -323,10 +339,12 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
                 file_path = safe_join(project_dir, path)
             except PathTraversalError as exc:
                 raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
+            relative_parts = file_path.relative_to(os.path.realpath(project_dir)).parts
+            return project_manager, project_dir, file_path, relative_parts
 
+        def _sync(project_manager: ProjectManager, project_dir: Path, file_path: Path, relative_parts: tuple[str, ...]):
             # 媒体范围按解析后的真实路径判定（symlink 指向非媒体文件同样拒绝）；
             # 非媒体与文件不存在同形返回 404
-            relative_parts = file_path.relative_to(os.path.realpath(project_dir)).parts
             stat_result = _regular_file_stat(file_path) if is_public_media_path(relative_parts) else None
             if stat_result is None:
                 raise HTTPException(status_code=404, detail=_t("file_not_found", path=path))
@@ -352,7 +370,15 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
             return file_path, stat_result, guess_media_type(file_path)
 
         thumbnail_width = snap_thumbnail_width(request.query_params.get("w"))
-        file_path, stat_result, media_type = await asyncio.to_thread(_sync)
+        project_manager, project_dir, resolved_path, relative_parts = await asyncio.to_thread(_resolve)
+        holds.enter_context(hold_work_file(resolved_path))
+        holds.enter_context(hold_work_file(project_dir.joinpath(*relative_parts)))
+        if is_public_media_path(relative_parts):
+            # 远端内容版本的工作文件被清理后，从对象存储取回再服务；取回失败返回明确的错误
+            await ensure_work_file(project_dir, "/".join(relative_parts))
+        file_path, stat_result, media_type = await asyncio.to_thread(
+            _sync, project_manager, project_dir, resolved_path, relative_parts
+        )
 
         # 内容寻址缓存：带 ?v= 参数或 versions/ 路径时设 immutable，其余每次再验证
         immutable = bool(request.query_params.get("v")) or path.startswith("versions/")
@@ -369,28 +395,41 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
 
 
 @public_router.get("/global-assets/{asset_type}/{filename}")
-async def serve_global_asset(asset_type: str, filename: str, request: Request, _t: Translator):
+async def serve_global_asset(
+    asset_type: str,
+    filename: str,
+    request: Request,
+    _t: Translator,
+    holds: Annotated[ExitStack, Depends(_media_work_files, scope="request")],
+):
     """服务 global_assets 下的全局资产媒体文件（仅全局库类型：character/scene/prop）"""
     if asset_type not in GLOBAL_LIBRARY_ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_type"))
     if "/" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_filename"))
 
-    def _sync() -> tuple[Path, os.stat_result, str]:
-        root = get_project_manager().get_global_assets_root()
+    def _resolve() -> tuple[Path, Path]:
+        project_manager = get_project_manager()
+        root = project_manager.get_global_assets_root()
         # 防御性检查：即使 filename 通过了字符串校验，也要确保解析后的路径仍在 root 之内
         # （防御 symlink / URL 编码等边界场景）
         try:
-            path = safe_join(root, asset_type, filename)
+            return project_manager.data_root, safe_join(root, asset_type, filename)
         except PathTraversalError as exc:
             raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
 
+    def _sync(path: Path) -> tuple[Path, os.stat_result, str]:
         stat_result = _regular_file_stat(path) if path.suffix.lower() in PUBLIC_MEDIA_EXTENSIONS else None
         if stat_result is None:
             raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
         return path, stat_result, guess_media_type(path)
 
-    path, stat_result, media_type = await asyncio.to_thread(_sync)
+    data_root, resolved_path = await asyncio.to_thread(_resolve)
+    holds.enter_context(hold_work_file(resolved_path))
+    holds.enter_context(hold_work_file(data_root / GLOBAL_ASSETS_DIRNAME / asset_type / filename))
+    # 库里远端图片的工作文件被清理后，从对象存储取回再服务
+    await ensure_global_image(data_root, f"{GLOBAL_ASSETS_DIRNAME}/{asset_type}/{filename}")
+    path, stat_result, media_type = await asyncio.to_thread(_sync, resolved_path)
 
     # 文件名是 uuid，前端以 ?fp=<updated_at> 作版本键（?v= 同义）；带版本键即 immutable
     query = request.query_params
@@ -590,11 +629,15 @@ async def upload_file(
                 "url": f"/api/v1/files/{project_name}/{relative_path}",
             }
 
+        if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
+            # 资产图成品按新内容版本的全局保存位置写入（缺省本地）
+            async with formal_commit(project_name):
+                return await run_sync_transaction(_sync)
         return await run_sync_transaction(_sync)
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception as exc:
         logger.exception("请求处理失败")
@@ -1381,7 +1424,7 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
     上传风格参考图并分析风格
 
     1. 保存图片到 projects/{project_name}/style_reference.png
-    2. 调用 Gemini API 分析风格
+    2. 调用文本供应商分析风格
     3. 更新 project.json 的 style_image 和 style_description 字段
     """
     original_filename = _require_filename(file, _t)
@@ -1405,13 +1448,9 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
                 raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
             style_filename = f"style_reference{new_ext}"
 
-            output_path = project_dir / style_filename
-            with open(output_path, "wb") as f:
-                f.write(content_norm)
+            return project_dir / style_filename, style_filename, content_norm
 
-            return output_path, style_filename
-
-        output_path, style_filename = await run_sync_transaction(_sync_prepare)
+        output_path, style_filename, content_norm = await asyncio.to_thread(_sync_prepare)
 
         # 调用 TextGenerator 分析风格（自动追踪用量）
         from lib.backends.providers import CallPurpose
@@ -1422,6 +1461,7 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         generator = await TextGenerator.create(
             TextTaskType.STYLE_ANALYSIS, project_name, purpose=CallPurpose.STYLE_ANALYSIS
         )
+        await run_sync_transaction(output_path.write_bytes, content_norm)
         result = await generator.generate(
             TextGenerationRequest(
                 prompt=builtin_templates.render("text/style_analysis"), images=[ImageInput(path=output_path)]
@@ -1457,6 +1497,10 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
+    except NoAvailableProviderError as exc:
+        raise BadRequestError("text_provider_not_configured").with_diagnostic(
+            {"code": "text_provider_not_configured"}
+        ) from exc
     except VisionCapabilityError as e:
         raise BadRequestError(
             "vision_model_required", provider=e.provider_id, model=e.model_id, task=e.task_type.value

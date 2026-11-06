@@ -4,24 +4,25 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 import resourcesToBackend from 'i18next-resources-to-backend';
 import { BRAND } from '@/branding';
 
-// 按需加载 i18n namespace（issue #489）：
+// 按需加载 i18n namespace：
 // Vite import.meta.glob 在编译期为每个 (lang, ns) 文件生成独立 chunk；运行时由
 // i18next 异步 load。资源仍是 .ts（保留 satisfies Record schema 锁），不是 JSON。
 const loaders = import.meta.glob<{ default: Record<string, string> }>(
-  './{en,zh,vi}/*.ts',
+  './{en,zh,vi,ru}/*.ts',
 );
 
 function pathFor(lang: string, ns: string): string {
   return `./${lang}/${ns}.ts`;
 }
 
-export const SUPPORTED_LANGUAGES = ['zh', 'en', 'vi'] as const;
+export const SUPPORTED_LANGUAGES = ['zh', 'en', 'vi', 'ru'] as const;
 export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number];
 
 export const LANGUAGE_DISPLAY_LABELS: Record<SupportedLanguage, string> = {
   zh: '中文',
   en: 'English',
   vi: 'Tiếng Việt',
+  ru: 'Русский',
 };
 
 const I18N_NAMESPACES = [
@@ -38,7 +39,7 @@ const I18N_NAMESPACES = [
 
 // Replace every [[brand]] placeholder in a loaded namespace with the current
 // brand name. Done inside the resourcesToBackend loader so it composes with
-// on-demand chunk loading (issue #489). We use [[...]] rather than i18next's
+// on-demand chunk loading. We use [[...]] rather than i18next's
 // native {{...}} so the value is not treated as a runtime variable (which
 // would force every t() call site to pass { brand }).
 function applyBrandPlaceholders(value: unknown): unknown {

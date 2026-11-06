@@ -94,28 +94,27 @@ class TestGrokVideoCapabilities:
 
         with patch("lib.backends.video_backends.grok.create_grok_client"):
             caps = GrokVideoBackend(api_key="test-key").video_capabilities
-        assert caps.max_reference_images > 0
-        assert caps.max_reference_images == 7
+        # 通道实现了参考图且不设上限，各型号的上限来自条目
+        assert caps.max_reference_images is None
         assert not hasattr(caps, "reference_images_with_start_frame")
 
 
 class TestVideoCapabilitiesForModel:
-    """各 backend 的 client-free 静态 caps 方法：按 model_id 纯计算，不构造实例 / 不需 api_key。
+    """各 backend 的 client-free 静态 caps 方法给出通道声明，不构造实例 / 不需 api_key；生效能力再与条目两侧求值。
 
     resolver 解析参考图上限走这条纯函数路径，故不应触发 SDK client 构造或 api_key 校验。"""
 
     def test_ark_seedance_2_returns_nine(self):
-        from lib.backends.video_backends.ark import ArkVideoBackend
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+        from lib.backends.video_backends.ark import Seedance2VideoBackend
 
-        # 不构造实例（即不构造 Ark SDK client、不需 api_key）即可取得 caps
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0")
-        assert caps.max_reference_images == 9
-        assert caps.max_reference_images > 0
-
-    def test_ark_non_seedance_2_returns_zero(self):
-        from lib.backends.video_backends.ark import ArkVideoBackend
-
-        assert ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0").max_reference_images == 0
+        # 不构造实例（即不构造 Ark SDK client、不需 api_key）即可取得通道声明：不设参考图上限
+        assert (
+            Seedance2VideoBackend.video_capabilities_for_model("doubao-seedance-2-0-260128").max_reference_images
+            is None
+        )
+        # 生效上限来自条目
+        assert builtin_video_capabilities_for_model("ark", "doubao-seedance-2-0-260128").max_reference_images == 9
 
     def test_vidu_returns_seven(self):
         from lib.backends.video_backends.vidu import ViduVideoBackend
@@ -140,7 +139,6 @@ class TestVideoCapabilitiesForModel:
             ("MiniMax-Hailuo-2.3", True),
             # Fast 仅图生视频：这条收窄由 minimax-hailuo-v1-fast 定义里必需的首帧输入承担。
             ("MiniMax-Hailuo-2.3-Fast", False),
-            ("S2V-01", False),
             ("MiniMax-H3", True),
         ],
     )
@@ -154,25 +152,25 @@ class TestVideoCapabilitiesForModel:
         [("kling-v3", True), ("kling-video-o1", False)],
     )
     def test_kling_declares_text_to_video(self, model: str, expected: bool):
-        from lib.backends.video_backends.kling import KlingVideoBackend
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 
-        assert KlingVideoBackend.video_capabilities_for_model(model).text_to_video is expected
+        assert builtin_video_capabilities_for_model("kling", model).text_to_video is expected
 
     @pytest.mark.parametrize(
         ("model", "expected"),
-        [("viduq3-pro", True), ("viduq3-pro-fast", False), ("vidu2.0", False)],
+        [("viduq3-pro", True), ("viduq3", False), ("vidu2.0", False)],
     )
     def test_vidu_declares_text_to_video(self, model: str, expected: bool):
-        from lib.backends.video_backends.vidu import ViduVideoBackend
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 
-        assert ViduVideoBackend.video_capabilities_for_model(model).text_to_video is expected
+        assert builtin_video_capabilities_for_model("vidu", model).text_to_video is expected
 
     def test_v2_returns_four(self):
         from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 
         caps = ENDPOINT_REGISTRY["v2-video-generations"].video_caps_for_model
         assert caps is not None
-        assert caps("whatever").max_reference_images == 4
+        assert caps("whatever", None).max_reference_images == 4
 
     def test_instance_property_delegates_to_static(self):
         """instance video_capabilities 委托至静态方法，保持 backend 为单一真相源。
@@ -181,11 +179,11 @@ class TestVideoCapabilitiesForModel:
         构造 Ark SDK client（caps 路径不依赖 client）。"""
         from unittest.mock import patch
 
-        from lib.backends.video_backends.ark import ArkVideoBackend
+        from lib.backends.video_backends.ark import Seedance25VideoBackend
 
         with patch("lib.backends.video_backends.ark.create_ark_client"):
-            backend = ArkVideoBackend(api_key="k", model="doubao-seedance-2-0")
-        assert backend.video_capabilities == ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0")
+            backend = Seedance25VideoBackend(api_key="k", model="doubao-seedance-2-0")
+        assert backend.video_capabilities == Seedance25VideoBackend.video_capabilities_for_model("doubao-seedance-2-0")
 
 
 #: 全部内置视频 model 的音轨立场逐条钉死，按执行路径各给一份：``controllable`` = 请求带音轨开关；
@@ -205,6 +203,7 @@ _VIDEO_AUDIO_STANCES: dict[tuple[str, str], tuple[str, str]] = {
     ("ark-agent-plan", "doubao-seedance-2.0"): ("controllable", "controllable"),
     ("ark-agent-plan", "doubao-seedance-2.0-fast"): ("controllable", "controllable"),
     ("ark-agent-plan", "doubao-seedance-2.0-mini"): ("controllable", "controllable"),
+    ("ark-agent-plan", "doubao-seedance-2.5"): ("controllable", "controllable"),
     ("dashscope", "happyhorse-1.0-i2v"): ("always_on", "always_on"),
     ("dashscope", "happyhorse-1.0-r2v"): ("always_on", "always_on"),
     ("dashscope", "happyhorse-1.0-t2v"): ("always_on", "always_on"),
@@ -215,6 +214,7 @@ _VIDEO_AUDIO_STANCES: dict[tuple[str, str], tuple[str, str]] = {
     ("dashscope", "wan2.7-r2v"): ("always_on", "always_on"),
     ("dashscope", "wan2.7-t2v"): ("always_on", "always_on"),
     ("dashscope", "wan3.0-video"): ("controllable", "controllable"),
+    ("dashscope", "wan3.0-video-prime"): ("controllable", "controllable"),
     ("gemini-aistudio", "veo-3.1-fast-generate-preview"): ("always_on", "always_on"),
     ("gemini-aistudio", "veo-3.1-generate-preview"): ("always_on", "always_on"),
     ("gemini-aistudio", "veo-3.1-lite-generate-preview"): ("always_on", "always_on"),
@@ -231,11 +231,15 @@ _VIDEO_AUDIO_STANCES: dict[tuple[str, str], tuple[str, str]] = {
     ("kling", "kling-v3-omni"): ("controllable", "always_off"),
     ("kling", "kling-video-o1"): ("always_off", "always_off"),
     ("minimax", "MiniMax-H3"): ("always_on", "always_on"),
+    ("minimax", "MiniMax-H3-Highspeed"): ("always_on", "always_on"),
+    ("minimax", "MiniMax-H3-Lite"): ("always_on", "always_on"),
+    ("minimax", "MiniMax-H3-Max"): ("always_on", "always_on"),
     ("minimax", "MiniMax-Hailuo-2.3"): ("always_off", "always_off"),
     ("minimax", "MiniMax-Hailuo-2.3-Fast"): ("always_off", "always_off"),
     ("vidu", "vidu2.0"): ("always_off", "always_off"),
     ("vidu", "viduq3"): ("controllable", "controllable"),
     ("vidu", "viduq3-pro"): ("controllable", "controllable"),
+    ("vidu", "viduq3-pro-fast"): ("controllable", "controllable"),
     ("vidu", "viduq3-turbo"): ("controllable", "controllable"),
 }
 
@@ -327,14 +331,6 @@ class TestVideoCapabilitySingleSourceOfTruth:
             if info.media_type == "video" and banned & set(info.capabilities)
         ]
         assert offenders == []
-
-    def test_model_info_has_no_reference_image_cap_field(self):
-        """CatalogModel 不得长出参考图上限字段：加上就等于把第二份来源请回来。"""
-        from dataclasses import fields
-
-        from lib.catalog.query import CatalogModel
-
-        assert "max_reference_images" not in {f.name for f in fields(CatalogModel)}
 
     def test_model_info_has_no_audio_cap_field(self):
         """同上：CatalogModel 不得长出音轨字段。

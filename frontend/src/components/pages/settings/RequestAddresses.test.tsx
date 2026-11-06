@@ -152,6 +152,10 @@ describe("RequestAddresses", () => {
     ["dashscope_api_v1", "https://relay.test/compatible-mode/v1", "https://relay.test/api/v1"],
     ["strip_messages", "https://relay.test/anthropic/v1/messages/", "https://relay.test/anthropic"],
     ["strip_messages", "https://relay.test/anthropic/v1", "https://relay.test/anthropic/v1"],
+    // 与服务端 strip_base_url_version 的用例表同口径：全角数字不算版本段
+    ["strip_version", "https://relay.test/v2beta", "https://relay.test"],
+    ["strip_version", "https://relay.test/v1.5", "https://relay.test"],
+    ["strip_version", "https://relay.test/v\uff11", "https://relay.test/v\uff11"],
   ] as const)("没有修改时按 %s 还原 %s 的接口地址", (rule, baseUrl, base) => {
     render(
       <RequestAddresses

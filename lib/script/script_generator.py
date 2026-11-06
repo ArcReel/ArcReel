@@ -1206,8 +1206,8 @@ class ScriptGenerator:
     def _resolve_max_refs(facts: PlanningVideoFacts) -> int | None:
         """带可用参考图的单元（r2v 桶）每请求可携带的参考图上限，取自该桶的视频请求事实。
 
-        语义约定：仅 None 视为「未声明上限」（上层不在 prompt 写硬性数量约束，且 executor 跳过裁剪）；
-        0 是显式上限（如不接受参考图的 endpoint），会原样下传触发裁剪为 0 张。r2v 桶解析不出时
+        语义约定：None 为「未收录」（条目与通道都没有声明，上层不在 prompt 写硬性数量约束，且 executor 跳过裁剪）；
+        0 为不接受参考图（这类模型进不了 r2v 桶），executor 同样不裁剪，交给执行时的校验拒绝。r2v 桶解析不出时
         按未声明处理——带图单元本身会在各检查点因事实缺失被拦下，不在此另起来源。
         """
         result = facts.result("r2v")

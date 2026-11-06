@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date
 
 from .vocabulary import CURRENCIES, DIMENSIONS, METERS, MediaType
 
@@ -25,6 +26,8 @@ class ImageFacts:
     text_to_image: bool = False
     image_to_image: bool = False
     resolutions: tuple[str, ...] = ()
+    max_reference_images: int | None = None
+    output_token_bases: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,13 @@ class VideoFacts:
     durations: tuple[int, ...] = ()
     resolutions: tuple[str, ...] = ()
     duration_constraints: DurationConstraints = field(default_factory=DurationConstraints)
+    max_reference_images: int | None = None
+    text_to_video: bool | None = None
+    first_frame: bool | None = None
+    last_frame: bool | None = None
+    reference_audio: bool | None = None
+    max_reference_audio_count: int | None = None
+    max_reference_audio_total_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -113,6 +123,14 @@ class EntryKey:
 
 @dataclass(frozen=True)
 class CatalogEntry:
+    """一个模型条目。
+
+    生命周期记在条目上，表示模型厂商层面的退役，各供应商共用：``release_date`` 是上线日期，
+    ``shutdown_date`` 是关停日期，都精确到日，按 UTC 日期判断，关停当天即视为已下线；``successor``
+    是厂商官方指定的后继模型，以「模型厂商/官方模型名」引用媒体类型相同的条目。``discontinued``
+    表示已下线，目录构建在关停日期不晚于构建当天时置真，不认识关停日期的旧版实例据此认出已下线的模型。
+    """
+
     maker: str
     name: str
     media_type: MediaType
@@ -122,6 +140,9 @@ class CatalogEntry:
     discontinued: bool = False
     context_length: int | None = None
     price: PriceTable | None = None
+    release_date: date | None = None
+    shutdown_date: date | None = None
+    successor: str | None = None
 
     @property
     def key(self) -> EntryKey:
@@ -133,8 +154,9 @@ class BuiltinProviderModel:
     """内置供应商官方收录的一个供应商模型。
 
     ``entry`` 是「模型厂商/官方模型名」；只有引用两栖模型时才需要 ``media_type`` 指明是哪一个条目。
-    ``multiplier`` 是供应商模型倍率；``min_app_version`` 之下的应用版本不展示、也不启用它。
-    同一供应商下，供应商模型以 API 模型名与所引用条目的媒体类型区分。
+    ``multiplier`` 是供应商模型倍率；``min_app_version`` 之下的应用版本不展示、也不启用它。``endpoint`` 是它挂接的
+    内置调用端点，取该供应商在条目媒体类型下的可选端点之一（见 ``endpoints.BUILTIN_PROVIDER_ENDPOINTS``）；
+    缺失表示没有声明。同一供应商下，供应商模型以 API 模型名与所引用条目的媒体类型区分。
     """
 
     api_model_name: str
@@ -142,6 +164,7 @@ class BuiltinProviderModel:
     media_type: str | None = None
     multiplier: float = 1.0
     min_app_version: str | None = None
+    endpoint: str | None = None
 
 
 @dataclass(frozen=True)

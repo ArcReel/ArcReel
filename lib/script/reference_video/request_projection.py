@@ -5,7 +5,8 @@
 fingerprint 或可执行请求快照；worker 开始处理时必须重新投影当前状态。
 
 能力只经视频请求事实读取（``docs/adr/0086``）：投影按单元落入的桶取一份事实，读侧以当前配置
-为身份求值，执行侧直接交出 lane 以实际 backend 身份求得的那一份。
+为身份求值，执行侧直接交出 lane 以实际 backend 身份求得的那一份。参考图的供应商素材关联同理：读侧以当前
+配置装配的调用通道核对，执行侧以实际调用通道核对（见 :data:`ReferenceAssetLinkCheck`）。
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
+from lib.backends.input_limits import InputLimit
 from lib.config.resolver import (
     VideoGenerationType,
     video_capability_satisfied,
@@ -32,6 +34,7 @@ from lib.generation.video_request_facts import (
 )
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int
+from lib.material.work_files import material_file_present
 from lib.project.asset_types import AssetSpec, asset_name_comparison_key
 from lib.references.reference_admission import (
     SHEET_REQUIRED_ASSET_TYPES,
@@ -246,6 +249,14 @@ VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
 ReferenceRequestFactsLookup = Callable[[VideoGenerationType], Awaitable[VideoRequestFactsResult]]
 
 
+#: 参考图的供应商素材关联核对：按这次调用的素材库范围检查裁剪后将要发出的参考图（顺序即提示词里的图片编号），
+#: 适用的关联尚未可用或入库失败时返回阻断问题，问题码与参数和执行期失败相同；没有问题时为 None。读侧实现见
+#: :mod:`lib.script.reference_video.provider_asset_links`，执行侧交出实际调用通道的那一份。
+ReferenceAssetLinkCheck = Callable[
+    [VideoRequestFacts, Sequence[ResolvedReferenceAsset]], Awaitable["ProjectionProblem | None"]
+]
+
+
 def configured_reference_request_facts(project: dict, resolver: ConfigResolver) -> ReferenceRequestFactsLookup:
     """读侧：以当前配置为身份，对参考路线逐桶求值视频请求事实；同一查找内每个桶只求值一次。"""
 
@@ -383,10 +394,11 @@ class FilesystemReferenceAssets:
 
     def is_available(self, asset: ResolvedReferenceAsset) -> bool:
         try:
-            safe_join(self._project_path, asset.path, require_file=True)
-        except (FileNotFoundError, OSError, PathTraversalError, TypeError):
+            path = safe_join(self._project_path, asset.path)
+        except (OSError, PathTraversalError, TypeError):
             return False
-        return True
+        # 缓存已清理的远端内容版本仍可取回，不算缺图
+        return material_file_present(path)
 
 
 def _candidate_path(project_path: Path, value: object) -> Path | None:
@@ -534,11 +546,16 @@ def _original_image_paths(entry: dict, spec: AssetSpec) -> list[object]:
 def clamp_reference_assets(
     assets: Sequence[ResolvedReferenceAsset], max_references: int | None
 ) -> tuple[ResolvedReferenceAsset, ...]:
-    """超过上限时按正文的提及顺序保留前若干张——没有类型优先级。"""
+    """超过上限时按正文的提及顺序保留前若干张——没有类型优先级。
 
-    if max_references is None or len(assets) <= max_references:
+    ``max_references`` 是参考图上限的生效值（``lib.backends.video_capabilities``）：``None`` 为未收录，不裁剪；
+    ``0`` 为不接受参考图，同样不裁剪，原样交给执行时的校验拒绝，而不是裁成 0 张后静默改走无参考图的请求。
+    """
+
+    bound = InputLimit.from_json(max_references).clamp_bound()
+    if bound is None or len(assets) <= bound:
         return tuple(assets)
-    return tuple(assets[: max(0, max_references)])
+    return tuple(assets[:bound])
 
 
 _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] = {
@@ -546,6 +563,8 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
     UNREGISTERED_REFERENCE_CODE: ("repair_reference_assets", (("text",),)),
     "reference_capability_changed": ("repair_reference_assets", (("text",),)),
     "reference_images_clamped": ("review_reference_selection", (("text",),)),
+    "provider_asset_link_processing": ("review_reference_selection", (("text",),)),
+    "provider_asset_link_failed": ("review_reference_selection", (("text",),)),
     "video_audio_switch_not_supported": (
         "enable_model_audio",
         (("generation_settings", "generate_audio"),),
@@ -561,6 +580,7 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
     "video_capability_missing_t2v": ("configure_video_model", (("text",),)),
     "video_capability_reference_unavailable": ("configure_video_model", (("text",),)),
     "model_not_in_provider_catalog": ("configure_video_model", (("text",),)),
+    "model_discontinued": ("configure_video_model", (("text",),)),
 }
 
 
@@ -589,9 +609,12 @@ class ReferenceUnitRequestProjector:
         self,
         request_facts: ReferenceRequestFactsLookup,
         assets: ReferenceAssetAvailability,
+        asset_links: ReferenceAssetLinkCheck | None = None,
     ) -> None:
+        """``asset_links`` 为 None 时不核对供应商素材关联，只用于只要定桶结论的调用方（如限流路由）。"""
         self._request_facts = request_facts
         self._assets = assets
+        self._asset_links = asset_links
 
     async def project_current(
         self,
@@ -649,7 +672,7 @@ class ReferenceUnitRequestProjector:
                 and not video_capability_satisfied(
                     generation_type=hydrated_generation_type,
                     first_frame=facts.first_frame,
-                    max_reference_images=facts.max_reference_images or 0,
+                    max_reference_images=facts.max_reference_images,
                     text_to_video=facts.text_to_video,
                     has_image=False,
                 )
@@ -683,6 +706,10 @@ class ReferenceUnitRequestProjector:
                         model=facts.model_id,
                     )
                 )
+            if self._asset_links is not None and request_assets:
+                link_problem = await self._asset_links(facts, request_assets)
+                if link_problem is not None:
+                    problems.append(link_problem)
 
         planned_duration = _planned_duration(unit)
         duration_input = planned_duration
@@ -763,24 +790,35 @@ async def project_reference_unit_request(
     resolver: ConfigResolver | None = None,
     request_facts_lookup: ReferenceRequestFactsLookup | None = None,
     shared_assets: Callable[[], ReferenceAssetAvailability] | None = None,
+    asset_links: ReferenceAssetLinkCheck | None = None,
+    check_asset_links: bool = True,
 ) -> ReferenceUnitRequestProjection:
     """生产入口：从当前项目文件与配置直接构造一次 advisory 投影。
 
     资产可用性与执行侧同判据（文件存在且产物清单认领），准入、单条入队、提示词预览与限流
     路由因此不会把执行时落 i2v 的单元判成 r2v。批量调用方传入 ``shared_assets``，在工作线程里
     取整批共用的判定，一批单元在同一份清单快照上判定；不传时按本单元现场构造。
+
+    供应商素材关联默认以当前配置装配的调用通道核对；批量调用方传入整批共用的 ``asset_links``。只要定桶结论的
+    调用方（限流路由）传 ``check_asset_links=False`` 跳过核对。
     """
 
-    # artifact_selection 依赖本模块，延迟导入避免循环。
+    # artifact_selection 与 provider_asset_links 依赖本模块，延迟导入避免循环。
     from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 
-    if request_facts_lookup is None:
-        if resolver is None:
-            from lib.config.resolver import ConfigResolver
-            from lib.db import async_session_factory
+    if resolver is None:
+        from lib.config.resolver import ConfigResolver
+        from lib.db import async_session_factory
 
-            resolver = ConfigResolver(async_session_factory)
+        resolver = ConfigResolver(async_session_factory)
+    if request_facts_lookup is None:
         request_facts_lookup = configured_reference_request_facts(project, resolver)
+    if not check_asset_links:
+        asset_links = None
+    elif asset_links is None:
+        from lib.script.reference_video.provider_asset_links import configured_asset_link_check
+
+        asset_links = configured_asset_link_check(project_path=project_path, resolver=resolver)
 
     def current_assets() -> tuple[ReferenceAssetAvailability, tuple[ResolvedReferenceAsset, ...]]:
         # 构造清单感知的可用性判定、展开候选路径都会碰文件系统，放进工作线程。
@@ -788,7 +826,7 @@ async def project_reference_unit_request(
         return availability, resolve_reference_assets(project, project_path, unit)
 
     availability, resolved_assets = await asyncio.to_thread(current_assets)
-    projector = ReferenceUnitRequestProjector(request_facts_lookup, availability)
+    projector = ReferenceUnitRequestProjector(request_facts_lookup, availability, asset_links)
     return await projector.project_current(
         project=project,
         script=script,

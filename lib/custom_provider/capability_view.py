@@ -1,8 +1,17 @@
 """供应商模型 Sheet 上「这个供应商支持的参数」：每个维度的原值、能力覆盖与生效值（docs/adr/0104、0106）。
 
 原值是没有能力覆盖时运行时采用的值：模型事实取对应条目，对应不上条目时取运行时回落（可选时长取按名字推断的
-预设，其余维度不加约束，记为 ``None``）；通道事实取调用通道或调用端点的声明。生效值是原值叠加能力覆盖的结果，
+预设，其余维度未收录，记为 ``None``）；通道事实取调用通道或调用端点的声明。生效值是原值叠加能力覆盖的结果，
 与执行层读到的一致。
+
+图片的参考图上限先两侧求值，再由能力覆盖整维替换（``lib.backends.image_capabilities.image_reference_limit``），
+按生效的图生图求值：``None`` 为未收录，``0`` 为不接受参考图（条目记为 0 张，或图生图不在生效能力里）。图生图的原值
+读同一个求值结果：模型事实与调用通道都允许、且参考图上限接受参考图，与任务类型桶的候选、执行时的校验一致；条目把
+参考图上限记为 0 张时图生图为不支持。文生图的原值同样取模型事实与调用通道的交集。
+
+视频的输入模式与数量上限（文生视频、首帧、尾帧、参考图、参考音频）的原值同样是调用通道声明与模型条目两侧求值的
+结果（``lib.backends.video_capabilities``），数量上限 ``None`` 为未收录、``0`` 为不接受。ComfyUI 端点不读条目，
+输入能力只由节点绑定决定；图片同样展示文生图、图生图与参考图上限三维，只读。
 
 只有用户负责的供应商模型可以修改：自定义供应商的模型，以及内置供应商下用户添加的模型。ComfyUI 端点只开放视频
 的可选时长，且端点驱动不了时长时这一维也不开放（docs/adr/0082）。图片的文生图、图生图只开放调用通道实现了的
@@ -27,9 +36,17 @@ from arcreel_market_core.video_backend_contract import (
     VideoCapabilities,
     audio_capability_pair_is_coherent,
 )
-from lib.backends.backend_assembly.specs import declared_builtin_video_capabilities
+from lib.backends.backend_assembly.specs import (
+    declared_builtin_video_capabilities,
+    two_sided_builtin_video_capabilities,
+)
 from lib.backends.image_backends.base import ImageCapability
-from lib.backends.image_capabilities import builtin_channel_capabilities
+from lib.backends.image_capabilities import (
+    builtin_channel_capabilities,
+    builtin_channel_reference_limit,
+    image_reference_limit,
+    image_reference_override,
+)
 from lib.catalog.query import CatalogModel
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
@@ -37,9 +54,9 @@ from lib.custom_provider.capabilities import (
     CHANNEL_FACT_OVERRIDE_KEYS,
     capability_type_name,
     capability_value_matches,
-    system_video_capabilities,
+    two_sided_video_capabilities,
 )
-from lib.custom_provider.endpoints import EndpointSpec
+from lib.custom_provider.endpoints import EndpointSpec, endpoint_reference_image_limit
 from lib.custom_provider.model_facts import (
     MODEL_FACT_OVERRIDE_KEYS,
     comfyui_duration_override,
@@ -80,31 +97,55 @@ _IMAGE_CAPABILITY_BY_KEY: Mapping[str, ImageCapability] = {
     "image_to_image": ImageCapability.IMAGE_TO_IMAGE,
 }
 
+#: 图片覆盖维度 → 调用通道须实现的能力，未实现时该维度不可编辑：参考图上限只对图生图路径有意义。
+_IMAGE_EDITABLE_REQUIRES: Mapping[str, ImageCapability] = {
+    **_IMAGE_CAPABILITY_BY_KEY,
+    "max_reference_images": ImageCapability.IMAGE_TO_IMAGE,
+}
+
 
 @dataclass(frozen=True)
 class CapabilityView:
     """一个供应商模型的「这个供应商支持的参数」。
 
     - ``editable``：可以修改的维度，按界面顺序；官方收录的模型为空。
-    - ``base``：每个维度的原值（没有能力覆盖时运行时采用的值），``None`` 表示不加约束。
+    - ``base``：每个维度的原值（没有能力覆盖时运行时采用的值），``None`` 表示未收录。
     - ``overrides``：生效的能力覆盖（稀疏）。
     - ``effective``：原值叠加覆盖后的生效值。
+    - ``displayed``：界面要显示的维度（``editable`` 与 ``base`` 的并集），按界面顺序。
     """
 
     media_type: str
     editable: tuple[str, ...] = ()
     base: dict[str, object] = field(default_factory=dict)
     overrides: dict[str, object] = field(default_factory=dict)
+    effective_values: dict[str, object] | None = None
 
     @property
     def effective(self) -> dict[str, object]:
-        return {**self.base, **self.overrides}
+        return self.effective_values if self.effective_values is not None else {**self.base, **self.overrides}
+
+    @property
+    def displayed(self) -> tuple[str, ...]:
+        return _ordered({*self.editable, *self.base})
 
 
 def overridable_keys(media_type: str) -> frozenset[str]:
     """该媒体类型可以覆盖的全部维度：模型事实，视频另有通道事实。"""
     keys = MODEL_FACT_OVERRIDE_KEYS.get(media_type, frozenset())
     return keys | CHANNEL_FACT_OVERRIDE_KEYS if media_type == "video" else keys
+
+
+def override_value_check(media_type: str, key: str, value: object) -> tuple[bool, str]:
+    """覆盖值能否整维替换该维度，以及该维度期望的值形状（写入被拒时的文案参数）。
+
+    视频的通道事实按 ``VideoCapabilities`` 字段校验，其余按模型事实校验；图片的参考图上限与视频通道事实同名，
+    按模型事实校验。自定义供应商与内置用户添加模型的写入校验共用这一判定。
+    """
+    if media_type == "video" and key in CHANNEL_FACT_OVERRIDE_KEYS:
+        expected = CAPABILITY_OVERRIDE_FIELDS[key]
+        return capability_value_matches(value, expected), capability_type_name(expected)
+    return model_fact_value_matches(key, value), model_fact_type_name(key)
 
 
 def _ordered(keys: frozenset[str] | set[str]) -> tuple[str, ...]:
@@ -171,6 +212,18 @@ def custom_capability_view(
     """自定义供应商模型的参数视图。``applied_overrides`` 是按写入侧同一判定过滤后的覆盖（回显用的那一份）。"""
     media_type = spec.media_type
     if spec.kind == COMFYUI_KIND:
+        if media_type == "image":
+            # 节点绑定决定一切：没有参考图槽位就不接受参考图，有槽位时上限就是槽位数，不读条目。
+            return CapabilityView(
+                media_type,
+                base=_image_base(
+                    implemented=spec.image_capabilities or frozenset(),
+                    text_to_image=True,
+                    image_to_image=True,
+                    entry_limit=None,
+                    channel_limit=endpoint_reference_image_limit(spec),
+                ),
+            )
         if media_type != "video":
             return CapabilityView(media_type)
         endpoint_durations = list(spec.endpoint_durations or [])
@@ -195,11 +248,15 @@ def custom_capability_view(
         case "image":
             image = image_model_facts(model_id, None, entry_binding=entry_binding)
             implemented = spec.image_capabilities or frozenset()
-            base = {
-                "text_to_image": image.text_to_image is not False and ImageCapability.TEXT_TO_IMAGE in implemented,
-                "image_to_image": image.image_to_image is not False and ImageCapability.IMAGE_TO_IMAGE in implemented,
-            }
-            editable = {key for key in editable if _IMAGE_CAPABILITY_BY_KEY[key] in implemented}
+            return _image_view(
+                implemented=implemented,
+                text_to_image=image.text_to_image is not False,
+                image_to_image=image.image_to_image is not False,
+                entry_limit=image.max_reference_images,
+                channel_limit=endpoint_reference_image_limit(spec),
+                editable=editable,
+                overrides=applied_overrides or {},
+            )
         case "video":
             video = video_model_facts(model_id, None, entry_binding=entry_binding)
             base = {
@@ -208,7 +265,9 @@ def custom_capability_view(
                 "resolutions": list(video.resolutions) if video.resolutions is not None else None,
             }
             try:
-                caps = system_video_capabilities(endpoint=endpoint, model_id=model_id, endpoint_spec=spec)
+                caps = two_sided_video_capabilities(
+                    endpoint=endpoint, model_id=model_id, endpoint_spec=spec, entry_binding=entry_binding
+                )
             except ValueError:
                 logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
                 caps = VideoCapabilities()
@@ -225,7 +284,8 @@ def custom_capability_view(
 
 
 def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -> dict[str, object]:
-    """内置供应商模型的目录信息（未叠加覆盖时即运行时采用的值）按维度展开。"""
+    """内置供应商模型的目录信息（未叠加覆盖时即运行时采用的值）按维度展开；图片三维要与调用通道两侧求值，
+    由 :func:`builtin_capability_view` 给出。"""
     caps = set(model.capabilities)
     match model.media_type:
         case "text":
@@ -234,8 +294,6 @@ def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -
                 "structured_output": "structured_output" in caps,
                 "max_output_tokens": model.max_output_tokens,
             }
-        case "image":
-            return {"text_to_image": "text_to_image" in caps, "image_to_image": "image_to_image" in caps}
         case "video":
             facts: dict[str, object] = {
                 "durations": list(model.supported_durations),
@@ -248,7 +306,9 @@ def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -
                 "resolutions": list(model.resolutions) or None,
             }
             try:
-                declared = declared_builtin_video_capabilities(provider_id, model_id)
+                declared = two_sided_builtin_video_capabilities(
+                    declared_builtin_video_capabilities(provider_id, model_id), provider_id, model_id
+                )
             except ValueError:
                 logger.warning("无法读取内置视频能力: provider=%r model_id=%r", provider_id, model_id)
                 declared = VideoCapabilities()
@@ -257,9 +317,69 @@ def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -
             return {}
 
 
-def _image_channel(provider_id: str) -> frozenset[ImageCapability]:
+def _image_base(
+    *,
+    implemented: frozenset[ImageCapability],
+    text_to_image: bool,
+    image_to_image: bool,
+    entry_limit: int | None,
+    channel_limit: int | None,
+    reference_override: int | None = None,
+) -> dict[str, object]:
+    """图片三维的原值，与任务类型桶的候选、执行时的校验读同一个求值结果（``image_reference_limit``）。
+
+    ``text_to_image`` / ``image_to_image`` 是模型事实一侧（条目，对应不上条目时按允许算），与调用通道实现了的
+    ``implemented`` 取交集。图生图另须参考图上限接受参考图：条目记为 0 张时为不支持。参考图上限按生效的图生图求值，
+    ``reference_override`` 在两侧求值后整维替换上限。
+    """
+
+    reference_limit = image_reference_limit(
+        capabilities=implemented if image_to_image else frozenset(),
+        entry_limit=entry_limit,
+        channel_limit=channel_limit,
+        override=reference_override,
+    )
+    return {
+        "text_to_image": text_to_image and ImageCapability.TEXT_TO_IMAGE in implemented,
+        "image_to_image": reference_limit.accepts_input,
+        "max_reference_images": reference_limit.to_json(),
+    }
+
+
+def _image_view(
+    *,
+    implemented: frozenset[ImageCapability],
+    text_to_image: bool,
+    image_to_image: bool,
+    entry_limit: int | None,
+    channel_limit: int | None,
+    editable: set[str],
+    overrides: Mapping[str, object],
+) -> CapabilityView:
+    editable = {key for key in editable if _IMAGE_EDITABLE_REQUIRES[key] in implemented}
+    base = _image_base(
+        implemented=implemented,
+        text_to_image=text_to_image,
+        image_to_image=image_to_image,
+        entry_limit=entry_limit,
+        channel_limit=channel_limit,
+    )
+    effective = _image_base(
+        implemented=implemented,
+        text_to_image=overrides.get("text_to_image", text_to_image) is True,
+        image_to_image=overrides.get("image_to_image", image_to_image) is True,
+        entry_limit=entry_limit,
+        channel_limit=channel_limit,
+        reference_override=image_reference_override(overrides),
+    )
+    return CapabilityView(
+        "image", editable=_ordered(editable), base=base, overrides=dict(overrides), effective_values=effective
+    )
+
+
+def _image_channel(provider_id: str, model_id: str, endpoint: str | None = None) -> frozenset[ImageCapability]:
     try:
-        return builtin_channel_capabilities(provider_id)
+        return builtin_channel_capabilities(provider_id, model_id, endpoint=endpoint)
     except ValueError:
         return frozenset()
 
@@ -275,12 +395,24 @@ def builtin_capability_view(
     """内置供应商模型的参数视图。官方收录的模型只读；用户添加的可以修改该媒体类型的全部维度。"""
     media_type = base_model.media_type
     base = _catalog_model_facts(provider_id, model_id, base_model)
+    editable = set(overridable_keys(media_type)) if not official else set()
+    if media_type == "image":
+        implemented = _image_channel(provider_id, model_id)
+        try:
+            channel_limit = builtin_channel_reference_limit(provider_id, model_id)
+        except ValueError:
+            channel_limit = None
+        return _image_view(
+            implemented=implemented,
+            text_to_image="text_to_image" in base_model.capabilities,
+            image_to_image="image_to_image" in base_model.capabilities,
+            entry_limit=base_model.max_reference_images,
+            channel_limit=channel_limit,
+            editable=editable,
+            overrides={} if official else overrides,
+        )
     if official:
         return CapabilityView(media_type, base=base)
-    editable = set(overridable_keys(media_type))
-    if media_type == "image":
-        implemented = _image_channel(provider_id)
-        editable = {key for key in editable if _IMAGE_CAPABILITY_BY_KEY[key] in implemented}
     return CapabilityView(
         media_type, editable=_ordered(editable), base=base, overrides=_normalized_overrides(overrides)
     )
@@ -312,12 +444,18 @@ class OverrideRejected(Exception):
 
 
 def check_user_added_overrides(
-    provider_id: str, model_id: str, media_type: str, overrides: Mapping[str, object] | None
+    provider_id: str,
+    model_id: str,
+    media_type: str,
+    overrides: Mapping[str, object] | None,
+    *,
+    endpoint: str | None = None,
 ) -> dict[str, object] | None:
     """内置供应商下用户添加的模型的能力覆盖写入校验，通过时返回要存下的覆盖（空覆盖为 ``None``）。
 
     与自定义供应商的写入校验同一组规则：维度须属于该媒体类型，值的形状与维度一致；图片的文生图、图生图覆盖为
-    开启时调用通道须实现了它；音频两维合起来须有意义（不足的一维取调用通道的声明）。
+    开启时调用通道须实现了它；音频两维合起来须有意义（不足的一维取调用通道的声明）。调用通道取模型挂接的内置调用
+    端点，``endpoint`` 给出时取它（同一次保存里换了端点）。
     """
     if not overrides:
         return None
@@ -331,27 +469,31 @@ def check_user_added_overrides(
                 media_type=media_type,
                 capability=key,
             )
-        if key in CHANNEL_FACT_OVERRIDE_KEYS:
-            expected = CAPABILITY_OVERRIDE_FIELDS[key]
-            valid, expected_name = capability_value_matches(value, expected), capability_type_name(expected)
-        else:
-            valid, expected_name = model_fact_value_matches(key, value), model_fact_type_name(key)
+        valid, expected_name = override_value_check(media_type, key, value)
         if not valid:
             raise OverrideRejected(
                 "capability_override_invalid_value", model_id=model_id, capability=key, expected=expected_name
             )
         image_capability = _IMAGE_CAPABILITY_BY_KEY.get(key)
-        if image_capability is not None and value is True and image_capability not in _image_channel(provider_id):
+        if (
+            image_capability is not None
+            and value is True
+            and image_capability not in _image_channel(provider_id, model_id, endpoint)
+        ):
             raise OverrideRejected(
                 "capability_override_image_unsupported", model_id=model_id, endpoint=provider_id, capability=key
             )
     if any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
         try:
-            declared = declared_builtin_video_capabilities(provider_id, model_id)
+            base = two_sided_builtin_video_capabilities(
+                declared_builtin_video_capabilities(provider_id, model_id, endpoint=endpoint), provider_id, model_id
+            )
         except ValueError:
-            declared = VideoCapabilities()
-        mode = overrides.get("reference_audio_mode", declared.reference_audio_mode)
-        count = overrides.get("max_reference_audio_count", declared.max_reference_audio_count)
-        if not audio_capability_pair_is_coherent(mode=mode, count=int(count) if isinstance(count, int) else 0):
+            base = VideoCapabilities()
+        mode = overrides.get("reference_audio_mode", base.reference_audio_mode)
+        count = overrides.get("max_reference_audio_count", base.max_reference_audio_count)
+        if count is not None and not isinstance(count, int):
+            count = 0
+        if not audio_capability_pair_is_coherent(mode=mode, count=count):
             raise OverrideRejected("capability_override_audio_pair_incoherent", model_id=model_id)
     return dict(overrides)

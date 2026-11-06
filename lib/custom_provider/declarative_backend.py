@@ -22,6 +22,7 @@ from urllib.parse import quote
 
 import httpx
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.endpoint_definition import (
     AssetData,
     JsonPathEvaluationError,
@@ -62,6 +63,7 @@ from lib.backends.backend_runtime import (
 from lib.backends.http_status_errors import redacted_status_error
 from lib.backends.video_backends.metering import video_usage
 from lib.billing.metering import Usage
+from lib.config.url_utils import strip_base_url_version
 from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, raw_base_url
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
@@ -175,7 +177,7 @@ def normalize_declarative_base_url(base_url: str, definition: Mapping[str, Any])
     if stripped and "://" not in stripped:
         stripped = f"https://{stripped}"
     if strips_base_url_version(definition):
-        return re.sub(r"/v\d+(?:\.\d+)?[a-zA-Z]*$", "", stripped)
+        return strip_base_url_version(stripped)
     return stripped
 
 
@@ -800,10 +802,15 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         return video_capabilities_from_definition(self._definition)
 
     def metered_usage(
-        self, model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+        self,
+        model: str,
+        request: VideoGenerationRequest,
+        result: VideoGenerationResult | None = None,
+        *,
+        entry: CatalogEntry | None = None,
     ) -> Usage:
-        """这次请求的计量，见 :func:`declarative_video_usage`。"""
-        del model
+        """这次请求的计量，见 :func:`declarative_video_usage`；按定义计量，与模型和条目无关。"""
+        del model, entry
         return declarative_video_usage(self._definition, request, result)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:

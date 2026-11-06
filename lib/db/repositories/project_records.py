@@ -1,6 +1,6 @@
 """已删除项目留在数据库里的记录。
 
-任务、批次、调用记录与助手会话只按项目名关联项目。项目删除后这些行改挂到墓碑名上：费用统计仍按
+任务、批次、调用记录、助手会话、供应商素材关联与正式对象引用只按项目名关联项目。项目删除后这些行改挂到墓碑名上：费用统计仍按
 已删除项目保留，同名新建或导入的项目查不到它们，活动任务的去重也不会把新请求并到旧任务上。
 墓碑名带 ``#``，项目名只允许字母、数字与中划线，墓碑名不会与任何项目同名。已删除项目恢复时，记录从墓碑名
 改回恢复后的项目名。
@@ -16,10 +16,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.db.base import utc_now
 from lib.db.models.api_call import ApiCall
+from lib.db.models.asset_library import ProviderAssetLink
+from lib.db.models.object_storage import FormalObjectRef
 from lib.db.models.session import AgentSession
 from lib.db.models.task import GenerationBatch, Task
 
 _DELETED_MARKER = "#deleted-"
+#: 按项目名关联项目的记录。供应商素材关联按项目里的内容版本身份键控，同名新项目的同一身份不能继承它。
+#: 正式对象引用随项目改挂：已删除项目仍可恢复，它的引用继续保留对象，彻底删除时按墓碑名撤下。
+_PROJECT_KEYED_MODELS = (Task, GenerationBatch, ApiCall, AgentSession, ProviderAssetLink, FormalObjectRef)
 _DELETED_NAME_RE = re.compile(r"^([A-Za-z0-9-]+)#deleted-(\d{8}T\d{6}Z)$")
 
 
@@ -63,14 +68,18 @@ async def retire_project_records(session: AsyncSession, project_name: str) -> tu
         select(Task.task_id).where(Task.project_name == project_name, Task.status == "running")
     )
     running_task_ids = list(running.scalars())
-    for model in (Task, GenerationBatch, ApiCall, AgentSession):
-        await session.execute(update(model).where(model.project_name == project_name).values(project_name=tombstone))
+    for model in _PROJECT_KEYED_MODELS:
+        stmt = update(model).where(model.project_name == project_name)
+        if model is FormalObjectRef:
+            # 进行中提交的占用留在项目名下：覆盖导入先在项目名下提交新图片、再收尾旧项目，结算按项目名记新项目的引用
+            stmt = stmt.where(FormalObjectRef.state != "pending")
+        await session.execute(stmt.values(project_name=tombstone))
     return tombstone, running_task_ids
 
 
 async def restore_project_records(session: AsyncSession, tombstone: str, project_name: str) -> None:
     """把挂在墓碑名 ``tombstone`` 下的全部记录改回 ``project_name``。不提交；删除时取消的任务保持已取消。"""
-    for model in (Task, GenerationBatch, ApiCall, AgentSession):
+    for model in _PROJECT_KEYED_MODELS:
         await session.execute(update(model).where(model.project_name == tombstone).values(project_name=project_name))
 
 

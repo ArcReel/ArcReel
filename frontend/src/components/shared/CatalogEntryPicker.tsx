@@ -107,7 +107,7 @@ function PickerBody({
   );
 }
 
-/** 目录条目在列表里的两行：显示名（已下架另标），厂商与媒体类型。 */
+/** 目录条目在列表里的两行：显示名（已下线另标），厂商与媒体类型。 */
 export function CatalogEntryLabel({ entry }: { entry: CatalogEntryHit }) {
   const { t } = useTranslation("dashboard");
   return (

@@ -200,7 +200,7 @@ def write_legacy_retired_flash_lite_project(root: Path, *, provider_id: str) -> 
 
 
 def write_legacy_retired_model_references_project(root: Path) -> Path:
-    """schema 17 项目的图片字段引用已改名的 Gemini 图片 preview ID，视频字段引用已下架而没有后继的模型。
+    """schema 17 项目的图片字段引用已改名的 Gemini 图片 preview ID，视频字段引用已下线而没有后继的模型。
 
     ``model_settings`` 按旧 ID 存了分辨率；其中一个后继 ID 下另有设置。
     """

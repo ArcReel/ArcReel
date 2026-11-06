@@ -1,7 +1,8 @@
 """文件视图：按目录懒加载项目文件并标出角色，预览与下载任意单个文件（鉴权，含文本与 JSON）。
 
 与匿名媒体端点（``files.public_router``）分开：那边的白名单不变，这里挂在受保护的 router 上。
-基础设施文件、符号链接与非法路径一律与文件不存在同形返回 404。
+基础设施文件、符号链接与非法路径一律与文件不存在同形返回 404。缓存已清理的远端内容版本照常列出，
+预览、下载与删除前从对象存储取回（见 :mod:`lib.project.file_view`）。
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from fastapi.responses import StreamingResponse
 
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
-from lib.project.file_view import iter_file_chunks, list_directory, move_file_to_trash, open_project_file
+from lib.project.file_view import iter_file_chunks, list_file_view, local_file, move_file_to_trash, open_project_file
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
 from server.routers._file_responses import guess_media_type
@@ -37,26 +38,24 @@ def _project_dir(project_name: str) -> Path:
 
 
 @router.get("")
-async def list_file_view(project_name: str, path: str = Query("")):
+async def list_file_view_directory(project_name: str, path: str = Query("")):
     """列出 ``path`` 目录（缺省为项目根）的直接子项。"""
 
-    def _sync() -> dict[str, object]:
-        project_dir = _project_dir(project_name)
-        try:
-            entries = list_directory(project_dir, path)
-        except (FileNotFoundError, NotADirectoryError) as exc:
-            raise NotFoundError("file_not_found", path=path) from exc
-        return {"path": path, "entries": [entry.to_dict() for entry in entries]}
-
-    return await asyncio.to_thread(_sync)
+    project_dir = await asyncio.to_thread(_project_dir, project_name)
+    try:
+        entries = await list_file_view(project_dir, path)
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise NotFoundError("file_not_found", path=path) from exc
+    return {"path": path, "entries": [entry.to_dict() for entry in entries]}
 
 
 @router.delete("")
 async def delete_file_view_entry(project_name: str, path: str = Query(...)):
     """把一个未引用文件移进项目回收站；其余角色在服务端一律拒绝。"""
 
+    project_dir = await asyncio.to_thread(_project_dir, project_name)
+
     def _sync() -> dict[str, object]:
-        project_dir = _project_dir(project_name)
         try:
             with project_change_source("webui"):
                 record = move_file_to_trash(project_dir, path)
@@ -64,7 +63,8 @@ async def delete_file_view_entry(project_name: str, path: str = Query(...)):
             raise NotFoundError("file_not_found", path=path) from exc
         return {"record": record.to_dict()}
 
-    return await run_sync_transaction(_sync)
+    async with local_file(project_dir, path, deleting=True):
+        return await run_sync_transaction(_sync)
 
 
 @router.get("/content")
@@ -72,16 +72,18 @@ async def read_file_view_content(project_name: str, path: str = Query(...), down
     """预览或下载单个文件。"""
 
     name = Path(path).name
+    project_dir = await asyncio.to_thread(_project_dir, project_name)
 
     def _sync() -> tuple[BinaryIO, int, str]:
-        project_dir = _project_dir(project_name)
         try:
             handle, info = open_project_file(project_dir, path)
         except (FileNotFoundError, NotADirectoryError) as exc:
             raise NotFoundError("file_not_found", path=path) from exc
         return handle, info.st_size, content_media_type(name)
 
-    handle, size, media_type = await asyncio.to_thread(_sync)
+    # 打开之后句柄不随清理失效，使用登记只需覆盖到打开为止
+    async with local_file(project_dir, path):
+        handle, size, media_type = await asyncio.to_thread(_sync)
     return stream_file(handle, size, name, media_type, download=download)
 
 

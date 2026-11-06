@@ -107,33 +107,13 @@ class TestCustomImageBackend:
         assert backend.capabilities is delegate.capabilities
 
     def test_reference_image_limit_delegated(self):
-        # 截断发生在被包装的 backend 内，上限即它声明的那一个；否则编排层会按 0 不裁剪，
-        # 编号仍会指认被 delegate 丢掉的图。
+        # 通道一侧的上限即被包装的 backend 声明的那一个，与条目两侧求值后供编排层裁剪。
         delegate = AsyncMock()
         delegate.capabilities = {ImageCapability.IMAGE_TO_IMAGE}
         delegate.reference_image_limit = AsyncMock(return_value=16)
         backend = CustomImageBackend(provider_id="img-provider", delegate=delegate, model="gpt-image-2")
 
         assert asyncio.run(backend.reference_image_limit()) == 16
-
-    def test_gemini_image_endpoint_declares_the_gemini_limit(self):
-        # gemini-image 端点包装内置 Gemini 后端，参考图上限随之为 14。
-        from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
-
-        provider = SimpleNamespace(provider_id="custom-gemini", base_url="https://relay.test", api_key="k")
-        backend = ENDPOINT_REGISTRY["gemini-image"].build_backend(
-            cast("Any", provider), "gemini-3.1-flash-image-preview"
-        )
-
-        assert asyncio.run(backend.reference_image_limit()) == 14
-
-    def test_gemini_image_endpoint_keeps_other_model_limits_unchanged(self):
-        from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
-
-        provider = SimpleNamespace(provider_id="custom-gemini", base_url="https://relay.test", api_key="k")
-        backend = ENDPOINT_REGISTRY["gemini-image"].build_backend(cast("Any", provider), "gemini-2.5-flash-image")
-
-        assert asyncio.run(backend.reference_image_limit()) == 0
 
     async def test_generate_delegates(self, tmp_path: Path):
         output_path = tmp_path / "output.png"
@@ -201,7 +181,21 @@ class TestCustomVideoBackend:
         request = VideoGenerationRequest(prompt="p", output_path=tmp_path / "v.mp4")
 
         assert backend.metered_usage("seedance", request) is declared
-        delegate.metered_usage.assert_called_once_with("seedance", request, None)
+        delegate.metered_usage.assert_called_once_with("seedance", request, None, entry=None)
+
+    def test_metered_usage_hands_the_delegate_its_catalog_entry(self, tmp_path: Path):
+        """结算经 ``backend_metered_usage`` 计量时，被包装的调用通道按工厂交给它的条目认定模型。"""
+        from lib.backends.video_backends.registry import backend_metered_usage
+
+        entry = cast(Any, object())
+        declared = Usage(quantities={"video_tokens": 1000})
+        delegate = SimpleNamespace(metered_usage=MagicMock(return_value=declared), catalog_entry=entry)
+        backend = CustomVideoBackend(provider_id="custom-vid", delegate=cast(Any, delegate), model="relay-x")
+        request = VideoGenerationRequest(prompt="p", output_path=tmp_path / "v.mp4")
+
+        assert backend.catalog_entry is entry
+        assert backend_metered_usage(backend, request) is declared
+        delegate.metered_usage.assert_called_once_with("relay-x", request, None, entry=entry)
 
     def test_metered_usage_falls_back_when_the_channel_does_not_know_the_model(self, tmp_path: Path):
         delegate = SimpleNamespace(metered_usage=MagicMock(side_effect=ValueError("unknown model")))

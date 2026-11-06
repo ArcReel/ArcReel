@@ -11,9 +11,11 @@ import logging
 from typing import Any
 
 from arcreel_market_core.video_backend_contract import VideoCapabilityError
+from lib.asset_library.generation_inputs import ProviderAssetLinkUnavailableError
 from lib.backends.grok_shared import grpc_rejection
 from lib.backends.http_status_errors import ArtifactDownloadError, ProviderRejectedError
 from lib.backends.image_backends.base import ImageCapabilityError, ImageOutputFormatError, ImageOutputMissingError
+from lib.backends.provider_assets import ProviderInputImageRejectedError
 from lib.billing.call_failure import CallErrorCode, classify_call_failure
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ImageBucketCapabilityError, VideoBucketCapabilityError
@@ -71,7 +73,9 @@ def encode_task_failure_message(exc: Exception) -> str:
         | VideoRequestFactsError
         | ReferenceExecutionIdentityError
         | DeclarativeRuntimeError
-        | ComfyuiError,
+        | ComfyuiError
+        | ProviderAssetLinkUnavailableError
+        | ProviderInputImageRejectedError,
     ):
         # 结构化执行拒绝没有通用兜底 code 可退，退回 str(exc)（即 code 本身）——
         # 非结构化文本在读侧原样透传，不会丢失原因。

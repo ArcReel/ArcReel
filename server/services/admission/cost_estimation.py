@@ -42,10 +42,12 @@ from lib.project.project_manager import grid_storyboard_enabled, is_reference_vi
 from lib.script.grid.grid_resolution import grid_image_size, resolve_image_resolution
 from lib.script.grid.layout import large_grid_allowed, plan_grid_chunks
 from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
+from lib.script.reference_video.provider_asset_links import configured_asset_link_check
 from lib.script.reference_video.request_projection import (
     MemoizedReferenceAssets,
     ProjectionProblem,
     ReferenceAssetAvailability,
+    ReferenceAssetLinkCheck,
     ReferenceExpansionCache,
     ReferenceRequestFactsLookup,
     ReferenceRequestOptions,
@@ -577,7 +579,11 @@ class CostEstimationService:
         # 参考生视频内的定桶再由 request projection 按当前资产逐 unit 分流。
         availability: ReferenceAssetAvailability = _AssumeResolvedAssetsAvailable()
         expansion: ReferenceExpansionCache | None = None
+        # 供应商素材关联与准入同一规则核对：关联尚未可用或入库失败的单元报阻断问题，不给出预估。没有项目目录
+        # （只按声明估价）时没有可核对的图片。
+        asset_links: ReferenceAssetLinkCheck | None = None
         if is_reference_video and self._project_path is not None:
+            asset_links = configured_asset_link_check(project_path=self._project_path, resolver=self._resolver)
             # 整次估算共用一份判定：构造时读一份清单快照，只读，放进工作线程。
             current = await asyncio.to_thread(CurrentReferenceAssets, self._project_path, project_data)
             availability = MemoizedReferenceAssets(current)
@@ -603,6 +609,7 @@ class CostEstimationService:
                     availability=availability,
                     expansion=expansion,
                     request_facts_lookup=request_facts_lookup,
+                    asset_links=asset_links,
                     video_prices=video_prices,
                     actual_by_segment=actual_by_segment,
                     claimed_actual=claimed_actual,
@@ -878,6 +885,7 @@ class CostEstimationService:
         availability: ReferenceAssetAvailability,
         expansion: ReferenceExpansionCache | None,
         request_facts_lookup: ReferenceRequestFactsLookup,
+        asset_links: ReferenceAssetLinkCheck | None,
         video_prices: dict[tuple[str, str], VideoPriceSource],
         actual_by_segment: ActualBySegment,
         claimed_actual: set[tuple[str, str]],
@@ -913,7 +921,7 @@ class CostEstimationService:
         ep_est: dict[str, CostBreakdown] = {}
         ep_act: dict[str, CostBreakdown] = {}
 
-        projector = ReferenceUnitRequestProjector(request_facts_lookup, availability)
+        projector = ReferenceUnitRequestProjector(request_facts_lookup, availability, asset_links)
 
         def _screen_candidates() -> list[tuple[dict[str, Any], str, bool]]:
             # (unit, unit_id, 可入队)；先筛出有效 unit，水合只对可入队的做。

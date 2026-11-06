@@ -17,8 +17,10 @@ from lib.backends.backend_assembly.specs import (
     PROVIDER_SPEC_REGISTRY,
     ProviderSpec,
     _validate_provider_specs,
+    builtin_model_spec,
     get_provider_spec,
 )
+from lib.backends.provider_assets import InferenceCredentialRef
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
@@ -51,7 +53,7 @@ def _built(spec: ProviderSpec, config: LoadedConfig, model: str | None) -> dict[
     ],
 )
 def test_migrated_builtin_video_providers_use_shipped_definitions(provider_id: str, model: str, endpoint: str):
-    backend = get_provider_spec(provider_id, "video").build_backend(
+    backend = get_provider_spec(provider_id, "video", endpoint).build_backend(
         _loaded(credentials={"api_key": "sk-test"}, provider_id=provider_id), model
     )
 
@@ -68,7 +70,7 @@ class TestBuildSimpleBaseUrlPriority:
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="ark")
         assert _built(get_provider_spec("ark", "image"), config, "doubao-seed-2-0-pro-260215") == {
             "media": "image",
-            "backend": "ark",
+            "backend": "ark-seedream-4",
             "kwargs": {
                 "api_key": "sk-test",
                 "model": "doubao-seed-2-0-pro-260215",
@@ -91,15 +93,53 @@ class TestBuildSimpleBaseUrlPriority:
         # ark-agent-plan 媒体侧复用 Ark backend，但 registry default 是独立的 /api/plan/v3
         # （非 ark 的 /api/v3）。
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="ark-agent-plan")
-        assert _built(get_provider_spec("ark-agent-plan", "video"), config, "doubao-seedance-2.0") == {
+        built = _built(get_provider_spec("ark-agent-plan", "video"), config, "doubao-seedance-2.0")
+        assert built == {
             "media": "video",
-            "backend": "ark-agent-plan",
+            "backend": "ark-seedance-2",
             "kwargs": {
                 "api_key": "sk-test",
                 "model": "doubao-seedance-2.0",
                 "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
             },
         }
+
+    @pytest.mark.parametrize("provider_id", ["ark", "ark-agent-plan"])
+    def test_ark_video_reports_the_inference_credential_record(self, provider_id: str):
+        """方舟视频通道报出实际使用的凭证记录（供素材库核对绑定）；凭证不来自记录时不报出。"""
+        meta = PROVIDER_REGISTRY.get(provider_id)
+        assert meta is not None
+        config = dataclasses.replace(
+            _loaded(credentials={"api_key": "TEST-ark-key"}, provider_id=provider_id), credential_id=11
+        )
+        kwargs = _built(get_provider_spec(provider_id, "video"), config, "doubao-seedance-2-0-260128")["kwargs"]
+        assert kwargs["inference_credential"] == InferenceCredentialRef(
+            credential_type="builtin",
+            credential_id=11,
+            api_key="TEST-ark-key",
+            base_url=None,
+            default_base_url=meta.default_base_url,
+        )
+        plain = _loaded(credentials={"api_key": "TEST-ark-key"}, provider_id=provider_id)
+        assert "inference_credential" not in _built(get_provider_spec(provider_id, "video"), plain, "m")["kwargs"]
+
+    @pytest.mark.parametrize(
+        ("provider_id", "model_id", "endpoint"),
+        [
+            ("ark", "doubao-seedance-2-0-260128", "ark-seedance-2"),
+            ("ark", "doubao-seedance-2-0-mini-260615", "ark-seedance-2"),
+            ("ark", "doubao-seedance-2-5-260628", "ark-seedance-2-5"),
+            ("ark-agent-plan", "doubao-seedance-2.0-fast", "ark-seedance-2"),
+        ],
+    )
+    def test_ark_video_builds_through_the_seedance_endpoint_of_the_model(
+        self, provider_id: str, model_id: str, endpoint: str
+    ):
+        """官方收录的方舟视频模型按数据声明的 Seedance 端点装配。"""
+        config = _loaded(credentials={"api_key": "TEST-ark-key"}, provider_id=provider_id)
+        spec = builtin_model_spec(provider_id, "video", model_id)
+        assert spec.endpoint == endpoint
+        assert _built(spec, config, model_id)["backend"] == endpoint
 
     def test_grok_image_no_default_no_user_omits_base_url(self):
         # grok 无 registry default 且用户未配 → 不传 base_url（grok backend 不接受该参数）
@@ -123,7 +163,7 @@ class TestMediaRegistryRouting:
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="dashscope")
         assert _built(get_provider_spec("dashscope", "video"), config, "wan2.7-r2v") == {
             "media": "video",
-            "backend": "dashscope",
+            "backend": "dashscope-always-on-video",
             "kwargs": {
                 "api_key": "sk-test",
                 "model": "wan2.7-r2v",
@@ -147,12 +187,26 @@ class TestMediaRegistryRouting:
 
     def test_dashscope_audio_uses_audio_registry(self):
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="dashscope")
+        # 默认端点仍是 multimodal-generation；registry 名就是端点名
         assert _built(get_provider_spec("dashscope", "audio"), config, "qwen3-tts-flash") == {
             "media": "audio",
-            "backend": "dashscope",
+            "backend": "dashscope-tts",
             "kwargs": {
                 "api_key": "sk-test",
                 "model": "qwen3-tts-flash",
+                "base_url": "https://dashscope.aliyuncs.com",
+            },
+        }
+
+    def test_dashscope_speech_synthesizer_endpoint_uses_its_own_registry_name(self):
+        config = _loaded(credentials={"api_key": "sk-test"}, provider_id="dashscope")
+        spec = get_provider_spec("dashscope", "audio", "dashscope-speech-synthesizer")
+        assert _built(spec, config, "qwen-audio-3.1-tts-flash") == {
+            "media": "audio",
+            "backend": "dashscope-speech-synthesizer",
+            "kwargs": {
+                "api_key": "sk-test",
+                "model": "qwen-audio-3.1-tts-flash",
                 "base_url": "https://dashscope.aliyuncs.com",
             },
         }
@@ -267,6 +321,40 @@ class TestGeminiSpec:
             },
         }
 
+    @pytest.mark.parametrize(
+        ("provider_id", "endpoint", "backend_type", "credentials", "extra"),
+        [
+            ("gemini-aistudio", "gemini-interactions-video", "aistudio", {"api_key": "sk-aistudio"}, {}),
+            (
+                "gemini-vertex",
+                "gemini-vertex-interactions-video",
+                "vertex",
+                {"credentials_path": "/legacy/vertex.json"},
+                {"credentials_path": "/legacy/vertex.json"},
+            ),
+        ],
+    )
+    def test_interactions_video_endpoint_builds_its_own_backend_with_the_same_credentials(
+        self, provider_id, endpoint, backend_type, credentials, extra
+    ):
+        # Veo 仍是默认端点；Interactions 端点按端点名建对应后端，凭证与 backend_type 与 Veo 一致
+        assert get_provider_spec(provider_id, "video").endpoint != endpoint
+        config = LoadedConfig(
+            credentials=credentials, provider_meta=PROVIDER_REGISTRY.get(provider_id), rate_limiter=None
+        )
+        assert _built(get_provider_spec(provider_id, "video", endpoint), config, "gemini-omni-1.1-flash") == {
+            "media": "video",
+            "backend": endpoint,
+            "kwargs": {
+                "backend_type": backend_type,
+                "api_key": credentials.get("api_key"),
+                "base_url": credentials.get("base_url"),
+                "rate_limiter": None,
+                "video_model": "gemini-omni-1.1-flash",
+                **extra,
+            },
+        }
+
     def test_bare_gemini_not_registered(self):
         # 裸 "gemini"（无 aistudio/vertex 后缀）是死路径：resolver 只产出带后缀 id。
         # fail-loud，不为死路径登记兜底行。
@@ -328,12 +416,12 @@ class TestKlingSpec:
 
     def test_video_dual_secret_no_api_model_name(self):
         spec = get_provider_spec("kling", "video")
-        assert spec.registry_backend == "kling"
+        assert spec.registry_backend == "kling-video-pro-silent"
         config = self._kling_config(access_key="ak-1", secret_key="sk-1")
         # video backend 不接受 api_model_name：即使 model 是别名也不传该参数
         assert _built(spec, config, "kling-v3") == {
             "media": "video",
-            "backend": "kling",
+            "backend": "kling-video-pro-silent",
             "kwargs": {
                 "auth_mode": "jwt",
                 "access_key": "ak-1",
@@ -363,6 +451,20 @@ class TestKlingSpec:
             "api_model_name": "kling-v3-omni",
             "base_url": "https://api-beijing.klingai.com/v1",
         }
+
+    def test_model_path_endpoint_uses_api_key_without_version_segment(self):
+        from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
+
+        spec = get_provider_spec("kling", "video", "kling-video-model-path")
+        backend = spec.build_backend(self._kling_config(api_key="sk-api-1"), "kling-4.0")
+        assert isinstance(backend, KlingModelPathVideoBackend)
+        # 内置供应商的默认 base_url 带 /v1，新版 API 的路径直接接在域名后
+        assert backend._base_url == "https://api-beijing.klingai.com"
+
+    def test_model_path_endpoint_refuses_dual_secret(self):
+        spec = get_provider_spec("kling", "video", "kling-video-model-path")
+        with pytest.raises(ValueError, match="只支持 API Key"):
+            spec.build_backend(self._kling_config(access_key="ak-1", secret_key="sk-1"), "kling-4.0")
 
     def test_api_key_takes_priority_over_dual_secret_when_both_set(self):
         """两者都填时 api_key 优先（不透传 access_key/secret_key）。"""

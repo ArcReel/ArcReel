@@ -15,8 +15,8 @@ class BuiltinProviderModelState(TimestampMixin, Base):
     一行是两种之一：
 
     - 官方收录模型的启用状态。模型清单与全部字段跟随官方数据，这里只记用户的启用或停用；没有行时，
-      条目未下架即为启用。
-    - 用户添加的模型（``user_added``）：API 模型名、媒体类型、供应商模型倍率、条目绑定与能力覆盖都由用户负责。
+      条目未下线即为启用。
+    - 用户添加的模型（``user_added``）：API 模型名、媒体类型、调用端点、供应商模型倍率、条目绑定与能力覆盖都由用户负责。
       官方数据日后收录同一模型键时，这一行只剩启用状态还在生效。
 
     ``model_id`` 是设置与项目里引用这个供应商模型的模型键：官方收录的取目录查询给出的键，用户添加的就是
@@ -41,3 +41,6 @@ class BuiltinProviderModelState(TimestampMixin, Base):
     entry_binding: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # 能力覆盖（docs/adr/0104），稀疏字典，键名与自定义供应商模型的能力覆盖一致。
     capability_overrides: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    # 挂接的内置调用端点，取值是该供应商在 ``media_type`` 下的可选端点之一。NULL = 没有记下，装配按官方收录模型的
+    # 规则选端点（lib.backends.backend_assembly.specs.builtin_model_endpoint）。
+    endpoint: Mapped[str | None] = mapped_column(String(64), nullable=True)

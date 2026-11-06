@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,9 @@ import pytest
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.catalog.errors import ModelDiscontinuedError
+from lib.catalog.query import factory_snapshot
+from lib.config.service import ConfigService
 from lib.custom_provider import make_endpoint_key, make_provider_id
 from lib.custom_provider.path_overrides import endpoint_guard
 from lib.db.models.task import Task
@@ -33,8 +36,10 @@ from lib.script.reference_video.execution_checkpoint import (
     StoryboardSubmissionCheckpoint,
 )
 from server.services.tasks import generation_context
+from server.services.tasks.generation_context import VideoLaneRequest, resolve_generation_context
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
+from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes
 from tests.factories import custom_endpoint_definition
 from tests.fakes import bind_safe_session_factory, bind_session_factory, use_video_thumbnail_extractor
 from tests.http_capture import capture_http
@@ -122,12 +127,13 @@ async def _seed_custom_video_rows(
     endpoint_count: int = 1,
     model_endpoint_index: int = 0,
     path_overrides: dict[str, str] | None = None,
+    model_id: str = "video-x",
 ) -> dict:
     """落自定义供应商三件套：端点定义、供应商、挂端点键的视频模型行。
 
     ``endpoint_count`` > 1 时额外建端点行；``model_endpoint_index`` 决定模型行
     挂哪个端点键——guard 用例据此制造「模型行端点 ≠ checkpoint 冻结端点」。
-    ``path_overrides`` 是模型行当前的路径覆盖。
+    ``path_overrides`` 是模型行当前的路径覆盖；``model_id`` 与目录条目同名时按名字对应到该条目。
     """
     async with session_factory() as session:
         endpoint_repo = CustomEndpointRepository(session)
@@ -148,8 +154,8 @@ async def _seed_custom_video_rows(
             api_key="sk-secret-key-1234",
             models=[
                 {
-                    "model_id": "video-x",
-                    "display_name": "video-x",
+                    "model_id": model_id,
+                    "display_name": model_id,
                     "endpoint": endpoint_keys[model_endpoint_index],
                     "is_enabled": True,
                     "is_default": True,
@@ -161,8 +167,10 @@ async def _seed_custom_video_rows(
         return {"provider_id": make_provider_id(provider.id), "endpoint_keys": endpoint_keys}
 
 
-def _storyboard_checkpoint_json(task_id: str, *, provider_id: str, endpoint_guard: str) -> str:
-    """真实 ``StoryboardSubmissionCheckpoint.create(...).to_json()``：身份指向自定义供应商行。"""
+def _storyboard_checkpoint_json(
+    task_id: str, *, provider_id: str, endpoint_guard: str | None, model_id: str = "video-x"
+) -> str:
+    """真实 ``StoryboardSubmissionCheckpoint.create(...).to_json()``：身份指向 ``provider_id`` 的 ``model_id``。"""
     visual = ArtifactBasis.build(
         "artifact-visual/video-storyboard",
         kind_version=1,
@@ -186,8 +194,8 @@ def _storyboard_checkpoint_json(task_id: str, *, provider_id: str, endpoint_guar
         unit_id="E1S01",
         generation_type="i2v",
         provider_id=provider_id,
-        provider_model_id="video-x",
-        backend_model_id="video-x",
+        provider_model_id=model_id,
+        backend_model_id=model_id,
         endpoint_guard=endpoint_guard,
         prompt="frozen",
         duration_seconds=8,
@@ -420,3 +428,324 @@ async def test_ce_orphan_resumes_through_unchanged_path_overrides(chain_project:
     assert submit.call_count == 0
     assert poll.call_count == 1
     assert (await _load_task_row(session_factory, "T-ce-paths-kept")).status == "succeeded"
+
+
+#: 关停日期之后续跑的模型：内置 agnes 收录它，自定义供应商里同名的模型按名字对应到同一个条目。
+RETIRED_MODEL = "agnes-video-v2.0"
+SHUTDOWN = date(2026, 11, 24)
+
+
+@pytest.fixture
+def retired_model(monkeypatch) -> None:
+    """``RETIRED_MODEL`` 的条目定在 ``SHUTDOWN`` 关停，今天就是关停日：任务在此之前已提交，重启后才续跑。"""
+    install_catalog(
+        monkeypatch,
+        with_entry_changes(
+            factory_snapshot(),
+            "agnes",
+            RETIRED_MODEL,
+            discontinued=False,
+            shutdown_date=SHUTDOWN,
+            successor="agnes/agnes-video-2.5",
+        ),
+    )
+    set_catalog_today(monkeypatch, SHUTDOWN)
+
+
+async def _configure_agnes(session_factory) -> None:
+    async with session_factory() as session:
+        await ConfigService(session).set_provider_config("agnes", "api_key", "sk-agnes")
+        await session.commit()
+
+
+async def _assert_new_submission_rejected(provider_id: str) -> None:
+    """同一模型在关停日期之后的新提交仍报下线：按当前配置解析（队列执行移除了入队时的身份）报错，
+    载荷里锁定了同一身份、但没有声明是续跑的调用同样报错。"""
+    identity = f"{provider_id}/{RETIRED_MODEL}"
+    with pytest.raises(ModelDiscontinuedError) as excinfo:
+        await resolve_generation_context(
+            "demo",
+            None,
+            project={"video_provider_i2v": identity},
+            video=VideoLaneRequest(generation_type="i2v", route="storyboard"),
+        )
+    assert excinfo.value.code == "model_discontinued"
+    assert excinfo.value.params["shutdown_date"] == SHUTDOWN.isoformat()
+    with pytest.raises(ModelDiscontinuedError):
+        await resolve_generation_context(
+            "demo", {"video_provider_i2v": identity}, project={}, video=VideoLaneRequest(generation_type="i2v")
+        )
+
+
+async def test_builtin_job_submitted_before_shutdown_still_resumes_after_it(
+    chain_project: Path, session_factory, retired_model
+):
+    """内置供应商：关停前已提交、带厂商任务 ID 的任务，关停后重启续跑照常轮询取回结果，不重新提交；新提交仍报下线。"""
+    await _configure_agnes(session_factory)
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-agnes-retired",
+        provider_id="agnes",
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-agnes-retired", provider_id="agnes", endpoint_guard=None, model_id=RETIRED_MODEL
+        ),
+    )
+
+    with capture_http() as router:
+        submit = router.post("https://apihub.agnes-ai.com/v1/videos")
+        poll = router.get("https://apihub.agnes-ai.com/v1/videos/job-old").mock(
+            return_value=httpx.Response(200, json={"status": "completed", "url": "https://cdn.agnes.test/job-old.mp4"})
+        )
+        download = router.get("https://cdn.agnes.test/job-old.mp4").mock(
+            return_value=httpx.Response(200, content=b"resumed")
+        )
+
+        await _run_orphan_recovery(session_factory)
+
+    assert submit.call_count == 0
+    assert (poll.call_count, download.call_count) == (1, 1)
+    row = await _load_task_row(session_factory, "T-agnes-retired")
+    assert row.status == "succeeded", row.error_message
+    paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
+    assert [path.read_bytes() for path in paid_files] == [b"resumed"]
+
+    # 续跑构造的 backend 已进实例缓存，新提交也不能经缓存绕过下线检查。
+    await _assert_new_submission_rejected("agnes")
+
+
+async def test_custom_job_submitted_before_shutdown_still_resumes_after_it(
+    chain_project: Path, session_factory, retired_model
+):
+    """自定义供应商：模型对应的条目关停后，重启续跑关停前已提交的任务照常轮询取回结果，不重新提交；新提交仍报下线。"""
+    rows = await _seed_custom_video_rows(session_factory, model_id=RETIRED_MODEL)
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-ce-retired",
+        provider_id=rows["provider_id"],
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-ce-retired",
+            provider_id=rows["provider_id"],
+            endpoint_guard=rows["endpoint_keys"][0],
+            model_id=RETIRED_MODEL,
+        ),
+    )
+
+    with capture_http() as router:
+        submit = router.post("https://relay.test/v1/video/create")
+        poll = router.get("https://relay.test/v1/video/fetch/job-old").mock(
+            return_value=httpx.Response(
+                200, json={"status": "completed", "video_url": "https://relay.test/files/job-old.mp4"}
+            )
+        )
+        download = router.get("https://relay.test/files/job-old.mp4").mock(
+            return_value=httpx.Response(200, content=b"resumed")
+        )
+
+        await _run_orphan_recovery(session_factory)
+
+    assert submit.call_count == 0
+    assert (poll.call_count, download.call_count) == (1, 1)
+    row = await _load_task_row(session_factory, "T-ce-retired")
+    assert row.status == "succeeded", row.error_message
+
+    await _assert_new_submission_rejected(rows["provider_id"])
+
+
+#: 端点拆分前的方舟 Seedance 端点名：升级前提交的任务把它冻结在检查点里。
+LEGACY_SEEDANCE_ENDPOINT = "ark-seedance"
+SEEDANCE_MODEL = "doubao-seedance-2-0-260128"
+
+
+async def _seed_relay_model(session_factory, *, endpoint: str, model_id: str) -> str:
+    """落一个经内置调用端点 ``endpoint`` 调用 ``model_id`` 的自定义供应商，返回供应商 ID。"""
+    async with session_factory() as session:
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="方舟中转",
+            discovery_format="openai",
+            base_url="https://ark-relay.test",
+            api_key="sk-secret-key-1234",
+            models=[
+                {
+                    "model_id": model_id,
+                    "display_name": model_id,
+                    "endpoint": endpoint,
+                    "is_enabled": True,
+                    "is_default": True,
+                }
+            ],
+        )
+        await session.commit()
+        return make_provider_id(provider.id)
+
+
+async def test_seedance_job_submitted_before_endpoint_split_resumes(chain_project: Path, session_factory):
+    """升级前经 ``ark-seedance`` 提交的任务：模型行已回填为协议等价的 ``ark-seedance-2``，续跑照常取回结果、不重新提交。"""
+    provider_id = await _seed_relay_model(session_factory, endpoint="ark-seedance-2", model_id=SEEDANCE_MODEL)
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-seedance-legacy",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-seedance-legacy",
+            provider_id=provider_id,
+            endpoint_guard=LEGACY_SEEDANCE_ENDPOINT,
+            model_id=SEEDANCE_MODEL,
+        ),
+    )
+
+    with capture_http() as router:
+        submit = router.post("https://ark-relay.test/api/v3/contents/generations/tasks")
+        poll = router.get("https://ark-relay.test/api/v3/contents/generations/tasks/job-old").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "job-old",
+                    "model": SEEDANCE_MODEL,
+                    "status": "succeeded",
+                    "content": {"video_url": "https://cdn.ark.test/job-old.mp4"},
+                    "usage": {"completion_tokens": 10, "total_tokens": 10},
+                    "created_at": 1,
+                    "updated_at": 2,
+                },
+            )
+        )
+        download = router.get("https://cdn.ark.test/job-old.mp4").mock(
+            return_value=httpx.Response(200, content=b"resumed")
+        )
+
+        await _run_orphan_recovery(session_factory)
+
+    assert submit.call_count == 0
+    assert (poll.call_count, download.call_count) == (1, 1)
+    row = await _load_task_row(session_factory, "T-seedance-legacy")
+    assert row.status == "succeeded", row.error_message
+    paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
+    assert [path.read_bytes() for path in paid_files] == [b"resumed"]
+
+
+async def test_seedance_job_rejected_after_switching_protocol(chain_project: Path, session_factory):
+    """升级前经 ``ark-seedance`` 提交的任务：模型行在途改挂了别的协议，续跑在发出任何请求前失败。"""
+    provider_id = await _seed_relay_model(session_factory, endpoint="openai-video", model_id=SEEDANCE_MODEL)
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-seedance-switched",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-seedance-switched",
+            provider_id=provider_id,
+            endpoint_guard=LEGACY_SEEDANCE_ENDPOINT,
+            model_id=SEEDANCE_MODEL,
+        ),
+    )
+
+    with capture_http() as router:
+        ark = router.route(host="ark-relay.test")
+
+        await _run_orphan_recovery(session_factory)
+
+    assert ark.call_count == 0
+    row = await _load_task_row(session_factory, "T-seedance-switched")
+    assert row.status == "failed"
+    assert row.error_message is not None
+    assert "resume_endpoint_changed" in row.error_message
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ["kling-video-pro-silent", "kling-video-pro-audio", "kling-video-audio", "kling-video-silent"],
+)
+async def test_kling_job_submitted_before_split_resumes(chain_project: Path, session_factory, endpoint: str):
+    """旧可灵任务可经协议等价后继取回结果，零次重新提交。"""
+    model = "kling-v2-6"
+    provider_id = await _seed_relay_model(session_factory, endpoint=endpoint, model_id=model)
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-kling-legacy",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-kling-legacy", provider_id=provider_id, endpoint_guard="kling-video", model_id=model
+        ),
+    )
+    with capture_http() as router:
+        submit = router.post("https://ark-relay.test/v1/videos/text2video")
+        poll = router.get("https://ark-relay.test/v1/videos/text2video/job-old").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "task_status": "succeed",
+                        "task_result": {"videos": [{"url": "https://cdn.kling.test/old.mp4"}]},
+                    },
+                },
+            )
+        )
+        download = router.get("https://cdn.kling.test/old.mp4").mock(
+            return_value=httpx.Response(200, content=b"resumed-kling")
+        )
+        await _run_orphan_recovery(session_factory)
+
+    assert submit.call_count == 0
+    assert (poll.call_count, download.call_count) == (1, 1)
+    row = await _load_task_row(session_factory, "T-kling-legacy")
+    assert row.status == "succeeded", row.error_message
+    paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
+    assert [path.read_bytes() for path in paid_files] == [b"resumed-kling"]
+
+
+async def test_old_kling_job_rejects_a_different_protocol(chain_project: Path, session_factory):
+    provider_id = await _seed_relay_model(session_factory, endpoint="openai-video", model_id="kling-v2-6")
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-kling-switched",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-kling-switched", provider_id=provider_id, endpoint_guard="kling-video", model_id="kling-v2-6"
+        ),
+    )
+    with capture_http() as router:
+        outbound = router.route(host="ark-relay.test")
+        await _run_orphan_recovery(session_factory)
+    assert outbound.call_count == 0
+    row = await _load_task_row(session_factory, "T-kling-switched")
+    assert row.status == "failed"
+    assert "resume_endpoint_changed" in (row.error_message or "")
+
+
+@pytest.mark.parametrize("endpoint", ["dashscope-wan3-video", "openai-video"])
+async def test_dashscope_legacy_job_resumes_only_on_successor(chain_project: Path, session_factory, endpoint: str):
+    provider_id = await _seed_relay_model(session_factory, endpoint=endpoint, model_id="wan3.0-video")
+    await _seed_running_video_task(
+        session_factory,
+        task_id="T-dashscope-legacy",
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            "T-dashscope-legacy",
+            provider_id=provider_id,
+            endpoint_guard="dashscope-async-video",
+            model_id="wan3.0-video",
+        ),
+    )
+    with capture_http() as router:
+        submit = router.post("https://ark-relay.test/api/v1/services/aigc/video-generation/video-synthesis")
+        poll = router.get("https://ark-relay.test/api/v1/tasks/job-old").respond(
+            200,
+            json={
+                "output": {"task_status": "SUCCEEDED", "video_url": "https://cdn.test/legacy.mp4"},
+                "usage": {"duration": 5},
+            },
+        )
+        download = router.get("https://cdn.test/legacy.mp4").respond(200, content=b"resumed")
+        await _run_orphan_recovery(session_factory)
+    row = await _load_task_row(session_factory, "T-dashscope-legacy")
+    assert submit.call_count == 0
+    if endpoint == "dashscope-wan3-video":
+        assert row.status == "succeeded", row.error_message
+        assert (poll.call_count, download.call_count) == (1, 1)
+        paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
+        assert [path.read_bytes() for path in paid_files] == [b"resumed"]
+    else:
+        assert row.status == "failed"
+        assert row.error_message
+        assert "resume_endpoint_changed" in row.error_message
+        assert len(router.calls) == 0

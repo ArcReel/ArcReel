@@ -73,7 +73,7 @@ def build_reference_units_split_prompt(
         default_duration: 用户项目偏好的默认秒数；须为 supported_durations 成员或 None。
         source_kind: 本集源文件类型；``"screenplay"`` 走提取分支（照用场次、台词逐字照搬），
             其余取值一律按 ``"novel"`` 渲染。
-        source_language: 项目源文语言码（zh / en / vi 或 None），供台词口播时长下界取语速。
+        source_language: 项目源文语言码（zh / en / vi / ru 或 None），供台词口播时长下界取语速。
         speech_rate_override: 项目级语速覆盖（阅读单位 / 秒，由调用方经
             ``project_speech_rate_override`` 解析）；None 即无覆盖、回退语言默认。
         episode_target_duration: 项目级「单集目标时长」偏好（秒，由调用方经

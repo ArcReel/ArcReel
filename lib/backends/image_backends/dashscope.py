@@ -45,10 +45,6 @@ DEFAULT_MODEL = "qwen-image-2.0"
 
 _IMAGE_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 
-# 参考图上限：qwen 系 1~3 张、wan 系 0~9 张（docs 确权）
-_QWEN_REF_LIMIT = 3
-_WAN_REF_LIMIT = 9
-
 # 缺分辨率时各族默认短边。比例永远来自 aspect_ratio，由 arcreel_market_core.aspect_size 在各族像素约束内
 # 算精确比例（见 docs/adr/0011），不用带比例偏差的静态像素表：
 #   - qwen 融合系列 native 默认 2048²；wan 默认 2K 档；编辑系列由 max_long_edge 自然收口。
@@ -72,6 +68,8 @@ class DashScopeImageBackend:
     """阿里百炼图像后端（同步 multimodal 端点）。"""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+    # 通道本身不限参考图张数：qwen 系与 wan 系的上限是模型事实，记在条目上。
+    CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
         self,
@@ -87,9 +85,6 @@ class DashScopeImageBackend:
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
         self._transport_layer = transport_layer
-        mid = self._model.lower()
-        self._is_wan = mid.startswith("wan")
-        self._is_edit = "qwen-image-edit" in mid
 
     @staticmethod
     def _exceeds_standard_budget(size: str) -> bool:
@@ -126,19 +121,13 @@ class DashScopeImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return set(self.CHANNEL_CAPABILITIES)
 
-    async def reference_image_limit(self) -> int:
-        return self._reference_limit
-
-    @property
-    def _reference_limit(self) -> int:
-        return _WAN_REF_LIMIT if self._is_wan else _QWEN_REF_LIMIT
+    async def reference_image_limit(self) -> int | None:
+        return self.CHANNEL_REFERENCE_LIMIT
 
     @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:
         """预估只报张数：百炼图片按张统一价，尺寸不影响费用。"""
-        refs = facts.reference_count
-        limit = _WAN_REF_LIMIT if facts.model.lower().startswith("wan") else _QWEN_REF_LIMIT
-        return per_image_usage(output_images=1, input_images=None if refs is None else min(refs, limit))
+        return per_image_usage(output_images=1, input_images=facts.reference_count)
 
     @with_retry_async(retry_if=should_retry_submit)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -214,27 +203,6 @@ class DashScopeImageBackend:
         explicit = (request.image_size or "").strip()
         aspect = request.aspect_ratio
 
-        if self._is_wan:
-            # 超 2048×2048 预算（4K 档或大像素值）仅 wan2.7-image-pro 文生图支持，
-            # 非 pro 不支持、pro 的 I2I 不支持 —— 先门控（档位词与像素值统一判定）
-            budget_word = explicit or _DEFAULT_WAN_BUDGET
-            exceeds = self._exceeds_standard_budget(budget_word)
-            if exceeds and ("pro" not in self._model.lower() or has_refs):
-                raise ImageCapabilityError("image_dashscope_4k_t2i_only", model=self._model)
-            max_total = _FOURK_PIXEL_BUDGET if exceeds else _STANDARD_PIXEL_BUDGET
-            short = resolution_to_short_edge(
-                explicit or None, tier_map=IMAGE_TIER_SHORT_EDGE, default_short=_DEFAULT_SHORT_WAN
-            )
-            w, h = aspect_size(aspect, short, round_to=16, max_total_pixels=max_total, max_ratio=_DASHSCOPE_MAX_RATIO)
-            return f"{w}*{h}"
-
-        if self._is_edit:
-            short = resolution_to_short_edge(
-                explicit or None, tier_map=IMAGE_TIER_SHORT_EDGE, default_short=_DEFAULT_SHORT_EDIT
-            )
-            w, h = aspect_size(aspect, short, round_to=16, max_long_edge=_EDIT_MAX_LONG_EDGE, max_ratio=_EDIT_MAX_RATIO)
-            return f"{w}*{h}"
-
         # qwen-image-2.0 融合系列
         short = resolution_to_short_edge(
             explicit or None, tier_map=IMAGE_TIER_SHORT_EDGE, default_short=_DEFAULT_SHORT_FUSION
@@ -268,14 +236,45 @@ class DashScopeImageBackend:
                 raise ImageCapabilityError(
                     "image_reference_images_unreadable", model=self._model, names=", ".join(unreadable)
                 )
-            if len(data_uris) > self._reference_limit:
-                logger.warning(
-                    "DashScope 参考图数量 %d 超过 model=%s 上限 %d，截断",
-                    len(data_uris),
-                    self._model,
-                    self._reference_limit,
-                )
-                data_uris = data_uris[: self._reference_limit]
             content.extend({"image": uri} for uri in data_uris)
         content.append({"text": request.prompt})
         return content
+
+
+class DashScopeWanImageBackend(DashScopeImageBackend):
+    """Wan 任意像素请求，带参考图时只用标准像素预算。"""
+
+    def _resolve_size(self, request: ImageGenerationRequest, has_refs: bool) -> str:
+        explicit = (request.image_size or "").strip()
+        aspect = request.aspect_ratio
+        # 模型可选分辨率来自条目；带参考图的请求一律不超过标准预算。
+        budget_word = explicit or _DEFAULT_WAN_BUDGET
+        exceeds = self._exceeds_standard_budget(budget_word)
+        if exceeds and has_refs:
+            raise ImageCapabilityError("image_dashscope_4k_t2i_only", model=self._model)
+        max_total = _FOURK_PIXEL_BUDGET if exceeds else _STANDARD_PIXEL_BUDGET
+        short = resolution_to_short_edge(
+            explicit or None, tier_map=IMAGE_TIER_SHORT_EDGE, default_short=_DEFAULT_SHORT_WAN
+        )
+        w, h = aspect_size(aspect, short, round_to=16, max_total_pixels=max_total, max_ratio=_DASHSCOPE_MAX_RATIO)
+        return f"{w}*{h}"
+
+
+class DashScopeQwenEditImageBackend(DashScopeImageBackend):
+    """Qwen 编辑请求：宽高均不超过 2048。"""
+
+    def _resolve_size(self, request: ImageGenerationRequest, has_refs: bool) -> str:
+        explicit = (request.image_size or "").strip()
+        aspect = request.aspect_ratio
+        short = resolution_to_short_edge(
+            explicit or None, tier_map=IMAGE_TIER_SHORT_EDGE, default_short=_DEFAULT_SHORT_EDIT
+        )
+        w, h = aspect_size(aspect, short, round_to=16, max_long_edge=_EDIT_MAX_LONG_EDGE, max_ratio=_EDIT_MAX_RATIO)
+        return f"{w}*{h}"
+
+
+DASHSCOPE_IMAGE_BACKENDS = {
+    "dashscope-qwen-image": DashScopeImageBackend,
+    "dashscope-wan-image": DashScopeWanImageBackend,
+    "dashscope-qwen-image-edit": DashScopeQwenEditImageBackend,
+}

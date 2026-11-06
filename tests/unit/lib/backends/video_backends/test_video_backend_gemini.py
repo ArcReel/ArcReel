@@ -107,7 +107,8 @@ class TestGeminiVideoBackendProperties:
     def test_video_capabilities_aistudio(self, gemini_backend):
         caps = gemini_backend.video_capabilities
         assert caps.last_frame is True
-        assert caps.max_reference_images == 3
+        # 通道实现了参考图且不设上限；Veo 各型号的上限（Lite 为 0）来自条目
+        assert caps.max_reference_images is None
         # 未传 video_model 时落到默认视频型号
         assert gemini_backend.model == GEMINI_DEFAULT_VIDEO_MODEL
 

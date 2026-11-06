@@ -64,13 +64,13 @@ class TestCapabilities:
     def test_declares_no_reference_image_limit(self):
         from lib.backends.image_backends.agnes import AgnesImageBackend
 
-        # 该后端不按数量裁剪参考图（全量下传，见 i2i 用例），故声明 0 让编排层不裁剪。
-        assert asyncio.run(AgnesImageBackend(api_key="sk").reference_image_limit()) == 0
+        # 该通道不按数量裁剪参考图（全量下传，见 i2i 用例），不声明上限。
+        assert asyncio.run(AgnesImageBackend(api_key="sk").reference_image_limit()) is None
 
     def test_default_model_when_unset(self):
         from lib.backends.image_backends.agnes import AgnesImageBackend
 
-        assert AgnesImageBackend(api_key="sk").model == "agnes-image-2.5-flash"
+        assert AgnesImageBackend(api_key="sk").model == "agnes-image-2.1-flash"
 
     def test_registered_in_factory(self):
         from lib.backends.image_backends import create_backend, get_registered_backends
@@ -120,9 +120,9 @@ class TestTextToImage:
     async def test_v25_request_build_uses_size_tier_and_ratio(self, tmp_path: Path):
         download = AsyncMock()
         with _generate_route(_img_response(), download) as route:
-            from lib.backends.image_backends.agnes import AgnesImageBackend
+            from lib.backends.image_backends.agnes import AgnesTierImageBackend
 
-            backend = AgnesImageBackend(api_key="sk", model="agnes-image-2.5-flash")
+            backend = AgnesTierImageBackend(api_key="sk", model="agnes-image-2.5-flash")
             result = await backend.generate(
                 ImageGenerationRequest(
                     prompt="a fox",
@@ -161,9 +161,9 @@ class TestTextToImage:
     async def test_v25_default_size_is_1k(self, tmp_path: Path):
         download = AsyncMock()
         with _generate_route(_img_response(), download) as route:
-            from lib.backends.image_backends.agnes import AgnesImageBackend
+            from lib.backends.image_backends.agnes import AgnesTierImageBackend
 
-            backend = AgnesImageBackend(api_key="sk", model="agnes-image-2.5-flash")
+            backend = AgnesTierImageBackend(api_key="sk", model="agnes-image-2.5-flash")
             await backend.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
 
         body = request_json(only_request(route))
@@ -211,9 +211,9 @@ class TestImageToImage:
         download = AsyncMock()
         refs = [_make_ref(tmp_path, f"r{i}.png") for i in range(2)]
         with _generate_route(_img_response(), download) as route:
-            from lib.backends.image_backends.agnes import AgnesImageBackend
+            from lib.backends.image_backends.agnes import AgnesTierImageBackend
 
-            b = AgnesImageBackend(api_key="sk")
+            b = AgnesTierImageBackend(api_key="sk")
             await b.generate(
                 ImageGenerationRequest(prompt="hero", output_path=tmp_path / "o.png", reference_images=refs)
             )

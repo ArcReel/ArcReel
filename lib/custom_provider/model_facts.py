@@ -1,13 +1,13 @@
 """供应商模型的生效模型事实：能力覆盖 > 对应条目 > 运行时回落（docs/adr/0104、0105）。
 
-模型事实（文本的图片输入、结构化输出、最大输出 token；图片的文生图、图生图；视频的可选时长、分辨率与
-时长联动约束）记在模型条目上。用户负责的供应商模型可以用能力覆盖整维替换其中任一维度，覆盖优先级最高；
+模型事实（文本的图片输入、结构化输出、最大输出 token；图片的文生图、图生图与参考图上限；视频的可选时长、
+分辨率与时长联动约束）记在模型条目上。用户负责的供应商模型可以用能力覆盖整维替换其中任一维度，覆盖优先级最高；
 未覆盖的维度取对应条目的值。对应不上条目时：可选时长取按名字推断的时长预设（一个族都匹配不上时为
 ``[4, 8]``），其余模型事实不加约束（``None``），超出范围由上游拒绝。回落结果只在这里现算，不写入任何字段。
 
 通道事实（视频的输入模式、参考上限、提示词长度上限、音轨形态）的覆盖由
 :mod:`lib.custom_provider.capabilities` 与调用通道声明合成，不在本模块。两类维度共用
-``CustomProviderModel.capability_overrides`` 这一个稀疏字典，键名互不重叠。
+``CustomProviderModel.capability_overrides`` 这一个稀疏字典，图片与视频的参考图上限共用键名，按媒体类型校验。
 
 ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），不经过本模块：调用方按端点形态分流。唯一的例外是
 ComfyUI 视频模型行的可选时长，它是用户在 workflow 原生时长之外增删的偏好，存为 ``durations`` 覆盖，经
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 #: 每种媒体类型可以覆盖的模型事实维度。音频没有模型事实维度。
 MODEL_FACT_OVERRIDE_KEYS: Mapping[str, frozenset[str]] = {
     "text": frozenset({"image_input", "structured_output", "max_output_tokens"}),
-    "image": frozenset({"text_to_image", "image_to_image"}),
+    "image": frozenset({"text_to_image", "image_to_image", "max_reference_images"}),
     "video": frozenset({"durations", "resolutions", "duration_constraints"}),
     "audio": frozenset(),
 }
@@ -67,11 +67,13 @@ def _is_constraints(value: object) -> bool:
 def model_fact_value_matches(key: str, value: object) -> bool:
     """覆盖值能否整维替换该模型事实维度；写入侧校验与读取侧过滤共用这一判定。
 
-    布尔维度只认 ``bool``；最大输出 token 是正整数；可选时长、分辨率是非空列表；时长联动约束只含
+    布尔维度只认 ``bool``；参考图上限是非负整数；最大输出 token 是正整数；可选时长、分辨率是非空列表；时长联动约束只含
     ``by_resolution``（分辨率 → 非空时长列表）与 ``with_reference_images``（时长列表）两个键。
     """
     if key in _BOOL_KEYS:
         return isinstance(value, bool)
+    if key == "max_reference_images":
+        return isinstance(value, int) and not isinstance(value, bool) and value >= 0
     if key == "max_output_tokens":
         return _is_positive_int(value)
     if key == "durations":
@@ -85,6 +87,7 @@ def model_fact_value_matches(key: str, value: object) -> bool:
 
 _TYPE_NAMES: Mapping[str, str] = {
     "max_output_tokens": "int > 0",
+    "max_reference_images": "int >= 0",
     "durations": "list[int > 0]（非空）",
     "resolutions": "list[str]（非空）",
     "duration_constraints": "{by_resolution: {str: list[int > 0]}, with_reference_images: list[int > 0]}",
@@ -123,10 +126,15 @@ class TextModelFacts:
 
 @dataclass(frozen=True)
 class ImageModelFacts:
-    """``None`` 表示这一维不加约束（对应不上条目且没有覆盖）。"""
+    """``None`` 表示这一维不加约束（对应不上条目且没有覆盖）。
+
+    ``max_reference_images`` 是条目记录的参考图上限（``None`` 为未收录，``0`` 为显式不接受）；它与调用通道的
+    上限两侧取较小值，见 :func:`lib.backends.image_capabilities.image_reference_limit`。
+    """
 
     text_to_image: bool | None = None
     image_to_image: bool | None = None
+    max_reference_images: int | None = None
 
 
 @dataclass(frozen=True)
@@ -166,6 +174,7 @@ def image_model_facts(model_id: str, overrides: object | None, *, entry_binding:
     return ImageModelFacts(
         text_to_image=_bool_fact(applied, "text_to_image", None if facts is None else facts.text_to_image),
         image_to_image=_bool_fact(applied, "image_to_image", None if facts is None else facts.image_to_image),
+        max_reference_images=None if facts is None else facts.max_reference_images,
     )
 
 

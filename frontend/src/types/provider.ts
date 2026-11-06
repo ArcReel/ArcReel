@@ -122,10 +122,21 @@ export interface PriceSummary {
 }
 
 /**
- * 供应商模型的状态标记：`discontinued` 已下架；`unpriced` 调用费用会记为未定价；
- * `modified` 用户改过对应的模型信息，不再随官方更新。
+ * 供应商模型的状态标记：`discontinued` 已下线；`retiring` 即将下线（关停日期见 `lifecycle`）；
+ * `unpriced` 调用费用会记为未定价；`modified` 用户改过对应的模型信息，不再随官方更新。
  */
-export type ProviderModelFlag = "discontinued" | "unpriced" | "modified";
+export type ProviderModelFlag = "discontinued" | "retiring" | "unpriced" | "modified";
+
+/**
+ * 供应商模型所对应条目在今天（UTC 日期）的生命周期。`successor` 是官方后继的「模型厂商/官方模型名」；
+ * 对应不上条目的模型为 `available`，日期与后继为 null。
+ */
+export interface ProviderModelLifecycle {
+  status: "available" | "retiring" | "discontinued";
+  /** ISO 日期（YYYY-MM-DD）。 */
+  shutdown_date: string | null;
+  successor: string | null;
+}
 
 /** 供应商详情模型列表的一行（GET /providers/{id}/models），内置与自定义供应商共用。 */
 export interface ProviderModelItem {
@@ -141,6 +152,8 @@ export interface ProviderModelItem {
   official: boolean;
   flags: ProviderModelFlag[];
   price: PriceSummary | null;
+  /** 已下线的模型仍在列表里，但不进入任何候选、也不能调用。 */
+  lifecycle: ProviderModelLifecycle;
   /** 自定义供应商模型的调用端点键；内置供应商为 null。 */
   endpoint: string | null;
 }
@@ -196,12 +209,14 @@ export type CapabilityKey = keyof CapabilityOverrides;
 
 /**
  * 「这个供应商支持的参数」（GET /providers/{id}/models/{model}）：
- * `base` 是没有能力覆盖时运行时采用的值（对应条目的值，对应不上时为运行时回落），`null` 表示不加约束；
- * `overrides` 是生效的能力覆盖；`editable` 是可以修改的维度，按界面顺序，官方收录的模型为空。
+ * `base` 是没有能力覆盖时运行时采用的值（模型条目与调用通道两侧求值的结果），`null` 表示两侧都没有声明（未收录）；
+ * `overrides` 是生效的能力覆盖；`effective` 是叠加覆盖后的生效值；`editable` 是可以修改的维度，按界面顺序，
+ * 官方收录的模型为空；`displayed` 是界面要显示的全部维度，按界面顺序，不在 `editable` 里的只读。
  */
 export interface ProviderModelCapabilities {
   media_type: ProviderModelItem["media_type"];
   editable: CapabilityKey[];
+  displayed: CapabilityKey[];
   base: Partial<Record<CapabilityKey, unknown>>;
   overrides: CapabilityOverrides;
   effective: Partial<Record<CapabilityKey, unknown>>;
@@ -281,11 +296,21 @@ export interface ProviderModelDetail {
   /** 用户指定的条目绑定（「模型厂商/官方模型名」）；按名字对应或官方收录的模型为 null。 */
   entry_binding: string | null;
   capabilities: ProviderModelCapabilities;
-  /** 以下只有自定义供应商的模型有。 */
+  /** 调用端点：自定义供应商的模型，以及内置供应商下用户添加的模型有；官方收录的模型为 null，端点跟随官方。 */
   endpoint: string | null;
+  /** 以下只有自定义供应商的模型有。 */
   resolution: string | null;
   path_overrides: PathOverrides | null;
   requests: EndpointRequest[];
+  /** 内置供应商下用户添加的模型可选的调用端点（这个供应商在该媒体类型下的内置调用端点）；其余为空。 */
+  endpoint_options: BuiltinEndpointOption[];
+}
+
+/** 内置供应商的一个调用端点选项。`display_name_key` 为空串时显示 `display_name`。 */
+export interface BuiltinEndpointOption {
+  key: string;
+  display_name_key: string;
+  display_name: string | null;
 }
 
 /** 保存供应商模型 Sheet 的供应商设置与模型信息；没有传的字段不改。 */

@@ -97,13 +97,12 @@ def _make_mock_svc(
                 ProviderStatus(
                     name=name,
                     display_name=meta.display_name,
-                    description=meta.description,
                     status=status,
                     media_types=catalog.provider_media_types(name),
                     capabilities=catalog.provider_capabilities(name),
                     required_keys=list(meta.required_keys),
                     credential_count=1 if name in ready else 0,
-                    # 没有内置供应商模型状态行的实例：条目已下架的模型为停用
+                    # 没有内置供应商模型状态行的实例：条目已下线的模型为停用
                     disabled_models=disabled_without_state(name),
                 )
             )
@@ -178,14 +177,14 @@ class TestGetSystemConfig:
         assert set(settings.keys()) == expected_keys
 
     def test_options_contain_backend_lists(self):
-        mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio"])
+        mock_svc = _make_mock_svc(ready_providers=["gemini-vertex"])
         with TestClient(_make_app_with_mock(mock_svc)) as client:
             res = client.get("/api/v1/system/config")
         options = res.json()["options"]
         assert "video_backends" in options
         assert "image_backends" in options
-        assert "gemini-aistudio/veo-3.1-generate-preview" in options["video_backends"]
-        assert "gemini-aistudio/gemini-3.1-flash-image" in options["image_backends"]
+        assert "gemini-vertex/veo-3.1-generate-001" in options["video_backends"]
+        assert "gemini-vertex/gemini-3.1-flash-image" in options["image_backends"]
 
     def test_options_exclude_unconfigured_providers(self):
         mock_svc = _make_mock_svc(ready_providers=[])
@@ -197,24 +196,24 @@ class TestGetSystemConfig:
         assert options["audio_backends"] == []
 
     def test_options_exclude_hidden_models(self, monkeypatch):
-        """已下架条目的模型「从下拉剔除、条目保留供算价」，options 是那个下拉。"""
+        """已下线条目的模型「从下拉剔除、条目保留供算价」，options 是那个下拉。"""
         from lib.catalog.query import factory_snapshot
         from tests.catalog_support import install_catalog, with_entry_changes
 
-        data = with_entry_changes(factory_snapshot(), "gemini-aistudio", "veo-3.1-generate-preview", discontinued=True)
+        data = with_entry_changes(factory_snapshot(), "gemini-vertex", "veo-3.1-generate-001", discontinued=True)
         install_catalog(monkeypatch, data)
-        mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio"])
+        mock_svc = _make_mock_svc(ready_providers=["gemini-vertex"])
         with TestClient(_make_app_with_mock(mock_svc)) as client:
             options = client.get("/api/v1/system/config").json()["options"]
-        assert "gemini-aistudio/veo-3.1-generate-preview" not in options["video_backends"]
-        assert "gemini-aistudio/veo-3.1-fast-generate-preview" in options["video_backends"]
+        assert "gemini-vertex/veo-3.1-generate-001" not in options["video_backends"]
+        assert "gemini-vertex/veo-3.1-fast-generate-001" in options["video_backends"]
 
     def test_options_include_multiple_ready_providers(self):
-        mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio", "ark"])
+        mock_svc = _make_mock_svc(ready_providers=["gemini-vertex", "ark"])
         with TestClient(_make_app_with_mock(mock_svc)) as client:
             res = client.get("/api/v1/system/config")
         options = res.json()["options"]
-        assert "gemini-aistudio/veo-3.1-generate-preview" in options["video_backends"]
+        assert "gemini-vertex/veo-3.1-generate-001" in options["video_backends"]
         assert "ark/doubao-seedance-2-0-260128" in options["video_backends"]
 
     def test_anthropic_key_masked(self):
@@ -660,7 +659,7 @@ class TestTtsModelCapabilities:
     def test_model_not_in_catalog_asks_to_reselect(self, monkeypatch):
         """所选语音模型已不在供应商清单中：返回要求重新选择模型的 400，不说成「语音模型无效」。"""
         error = ModelNotInCatalogError(provider_id="minimax", model_id="speech-retired", media_type="audio")
-        monkeypatch.setattr(system_config_router, "audio_backend_capabilities", AsyncMock(side_effect=error))
+        monkeypatch.setattr(system_config_router, "audio_backend_profile", AsyncMock(side_effect=error))
         app = _make_app_with_mock(_make_mock_svc())
         register_error_handlers(app)
         with TestClient(app) as client:

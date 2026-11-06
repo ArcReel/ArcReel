@@ -4,7 +4,7 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 页面外壳与全局设置导航：三档容器（全出血、限宽、铺满）、外壳保存栏与侧栏；
-// 「默认模型」「关于」「提示词模版」分区与配置问题的就地提示。
+// 「默认模型」「关于」「提示词模版」「素材库与存储」分区与配置问题的就地提示。
 // 其他分区的内容由各自的区域重做，这里不截它们的整块内容。供应商分区的场景在 providers.spec.ts。
 
 const RECORDED = loadRecordedResponses();
@@ -37,6 +37,10 @@ function manyModelsOverrides(): ApiOverrides {
     [...video, ...image, ...text, ...audio].map((id, i) => [id, `超长模型名称 ${i + 1} · 高清长时长电影级生成（预览版）`]),
   );
   return {
+    [`GET /api/v1/system/tts-model-capabilities?backend=${encodeURIComponent(audio[5])}`]: {
+      status: 200,
+      body: { supports_speed: true, voices: [] },
+    },
     "GET /api/v1/system/config": {
       status: 200,
       body: {
@@ -62,10 +66,11 @@ function manyModelsOverrides(): ApiOverrides {
     "GET /api/v1/system/config/model-candidates": {
       status: 200,
       body: {
-        image: { default: image, buckets: { t2i: image, i2i: image } },
-        video: { default: video, buckets: { i2v: video, r2v: video } },
+        image: { default: image, buckets: { t2i: image, i2i: image }, filtered: {} },
+        video: { default: video, buckets: { i2v: video, r2v: video }, filtered: {} },
         provider_names: Object.fromEntries(LONG_PROVIDERS),
         model_names: modelNames,
+        lifecycle: {},
       },
     },
   };
@@ -97,6 +102,34 @@ const LONG_RELEASE: ApiOverrides = {
     },
   },
 };
+
+// 「素材库与存储」：已配置对象存储连接、新增图片保存到对象存储，桶里还有未清理的中转副本；桶名与 Endpoint 很长。
+const REMOTE_STORAGE: ApiOverrides = {
+  "GET /api/v1/object-storage/connection": {
+    status: 200,
+    body: {
+      connection: {
+        kind: "tos",
+        region: "cn-beijing",
+        endpoint: "tos-cn-beijing.volces.com",
+        bucket: "arcreel-production-materials-and-relay-bucket-for-the-north-china-studio-team",
+        access_key_id_masked: "TEST…0001",
+        secret_access_key_masked: "TEST…0001",
+        updated_at: "2026-01-01T07:00:00Z",
+      },
+      new_image_target: "object_storage",
+      retained_relay_objects: 12,
+      unreleased_image_objects: 0,
+    },
+  },
+};
+
+const ASSET_LIBRARY = settings("asset-library");
+
+async function assetLibraryReady(page: Page) {
+  await settingsReady(page);
+  await page.getByRole("radiogroup", { name: "新增图片保存位置" }).waitFor();
+}
 
 const PROMPT_TEMPLATES = settings("prompt-templates");
 
@@ -267,6 +300,39 @@ defineRegionScenarios("全局设置", [
       await expect(page.locator(".markdown-body")).toBeVisible();
       await release.scrollIntoViewIfNeeded();
       await expect(release).toBeInViewport();
+    },
+  },
+  {
+    name: "素材库与存储：没有对象存储连接时，新增图片只能保存在本地",
+    path: ASSET_LIBRARY,
+    ready: assetLibraryReady,
+    act: async (page) => {
+      const targets = page.getByRole("radiogroup", { name: "新增图片保存位置" });
+      await expect(targets.getByRole("radio", { name: /^本地/ })).toHaveAttribute("aria-checked", "true");
+      await expect(targets.getByRole("radio", { name: /^对象存储/ })).toHaveAttribute("aria-disabled", "true");
+    },
+  },
+  {
+    name: "素材库与存储：新增图片保存到对象存储，长桶名截断不撑宽内容列",
+    path: ASSET_LIBRARY,
+    api: REMOTE_STORAGE,
+    ready: assetLibraryReady,
+    act: async (page) => {
+      const targets = page.getByRole("radiogroup", { name: "新增图片保存位置" });
+      await expect(targets.getByRole("radio", { name: /^对象存储/ })).toHaveAttribute("aria-checked", "true");
+    },
+    screenshot: { name: "settings-asset-library-remote", target: (page) => page.getByRole("main") },
+  },
+  {
+    name: "素材库与存储：编辑连接时提示桶里还有未清理的中转副本",
+    path: ASSET_LIBRARY,
+    api: REMOTE_STORAGE,
+    ready: assetLibraryReady,
+    act: async (page) => {
+      await page.getByRole("button", { name: "编辑对象存储" }).click();
+      const dialog = page.getByRole("dialog", { name: "编辑对象存储" });
+      await expect(dialog.getByText(/桶里还有 12 个中转副本尚未清理/)).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "保存" })).toBeInViewport();
     },
   },
   {

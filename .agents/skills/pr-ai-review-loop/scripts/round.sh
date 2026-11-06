@@ -15,9 +15,9 @@
 #   What counts as a round is defined once, in SKILL.md「推进循环」.
 #
 # OUTPUT
-#   mark: {round, head, marked_at, implemented, pushback, note, rounds} for the new entry,
-#         plus `hint` from SKILL.md's default evaluation point (round 3) on: a pointer back to
-#         the convergence rules, surfaced when long loops have diluted them.
+#   mark: {round, head, marked_at, implemented, pushback, note, rounds} for the new entry.
+#         The triage and convergence reminder lives in poll.sh's `triage_hint`, shown when a
+#         new batch arrives — before it is judged, not after it is disposed.
 #   show: the whole ledger ({pr, rounds: []} when nothing is marked yet).
 #   Errors are loud: non-zero exit + `ROUND_ERROR:` on stderr.
 
@@ -53,8 +53,8 @@ for tool in gh jq; do
   fi
 done
 
-OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner) || {
-  echo "ROUND_ERROR: gh repo view failed (auth? wrong cwd?)" >&2
+OWNER_REPO=$(gh api 'repos/{owner}/{repo}' --jq .full_name) || {
+  echo "ROUND_ERROR: REST repository lookup failed (auth? wrong cwd?)" >&2
   exit 4
 }
 
@@ -93,8 +93,8 @@ case "$CMD" in
       exit 2
     fi
 
-    HEAD_SHA=$(gh pr view "$PR" --json headRefOid -q .headRefOid) || {
-      echo "ROUND_ERROR: gh pr view $PR failed" >&2
+    HEAD_SHA=$(gh api "repos/${OWNER_REPO}/pulls/${PR}" --jq .head.sha) || {
+      echo "ROUND_ERROR: REST PR lookup $PR failed" >&2
       exit 5
     }
     MARKED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -117,8 +117,7 @@ case "$CMD" in
     ' > "$TMP_FILE"
     mv "$TMP_FILE" "$LEDGER_FILE"
     trap - EXIT
-    HINT='本批意见是常规可达的缺陷，还是在往复？同一处再补丁就回到根因（SKILL「收敛」）；不可达的按 docs/standards/general.md「防御只针对常规可达的场景」驳回。'
-    jq -c --arg hint "$HINT" '.rounds | (last + {rounds: length} + (if length >= 3 then {hint: $hint} else {} end))' "$LEDGER_FILE"
+    jq -c '.rounds | (last + {rounds: length})' "$LEDGER_FILE"
     ;;
 
   *)

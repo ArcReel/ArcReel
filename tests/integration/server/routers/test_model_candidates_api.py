@@ -5,32 +5,42 @@
 在 lib.backends.generation_type_buckets 层单独覆盖。
 
 dashscope 被选作内置侧的样本供应商：它同时提供 i2v-only、t2v-only、r2v 三类视频模型与
-t2i+i2i、i2i-only 两类图片模型，一个 ready 供应商就能把四个桶的过滤差异全部区分出来。
+t2i+i2i 图片模型。出厂目录里仍可用的 i2i-only 图片模型只有 Vidu 的 viduq1，图片桶的用例另把 vidu 设为 ready。
 """
 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from dataclasses import replace
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from arcreel_catalog_core import CatalogData
 from lib.backends.generation_type_buckets import builtin_model_buckets, custom_model_buckets
 from lib.catalog import query as catalog
-from lib.catalog.builtin_models import disabled_without_state
+from lib.catalog.builtin_models import disabled_builtin_models, disabled_without_state, list_builtin_models
+from lib.catalog.errors import ModelDiscontinuedError
 from lib.catalog.query import factory_snapshot
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
 from lib.db.base import Base
+from lib.db.repositories.builtin_provider_model_repo import BuiltinProviderModelRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.generation.task_failure import failure_message_key
+from lib.i18n import SUPPORTED_LOCALES, render_message
+from lib.i18n import _ as translate_message
 from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
 from server.routers import system_config as system_config_router
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.catalog_support import install_catalog, with_entry_changes
+from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes, with_entry_facts
+from tests.factories import make_display_names
+from tests.fakes import use_project_manager
 
 CANDIDATES_URL = "/api/v1/system/config/model-candidates"
 
@@ -47,9 +57,9 @@ def _custom_option(body: dict, model_id: str) -> str:
 DS_I2V_ONLY = "dashscope/wan2.7-i2v"  # i2v ✓ / r2v ✗
 DS_T2V_ONLY = "dashscope/wan2.7-t2v"  # i2v ✗ / r2v ✗
 DS_R2V = "dashscope/wan2.7-r2v"  # i2v ✓ / r2v ✓
-# dashscope 图片模型
+# 图片模型：dashscope 的 t2i+i2i 样本，vidu 的 i2i-only 样本
 DS_IMAGE_BOTH = "dashscope/qwen-image-2.0"
-DS_IMAGE_I2I_ONLY = "dashscope/qwen-image-edit-plus"
+DS_IMAGE_I2I_ONLY = "vidu/viduq1"
 # 无桶维度的媒体类型样本（audio 不设桶）
 DS_AUDIO = "dashscope/qwen3-tts-flash"
 
@@ -59,23 +69,33 @@ DS_AUDIO = "dashscope/qwen3-tts-flash"
 # ---------------------------------------------------------------------------
 
 
-def _make_mock_svc(ready_providers: list[str]) -> ConfigService:
+def _make_mock_svc(
+    ready_providers: list[str], model_states=None, settings: dict[str, str] | None = None
+) -> ConfigService:
+    """``model_states`` 给出会话工厂时，停用集合按内置供应商模型表计算（含用户手动启用过的状态行）。
+
+    ``settings`` 是全局设置项，引用处的提示按其中的模型设置项补上清单之外的引用。
+    """
     ready = set(ready_providers)
     svc = MagicMock(spec=ConfigService)
+    svc.get_all_settings = AsyncMock(return_value=dict(settings or {}))
 
     async def _get_all_providers_status() -> list[ProviderStatus]:
+        disabled: dict[str, frozenset[str]] = {}
+        if model_states is not None:
+            async with model_states() as session:
+                disabled = await disabled_builtin_models(session)
         return [
             ProviderStatus(
                 name=name,
                 display_name=meta.display_name,
-                description=meta.description,
                 status="ready" if name in ready else "unconfigured",
                 media_types=catalog.provider_media_types(name),
                 capabilities=catalog.provider_capabilities(name),
                 required_keys=list(meta.required_keys),
                 credential_count=1 if name in ready else 0,
-                # 没有内置供应商模型状态行的实例：条目已下架的模型为停用
-                disabled_models=disabled_without_state(name),
+                # 没有内置供应商模型状态行的实例：条目已下线的模型为停用
+                disabled_models=disabled[name] if model_states is not None else disabled_without_state(name),
             )
             for name, meta in PROVIDER_REGISTRY.items()
         ]
@@ -114,8 +134,14 @@ def _make_app(mock_svc: ConfigService, engine, factory) -> FastAPI:
 def make_client(session_factory_and_engine):
     factory, engine = session_factory_and_engine
 
-    def _make(ready_providers: list[str] | None = None) -> TestClient:
-        return TestClient(_make_app(_make_mock_svc(ready_providers or []), engine, factory))
+    def _make(
+        ready_providers: list[str] | None = None,
+        *,
+        with_model_states: bool = False,
+        settings: dict[str, str] | None = None,
+    ) -> TestClient:
+        svc = _make_mock_svc(ready_providers or [], factory if with_model_states else None, settings)
+        return TestClient(_make_app(svc, engine, factory))
 
     return _make
 
@@ -156,7 +182,7 @@ class TestBuiltinBucketFiltering:
         assert DS_T2V_ONLY not in i2v
 
     def test_image_buckets_split_by_declared_capabilities(self, make_client):
-        with make_client(["dashscope"]) as client:
+        with make_client(["dashscope", "vidu"]) as client:
             body = client.get(CANDIDATES_URL).json()
         assert DS_IMAGE_BOTH in body["image"]["buckets"]["t2i"]
         assert DS_IMAGE_BOTH in body["image"]["buckets"]["i2i"]
@@ -164,7 +190,7 @@ class TestBuiltinBucketFiltering:
         assert DS_IMAGE_I2I_ONLY not in body["image"]["buckets"]["t2i"]
 
     def test_default_tier_is_unfiltered(self, make_client):
-        with make_client(["dashscope"]) as client:
+        with make_client(["dashscope", "vidu"]) as client:
             body = client.get(CANDIDATES_URL).json()
         # 默认层不承诺能力：无 i2v、无 r2v 的模型照样在列
         assert DS_T2V_ONLY in body["video"]["default"]
@@ -192,6 +218,34 @@ class TestBuiltinBucketFiltering:
         assert DS_R2V not in body["video"]["buckets"]["r2v"]
         assert DS_R2V not in body["video"]["buckets"]["i2v"]
 
+    async def test_manually_enabled_discontinued_model_stays_out_of_candidates(
+        self, make_client, session_factory_and_engine, monkeypatch
+    ):
+        """关停日期已到的模型，用户手动启用过也不进入任何候选，但仍在供应商模型列表里、显示已启用与已下线。"""
+        factory, _engine = session_factory_and_engine
+        model_id = DS_R2V.split("/", 1)[1]
+        install_catalog(
+            monkeypatch,
+            with_entry_changes(factory_snapshot(), "dashscope", model_id, shutdown_date=date(2026, 11, 24)),
+        )
+        set_catalog_today(monkeypatch, date(2026, 11, 23))
+        with make_client(["dashscope"], with_model_states=True) as client:
+            async with factory() as session:
+                await BuiltinProviderModelRepository(session).set_enabled("dashscope", model_id, True)
+                await session.commit()
+            before = client.get(CANDIDATES_URL).json()
+            set_catalog_today(monkeypatch, date(2026, 11, 24))
+            after = client.get(CANDIDATES_URL).json()
+            async with factory() as session:
+                listed = {item.view.model_id: item for item in await list_builtin_models(session, "dashscope")}
+
+        assert DS_R2V in before["video"]["default"]
+        assert DS_R2V in before["video"]["buckets"]["r2v"]
+        assert DS_R2V not in after["video"]["default"]
+        assert DS_R2V not in after["video"]["buckets"]["r2v"]
+        assert DS_R2V not in after["video"]["buckets"]["i2v"]
+        assert (listed[model_id].enabled, listed[model_id].view.lifecycle.status) == (True, "discontinued")
+
     def test_agnes_25_candidates_are_visible_and_legacy_models_are_hidden(self, make_client):
         with make_client(["agnes"]) as client:
             body = client.get(CANDIDATES_URL).json()
@@ -204,8 +258,8 @@ class TestBuiltinBucketFiltering:
 
         all_candidates = {option for media in ("image", "video") for option in body[media]["default"]}
         all_candidates.update(body["model_names"])
+        # 出厂目录中已下线的 agnes 旧模型；agnes-image-2.1-flash 在目录中仍可用，只由迁移给老用户停用
         assert "agnes/agnes-2.0-flash" not in all_candidates
-        assert "agnes/agnes-image-2.1-flash" not in all_candidates
         assert "agnes/agnes-video-v2.0" not in all_candidates
 
 
@@ -223,10 +277,10 @@ class TestCustomProviderBucketFiltering:
             # openai-video 系统判定 max_reference_images=1、first_frame=True
             await _seed_custom_models(
                 factory,
-                [{"model_id": "sora-2", "display_name": "Sora 2", "endpoint": "openai-video", "is_enabled": True}],
+                [{"model_id": "relay-sora", "display_name": "Sora 2", "endpoint": "openai-video", "is_enabled": True}],
             )
             body = client.get(CANDIDATES_URL).json()
-        option = _custom_option(body, "sora-2")
+        option = _custom_option(body, "relay-sora")
         assert option in body["video"]["buckets"]["r2v"]
         assert option in body["video"]["buckets"]["i2v"]
         assert option in body["video"]["default"]
@@ -238,7 +292,7 @@ class TestCustomProviderBucketFiltering:
                 factory,
                 [
                     {
-                        "model_id": "sora-2",
+                        "model_id": "relay-sora",
                         "display_name": "Sora 2",
                         "endpoint": "openai-video",
                         "is_enabled": True,
@@ -247,7 +301,7 @@ class TestCustomProviderBucketFiltering:
                 ],
             )
             body = client.get(CANDIDATES_URL).json()
-        option = _custom_option(body, "sora-2")
+        option = _custom_option(body, "relay-sora")
         assert option not in body["video"]["buckets"]["r2v"]
         # 覆盖只动了参考图维度，i2v 与默认层不受影响
         assert option in body["video"]["buckets"]["i2v"]
@@ -278,11 +332,11 @@ class TestCustomProviderBucketFiltering:
         ("endpoint", "model_id", "buckets"),
         [
             # 端点两者都实现，条目只接受图生图
-            ("dashscope-image", "qwen-image-edit-plus", {"i2i"}),
+            ("dashscope-qwen-image", "viduq1", {"i2i"}),
             # 端点只实现文生图，条目只接受图生图：没有两者都满足的组合
-            ("openai-images-generations", "qwen-image-edit-plus", set()),
+            ("openai-images-generations", "viduq1", set()),
             # 对应不上条目：模型事实不加约束，按端点声明
-            ("dashscope-image", "relay-image-x", {"t2i", "i2i"}),
+            ("dashscope-qwen-image", "relay-image-x", {"t2i", "i2i"}),
         ],
     )
     async def test_custom_image_buckets_need_both_entry_and_endpoint(
@@ -299,15 +353,354 @@ class TestCustomProviderBucketFiltering:
         assert {bucket for bucket in ("t2i", "i2i") if option in body["image"]["buckets"][bucket]} == buckets
         assert option in body["image"]["default"]
 
+    async def test_custom_model_leaves_every_candidate_list_once_its_entry_is_discontinued(
+        self, make_client, session_factory_and_engine, monkeypatch
+    ):
+        """自定义模型所绑定的条目跨过关停日期：默认层与各任务类型桶都不再列出它，同供应商其余模型不受影响。"""
+        factory, _engine = session_factory_and_engine
+        model_id = DS_R2V.split("/", 1)[1]
+        install_catalog(
+            monkeypatch,
+            with_entry_changes(factory_snapshot(), "dashscope", model_id, shutdown_date=date(2026, 11, 24)),
+        )
+        entry = catalog.provider_model_entry("dashscope", model_id, "video")
+        assert entry is not None
+        set_catalog_today(monkeypatch, date(2026, 11, 23))
+        with make_client([]) as client:
+            await _seed_custom_models(
+                factory,
+                [
+                    {
+                        "model_id": "relay-wan",
+                        "display_name": "Relay Wan",
+                        "endpoint": "openai-video",
+                        "is_enabled": True,
+                        "is_default": True,
+                        "entry_binding": entry.key.ref,
+                    },
+                    {
+                        "model_id": "relay-video",
+                        "display_name": "Relay",
+                        "endpoint": "openai-video",
+                        "is_enabled": True,
+                    },
+                ],
+            )
+            before = client.get(CANDIDATES_URL).json()
+            set_catalog_today(monkeypatch, date(2026, 11, 24))
+            after = client.get(CANDIDATES_URL).json()
+        retired, live = _custom_option(before, "relay-wan"), _custom_option(before, "relay-video")
+        assert retired in before["video"]["default"]
+        assert retired in before["video"]["buckets"]["i2v"]
+        assert retired not in after["video"]["default"]
+        assert all(retired not in options for options in after["video"]["buckets"].values())
+        assert live in after["video"]["default"]
+        assert live in after["video"]["buckets"]["i2v"]
+
     async def test_disabled_custom_models_absent(self, make_client, session_factory_and_engine):
         factory, _engine = session_factory_and_engine
         with make_client([]) as client:
             await _seed_custom_models(
                 factory,
-                [{"model_id": "sora-2", "display_name": "Sora 2", "endpoint": "openai-video", "is_enabled": False}],
+                [{"model_id": "relay-sora", "display_name": "Sora 2", "endpoint": "openai-video", "is_enabled": False}],
             )
             body = client.get(CANDIDATES_URL).json()
         assert body["video"]["default"] == []
+
+
+# ---------------------------------------------------------------------------
+# 被任务类型桶滤掉的模型与原因
+# ---------------------------------------------------------------------------
+
+
+def _filtered(body: dict, media_type: str, bucket: str) -> dict[str, list[str]]:
+    return {item["option"]: item["unmet"] for item in body[media_type]["filtered"][bucket]}
+
+
+class TestFilteredCandidates:
+    async def test_each_bucket_lists_the_default_layer_models_it_filters_out_with_the_unmet_dimension(
+        self, make_client, session_factory_and_engine, monkeypatch
+    ):
+        """滤掉的模型带着不满足的能力维度；进了桶的不列；不在默认层的（已下线）也不列，不报为能力不满足。"""
+        factory, _engine = session_factory_and_engine
+        data = with_entry_facts(factory_snapshot(), "grok", "grok-imagine-image", max_reference_images=0)
+        install_catalog(monkeypatch, with_entry_changes(data, "dashscope", "wan2.7-t2v", discontinued=True))
+        with make_client(["dashscope", "grok", "vidu"]) as client:
+            await _seed_custom_models(
+                factory,
+                [
+                    {
+                        "model_id": "relay-image",
+                        "display_name": "Relay Image",
+                        "endpoint": "openai-images-generations",
+                        "is_enabled": True,
+                    }
+                ],
+            )
+            body = client.get(CANDIDATES_URL).json()
+        relay_image = _custom_option(body, "relay-image")
+
+        i2v, r2v = _filtered(body, "video", "i2v"), _filtered(body, "video", "r2v")
+        assert r2v[DS_I2V_ONLY] == ["max_reference_images"]
+        assert DS_R2V not in r2v
+        assert DS_I2V_ONLY not in i2v
+        assert DS_T2V_ONLY not in i2v
+        assert DS_T2V_ONLY not in r2v
+        t2i, i2i = _filtered(body, "image", "t2i"), _filtered(body, "image", "i2i")
+        assert t2i[DS_IMAGE_I2I_ONLY] == ["text_to_image"]
+        assert i2i[relay_image] == ["image_to_image"]
+        assert i2i["grok/grok-imagine-image"] == ["max_reference_images"]
+        assert DS_IMAGE_BOTH not in t2i
+        assert DS_IMAGE_BOTH not in i2i
+        # 滤掉的与列出的合起来正好是默认层
+        for media_type, bucket in (("video", "i2v"), ("video", "r2v"), ("image", "t2i"), ("image", "i2i")):
+            listed = set(body[media_type]["buckets"][bucket])
+            assert listed.isdisjoint(_filtered(body, media_type, bucket))
+            assert listed | set(_filtered(body, media_type, bucket)) == set(body[media_type]["default"])
+
+
+# ---------------------------------------------------------------------------
+# 引用处的下线提示：生命周期与一键切换的目标
+# ---------------------------------------------------------------------------
+
+
+def _entry_ref(option: str, media_type: str = "video") -> str:
+    provider_id, model_id = option.split("/", 1)
+    entry = catalog.provider_model_entry(provider_id, model_id, media_type)
+    assert entry is not None
+    return entry.key.ref
+
+
+def _retire(monkeypatch, option: str, *, successor: str | None, shutdown: date = date(2026, 11, 24)) -> None:
+    """让 ``option`` 所引的条目在 2026-11-24 关停、后继为 ``successor``，今天取关停前一天。"""
+    provider_id, model_id = option.split("/", 1)
+    data = with_entry_changes(factory_snapshot(), provider_id, model_id, shutdown_date=shutdown, successor=successor)
+    install_catalog(monkeypatch, data)
+    set_catalog_today(monkeypatch, date(2026, 11, 23))
+
+
+class TestLifecycleNotices:
+    """``lifecycle``：引用处内联提示的数据源。切换目标是同一供应商下、对应条目为后继、且在该引用位置候选里的供应商模型。"""
+
+    def test_retiring_model_offers_the_same_provider_successor_in_every_layer_it_qualifies_for(
+        self, make_client, monkeypatch
+    ):
+        successor = _entry_ref(DS_R2V)
+        _retire(monkeypatch, DS_I2V_ONLY, successor=successor)
+        with make_client(["dashscope"]) as client:
+            body = client.get(CANDIDATES_URL).json()
+        notice = body["lifecycle"][DS_I2V_ONLY]
+        assert notice["status"] == "retiring"
+        assert notice["shutdown_date"] == "2026-11-24"
+        assert notice["successor"] == successor
+        assert notice["successor_name"] == catalog.get_model(*DS_R2V.split("/", 1)).display_name
+        assert notice["switch_targets"] == {"default": DS_R2V, "i2v": DS_R2V, "r2v": DS_R2V}
+        # 可用的模型不带提示
+        assert DS_R2V not in body["lifecycle"]
+
+    def test_discontinued_model_still_gets_a_notice_though_it_is_no_candidate(self, make_client, monkeypatch):
+        _retire(monkeypatch, DS_I2V_ONLY, successor=_entry_ref(DS_R2V), shutdown=date(2026, 11, 1))
+        with make_client(["dashscope"]) as client:
+            body = client.get(CANDIDATES_URL).json()
+        assert DS_I2V_ONLY not in body["video"]["default"]
+        notice = body["lifecycle"][DS_I2V_ONLY]
+        assert (notice["status"], notice["shutdown_date"]) == ("discontinued", "2026-11-01")
+        assert notice["switch_targets"]["default"] == DS_R2V
+
+    @pytest.mark.parametrize("locale", SUPPORTED_LOCALES)
+    def test_calling_the_discontinued_model_names_the_successor_as_the_notice_does(
+        self, make_client, monkeypatch, locale
+    ):
+        """调用已下线模型的报错与引用处的提示对后继写法一致：都是条目显示名，不是条目引用。"""
+        successor = _entry_ref(DS_R2V)
+        _retire(monkeypatch, DS_I2V_ONLY, successor=successor, shutdown=date(2026, 11, 1))
+        with make_client(["dashscope"]) as client:
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][DS_I2V_ONLY]
+        provider_id, model_id = DS_I2V_ONLY.split("/", 1)
+        with pytest.raises(ModelDiscontinuedError) as excinfo:
+            catalog.require_callable(provider_id, model_id, "video")
+
+        exc = excinfo.value
+        message = render_message(
+            failure_message_key(exc.code, exc.params),
+            exc.params,
+            lambda key, **params: translate_message(key, locale=locale, **params),
+            make_display_names(locale),
+        )
+        assert notice["successor_name"]
+        assert notice["successor_name"] in message
+        assert successor not in message
+
+    def test_successor_that_does_not_support_the_bucket_is_offered_only_where_it_qualifies(
+        self, make_client, monkeypatch
+    ):
+        _retire(monkeypatch, DS_I2V_ONLY, successor=_entry_ref(DS_T2V_ONLY))
+        with make_client(["dashscope"]) as client:
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][DS_I2V_ONLY]
+        assert notice["switch_targets"] == {"default": DS_T2V_ONLY, "i2v": None, "r2v": None}
+
+    def test_successor_on_another_provider_is_named_but_not_offered(self, make_client, monkeypatch):
+        ark_video = catalog.default_model("ark", "video")
+        assert ark_video is not None
+        successor = _entry_ref(f"ark/{ark_video}")
+        _retire(monkeypatch, DS_I2V_ONLY, successor=successor)
+        with make_client(["dashscope", "ark"]) as client:
+            body = client.get(CANDIDATES_URL).json()
+        assert f"ark/{ark_video}" in body["video"]["default"]
+        notice = body["lifecycle"][DS_I2V_ONLY]
+        assert notice["successor"] == successor
+        assert notice["successor_name"]
+        assert notice["switch_targets"] == {"default": None, "i2v": None, "r2v": None}
+
+    def test_discontinued_successor_is_not_offered(self, make_client, monkeypatch):
+        data = with_entry_changes(
+            factory_snapshot(),
+            "dashscope",
+            DS_I2V_ONLY.split("/", 1)[1],
+            shutdown_date=date(2026, 11, 24),
+            successor=_entry_ref(DS_R2V),
+        )
+        data = with_entry_changes(data, "dashscope", DS_R2V.split("/", 1)[1], discontinued=True)
+        install_catalog(monkeypatch, data)
+        set_catalog_today(monkeypatch, date(2026, 11, 23))
+        with make_client(["dashscope"]) as client:
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][DS_I2V_ONLY]
+        assert notice["switch_targets"] == {"default": None, "i2v": None, "r2v": None}
+
+    async def test_disabled_successor_is_not_offered(self, make_client, session_factory_and_engine, monkeypatch):
+        factory, _engine = session_factory_and_engine
+        _retire(monkeypatch, DS_I2V_ONLY, successor=_entry_ref(DS_R2V))
+        with make_client(["dashscope"], with_model_states=True) as client:
+            async with factory() as session:
+                await BuiltinProviderModelRepository(session).set_enabled("dashscope", DS_R2V.split("/", 1)[1], False)
+                await session.commit()
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][DS_I2V_ONLY]
+        assert notice["switch_targets"] == {"default": None, "i2v": None, "r2v": None}
+
+    async def test_custom_model_switches_to_the_row_bound_to_the_successor(
+        self, make_client, session_factory_and_engine, monkeypatch
+    ):
+        """自定义供应商的模型按条目绑定对应条目；后继取同一供应商里对应到后继条目的模型行，停用的不算。"""
+        factory, _engine = session_factory_and_engine
+        successor = _entry_ref(DS_R2V)
+        _retire(monkeypatch, DS_I2V_ONLY, successor=successor)
+        video = {"endpoint": "openai-video", "display_name": "Relay"}
+        with make_client([]) as client:
+            await _seed_custom_models(
+                factory,
+                [
+                    {**video, "model_id": "relay-old", "is_enabled": True, "entry_binding": _entry_ref(DS_I2V_ONLY)},
+                    {**video, "model_id": "relay-new-off", "is_enabled": False, "entry_binding": successor},
+                    {**video, "model_id": "relay-new", "is_enabled": True, "entry_binding": successor},
+                ],
+            )
+            body = client.get(CANDIDATES_URL).json()
+        old, new = _custom_option(body, "relay-old"), _custom_option(body, "relay-new")
+        notice = body["lifecycle"][old]
+        assert notice["status"] == "retiring"
+        assert notice["switch_targets"] == {"default": new, "i2v": new, "r2v": new}
+
+    def test_text_models_carry_notices_with_a_default_layer_only(self, make_client, monkeypatch):
+        model_id = catalog.default_model("dashscope", "text")
+        assert model_id is not None
+        _retire(monkeypatch, f"dashscope/{model_id}", successor=None)
+        with make_client(["dashscope"]) as client:
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][f"dashscope/{model_id}"]
+        assert notice["status"] == "retiring"
+        assert (notice["successor"], notice["successor_name"]) == (None, None)
+        assert notice["switch_targets"] == {"default": None}
+
+
+class _Projects:
+    """只实现引用扫描用到的两个方法：项目名 → ``project.json``。"""
+
+    def __init__(self, projects: dict[str, dict]):
+        self._projects = projects
+
+    def list_projects(self) -> list[str]:
+        return list(self._projects)
+
+    def load_project(self, name: str) -> dict:
+        return self._projects[name]
+
+
+def _unlisted(data: CatalogData, option: str) -> CatalogData:
+    """把 ``option`` 移出供应商清单，条目留在目录里：官方数据删除清单项后、本地仍保留条目的情形。"""
+    provider_id, model_id = option.split("/", 1)
+    listing = data.builtin_providers[provider_id]
+    models = tuple(m for m in listing.models if m.api_model_name != model_id)
+    return replace(data, builtin_providers={**data.builtin_providers, provider_id: replace(listing, models=models)})
+
+
+class TestUnlistedReferenceNotices:
+    """设置与项目里引用了清单之外的模型：按被引用的值对应本地保留的条目给提示，对应不上已下线条目的提示不可用。"""
+
+    def test_retained_discontinued_entry_with_successor_gets_the_full_notice(self, make_client, monkeypatch):
+        data = with_entry_changes(
+            factory_snapshot(),
+            "dashscope",
+            DS_I2V_ONLY.split("/", 1)[1],
+            shutdown_date=date(2026, 10, 22),
+            successor=_entry_ref(DS_R2V),
+        )
+        install_catalog(monkeypatch, _unlisted(data, DS_I2V_ONLY))
+        set_catalog_today(monkeypatch, date(2026, 11, 4))
+        with make_client(["dashscope"], settings={"default_video_backend_i2v": DS_I2V_ONLY}) as client:
+            body = client.get(CANDIDATES_URL).json()
+        notice = body["lifecycle"][DS_I2V_ONLY]
+        assert (notice["status"], notice["shutdown_date"]) == ("discontinued", "2026-10-22")
+        assert notice["successor"] == _entry_ref(DS_R2V)
+        assert notice["successor_name"]
+        assert notice["switch_targets"] == {"default": DS_R2V, "i2v": DS_R2V, "r2v": DS_R2V}
+
+    def test_retained_discontinued_entry_without_successor_is_named_discontinued(self, make_client, monkeypatch):
+        data = with_entry_changes(factory_snapshot(), "dashscope", DS_I2V_ONLY.split("/", 1)[1], discontinued=True)
+        install_catalog(monkeypatch, _unlisted(data, DS_I2V_ONLY))
+        use_project_manager(monkeypatch, _Projects({"p1": {"title": "P1", "video_provider_i2v": DS_I2V_ONLY}}))
+        with make_client(["dashscope"]) as client:
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][DS_I2V_ONLY]
+        assert notice == {
+            "status": "discontinued",
+            "shutdown_date": None,
+            "successor": None,
+            "successor_name": None,
+            "switch_targets": {"default": None, "i2v": None, "r2v": None},
+        }
+
+    @pytest.mark.parametrize(
+        ("model_name", "has_entry"),
+        [
+            pytest.param(lambda: "wan-retired-preview", False, id="no-entry"),
+            # 按名字对上的是仍可用的条目（如旧名留作后继条目的别名），模型却不在清单里，同样调不了
+            pytest.param(lambda: catalog.default_model("ark", "video"), True, id="available-entry"),
+        ],
+    )
+    def test_reference_without_a_discontinued_entry_is_unavailable(
+        self, make_client, monkeypatch, model_name, has_entry
+    ):
+        model_id = model_name()
+        assert model_id is not None
+        assert catalog.get_model("dashscope", model_id) is None
+        assert (catalog.referenced_entry("dashscope", model_id, "video") is not None) is has_entry
+        option = f"dashscope/{model_id}"
+        assert catalog.get_model("dashscope", model_id) is None
+        use_project_manager(monkeypatch, _Projects({"p1": {"video_backend": option}}))
+        with make_client(["dashscope"]) as client:
+            notice = client.get(CANDIDATES_URL).json()["lifecycle"][option]
+        assert notice == {
+            "status": "unavailable",
+            "shutdown_date": None,
+            "successor": None,
+            "successor_name": None,
+            "switch_targets": {"default": None, "i2v": None, "r2v": None},
+        }
+
+    def test_listed_and_custom_references_get_no_extra_notice(self, make_client, monkeypatch):
+        use_project_manager(monkeypatch, _Projects({"p1": {"video_backend": "custom-9/relay"}}))
+        with make_client(["dashscope"], settings={"default_video_backend": DS_R2V}) as client:
+            lifecycle = client.get(CANDIDATES_URL).json()["lifecycle"]
+        assert DS_R2V not in lifecycle
+        assert "custom-9/relay" not in lifecycle
 
 
 # ---------------------------------------------------------------------------
@@ -348,10 +741,17 @@ class TestCatalogDisplayNames:
         with make_client([]) as client:
             await _seed_custom_models(
                 factory,
-                [{"model_id": "sora-2", "display_name": "我的 Sora", "endpoint": "openai-video", "is_enabled": True}],
+                [
+                    {
+                        "model_id": "relay-sora",
+                        "display_name": "我的 Sora",
+                        "endpoint": "openai-video",
+                        "is_enabled": True,
+                    }
+                ],
             )
             body = client.get(CANDIDATES_URL, headers={"Accept-Language": "en"}).json()
-        assert body["model_names"][_custom_option(body, "sora-2")] == "我的 Sora"
+        assert body["model_names"][_custom_option(body, "relay-sora")] == "我的 Sora"
 
     def test_unconfigured_provider_absent_from_names(self, make_client):
         with make_client(["ark"]) as client:

@@ -52,8 +52,8 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 3
 fi
 
-OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner) || {
-  echo "QUERY_ERROR: gh repo view failed (auth? wrong cwd?)" >&2
+OWNER_REPO=$(gh api 'repos/{owner}/{repo}' --jq .full_name) || {
+  echo "QUERY_ERROR: REST repository lookup failed (auth? wrong cwd?)" >&2
   exit 4
 }
 

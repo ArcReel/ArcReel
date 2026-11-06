@@ -24,6 +24,7 @@ from tests.integration.lib.generation.worker_support import (
     seed_running_task,
     stub_executors,
     task_status,
+    use_worker_project,
 )
 
 
@@ -43,13 +44,6 @@ class TestReadIntEnv:
     def test_minimum_enforced(self, monkeypatch):
         monkeypatch.setenv("ARCREEL_INT", "0")
         assert _read_int_env("ARCREEL_INT", 3, minimum=2) == 2
-
-
-def _patch_pm(monkeypatch, project: dict | None):
-    """让 worker 的 get_project_manager().load_project 返回给定 project dict。"""
-    pm = type("PM", (), {"load_project": lambda self, name: project or {}})()
-    for target in ("lib.generation.generation_worker.get_project_manager", "lib.config.resolver.get_project_manager"):
-        monkeypatch.setattr(target, lambda: pm)
 
 
 @pytest.fixture
@@ -91,13 +85,13 @@ class TestExtractProvider:
 
     async def test_project_level_video_backend(self, monkeypatch):
         """项目级 video_backend 优先于全局默认。"""
-        _patch_pm(monkeypatch, {"video_backend": "ark/doubao-seedance-2-0-260128"})
+        use_worker_project(monkeypatch, {"video_backend": "ark/doubao-seedance-2-0-260128"})
         task = {"payload": {}, "project_name": "demo", "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
     async def test_project_level_image_t2i(self, monkeypatch):
         """image 投影按代表性 generation_type=t2i 取项目级 image_provider_t2i。"""
-        _patch_pm(monkeypatch, {"image_provider_t2i": "gemini-vertex/imagen-3"})
+        use_worker_project(monkeypatch, {"image_provider_t2i": "gemini-vertex/imagen-3"})
         task = {"payload": {}, "project_name": "demo", "task_type": "storyboard"}
         assert await _extract_provider(task) == "gemini-vertex"
 
@@ -109,7 +103,7 @@ class TestExtractProvider:
         若误判为 image lane（按 task_type != "video" 去读 image 槽），会取到纯图片
         供应商，导致 worker 在 video 通道以 video_max==0 直接把任务标记
         「供应商不支持 video 生成」。"""
-        _patch_pm(
+        use_worker_project(
             monkeypatch,
             {
                 "video_backend": "ark/doubao-seedance-2-0-260128",
@@ -121,7 +115,7 @@ class TestExtractProvider:
 
     async def test_reference_video_prefers_r2v_bucket_provider(self, monkeypatch):
         """视频单元级状态读不到时回退当前 r2v 配置，不采用 payload 中的 enqueue-time pin。"""
-        _patch_pm(
+        use_worker_project(
             monkeypatch,
             {
                 "video_backend": "ark/doubao-seedance-2-0-260128",
@@ -266,7 +260,7 @@ class TestExtractProviderAlignsWithExecution:
         from lib.db import async_session_factory
 
         project = {"image_provider_t2i": "openai/gen-1", "image_provider_i2i": "openai/edit-1"}
-        _patch_pm(monkeypatch, project)
+        use_worker_project(monkeypatch, project)
         task = {"payload": {}, "project_name": "demo", "task_type": "storyboard"}
 
         worker_provider = await _extract_provider(task)
@@ -278,7 +272,7 @@ class TestExtractProviderAlignsWithExecution:
         from lib.db import async_session_factory
 
         project = {"video_backend": "ark/doubao-seedance-2-0-260128"}
-        _patch_pm(monkeypatch, project)
+        use_worker_project(monkeypatch, project)
         task = {"payload": {}, "project_name": "demo", "task_type": "video"}
 
         worker_provider = await _extract_provider(task)
@@ -941,6 +935,179 @@ class TestGenerationWorker:
 
         assert queue.released
         assert worker._main_task is None
+
+    @pytest.mark.asyncio
+    async def test_run_loop_survives_lease_renewal_error_and_keeps_claiming(self):
+        """续约 lease 时连接池超时之类的错误只让这一轮失败，主循环继续续约、继续认领。"""
+
+        class _FlakyLeaseQueue(FakeWorkerQueue):
+            def __init__(self):
+                super().__init__()
+                self.renewals = 0
+                self.claims = 0
+                self.claimed_after_error = asyncio.Event()
+
+            async def acquire_or_renew_worker_lease(self, name, owner_id, ttl_seconds):
+                self.renewals += 1
+                if self.renewals == 2:
+                    raise TimeoutError("QueuePool limit reached")
+                return True
+
+            async def claim_next_task(self, media_type, **_kwargs):
+                self.claims += 1
+                if self.renewals > 2:
+                    self.claimed_after_error.set()
+                return
+
+        queue = _FlakyLeaseQueue()
+        worker = GenerationWorker(
+            queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
+        )
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
+
+        await worker.start()
+        await asyncio.wait_for(queue.claimed_after_error.wait(), timeout=2.0)
+        assert worker._main_task is not None
+        assert not worker._main_task.done()
+        assert not queue.released
+        await worker.stop()
+
+        assert queue.released
+
+    @pytest.mark.asyncio
+    async def test_cycle_error_after_claim_rescans_orphans_and_settles_claimed_task(self):
+        """认领之后、登记进槽位之前抛错：这条 running 行由下一次持有 lease 时的孤儿重扫收口。"""
+
+        class _ClaimOnceQueue(FakeWorkerQueue):
+            def __init__(self):
+                super().__init__()
+                self.orphan_scans = 0
+                self.settled = asyncio.Event()
+                self._pending = [{"task_id": "img-stuck", "task_type": "gen_image", "media_type": "image"}]
+
+            async def claim_next_task(self, media_type, **_kwargs):
+                if not self._pending:
+                    return None
+                task = self._pending.pop()
+                # 认领即把行改成 running：之后的孤儿扫描会在库里看到它。
+                self._orphans.append({**task, "status": "running"})
+                return task
+
+            async def list_orphan_tasks_on_start(self):
+                self.orphan_scans += 1
+                return [t for t in self._orphans if t["task_id"] not in {tid for tid, _ in self.failed}]
+
+            async def mark_task_failed(self, task_id, error):
+                result = await super().mark_task_failed(task_id, error)
+                self.settled.set()
+                return result
+
+        projections = 0
+
+        async def _flaky_projection(_task) -> str:
+            nonlocal projections
+            projections += 1
+            if projections == 1:
+                raise TimeoutError("QueuePool limit reached")
+            return "test"
+
+        async def _settle(*, taskless_started_before: datetime | None) -> int:
+            return 0
+
+        queue = _ClaimOnceQueue()
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"test": {"image": 1}}),
+            provider_projection=_flaky_projection,
+            lanes=("image",),
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+            settle_interrupted_calls=_settle,
+        )
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
+
+        await worker.start()
+        try:
+            await asyncio.wait_for(queue.settled.wait(), timeout=2.0)
+        finally:
+            await worker.stop()
+
+        assert queue.orphan_scans >= 2, "出错后下一次持有 lease 时应重扫孤儿"
+        assert [tid for tid, _ in queue.failed] == ["img-stuck"]
+        assert "[restart_lost_image]" in queue.failed[0][1]
+
+    @pytest.mark.asyncio
+    async def test_orphan_rescan_after_cycle_error_skips_tasks_still_active_in_slots(self):
+        """出错后的重扫排除本进程槽位里仍在执行的任务：不标失败，也不重复接续。"""
+
+        class _FlakyLeaseQueue(FakeWorkerQueue):
+            def __init__(self):
+                super().__init__()
+                self.renewals = 0
+                self.orphan_scans = 0
+                self.rescanned = asyncio.Event()
+
+            async def acquire_or_renew_worker_lease(self, name, owner_id, ttl_seconds):
+                self.renewals += 1
+                if self.renewals == 2:
+                    raise TimeoutError("QueuePool limit reached")
+                return True
+
+            async def list_orphan_tasks_on_start(self):
+                self.orphan_scans += 1
+                if self.orphan_scans >= 2:
+                    self.rescanned.set()
+                return self._orphans
+
+        async def _settle(*, taskless_started_before: datetime | None) -> int:
+            return 0
+
+        queue = _FlakyLeaseQueue()
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"test": {"image": 1, "video": 1}}),
+            provider_projection=_fixed_projection,
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+            settle_interrupted_calls=_settle,
+        )
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
+
+        dispatched: list[Any] = []
+
+        async def _spy_dispatch(resumable_by_provider):
+            dispatched.append(resumable_by_provider)
+
+        worker._recovery.dispatch_resumable = _spy_dispatch
+
+        # 本进程正在执行的两条任务：库里同样是 running。
+        busy = asyncio.get_running_loop().create_future()
+        worker._slots.register("test", "image", "img-busy", busy)
+        worker._slots.register("test", "video", "vid-busy", busy)
+        queue._orphans = [
+            {"task_id": "img-busy", "status": "running", "task_type": "gen_image", "media_type": "image"},
+            {
+                "task_id": "vid-busy",
+                "status": "running",
+                "task_type": "video",
+                "media_type": "video",
+                "provider_id": "test",
+                "provider_job_id": "job-1",
+            },
+        ]
+
+        await worker.start()
+        try:
+            await asyncio.wait_for(queue.rescanned.wait(), timeout=2.0)
+        finally:
+            busy.set_result(None)
+            await worker.stop()
+
+        assert queue.failed == []
+        assert dispatched == []
 
     @pytest.mark.asyncio
     async def test_claim_tasks_dispatches_to_correct_pool(self, monkeypatch):

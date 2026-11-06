@@ -58,7 +58,6 @@ def trash_project_dir(tmp_path):
 @pytest.fixture
 def trash_client(trash_project_dir, monkeypatch):
     manager = ProjectManager(str(trash_project_dir.parents[1]))
-    monkeypatch.setattr(file_view, "get_project_manager", lambda: manager)
     use_project_manager(monkeypatch, manager)
     app = FastAPI()
     for module in (file_view, trash_router):
@@ -364,5 +363,8 @@ def test_history_version_moves_to_trash_and_restores_into_version_history(trash_
     # 原版本的元数据（生成依据等）随版本加回，否则视频、音频版本加回后无法选回。
     assert back["aspect_ratio"] == "9:16"
     assert back["created_at"] == old["created_at"]
+    # 加回的是同一个内容版本：身份沿用，摘要与加回的字节一致。
+    assert back["content_version_id"] == old["content_version_id"]
+    assert back["content_digest"] == old["content_digest"]
     assert (trash_project_dir / back["file"]).read_bytes() == b"in-use"
     assert current.read_bytes() == b"in-use v2"

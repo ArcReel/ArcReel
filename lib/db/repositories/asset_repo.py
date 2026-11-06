@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from sqlalchemy import Select, delete, func, select
@@ -33,9 +33,15 @@ class AssetRepository(BaseRepository):
         image_path: str | None = None,
         audio_path: str | None = None,
         source_project: str | None = None,
+        asset_id: str | None = None,
+        **image_fields: Any,
     ) -> Asset:
+        """新建一条资产；``image_fields`` 是 ``image_path`` 之外的图片内容列（摘要、内容身份、远端定位）。
+
+        ``asset_id`` 缺省时生成；图片先于条目保存、引用要登记在条目名下的调用方预先定下它。
+        """
         asset = Asset(
-            id=str(uuid.uuid4()),
+            id=asset_id or str(uuid.uuid4()),
             type=type,
             name=name,
             description=description,
@@ -43,6 +49,7 @@ class AssetRepository(BaseRepository):
             image_path=image_path,
             audio_path=audio_path,
             source_project=source_project,
+            **image_fields,
         )
         self.session.add(asset)
         await self.session.flush()
@@ -128,8 +135,11 @@ class AssetRepository(BaseRepository):
         self,
         asset_id: str,
         derivatives: Sequence[tuple[str, str, str | None]],
+        image_fields: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> list[AssetDerivative]:
         """把一条资产的衍生整表换成给定的 ``(名, 描述, 图片相对路径)`` 序列。
+
+        ``image_fields`` 按衍生名给出图片路径之外的图片内容列（摘要、内容身份、远端定位）。
 
         衍生随本体整套进出资产库，没有逐条增删的入口；覆盖入库即整表替换。删除旧行留给
         调用方在同一事务里提交，旧行指向的图片文件由调用方在 commit 后清理。
@@ -142,6 +152,7 @@ class AssetRepository(BaseRepository):
                 name=name,
                 description=description,
                 image_path=image_path,
+                **(image_fields or {}).get(name, {}),
             )
             for name, description, image_path in derivatives
         ]

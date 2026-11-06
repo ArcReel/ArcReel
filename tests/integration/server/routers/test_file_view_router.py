@@ -15,6 +15,7 @@ from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.routers import file_view
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
+from tests.fakes import use_project_manager
 
 BASE = "/api/v1/projects/demo/file-view"
 
@@ -52,7 +53,7 @@ def file_view_project_dir(tmp_path):
 @pytest.fixture
 def file_view_client(file_view_project_dir, monkeypatch):
     data_root = file_view_project_dir.parents[1]
-    monkeypatch.setattr(file_view, "get_project_manager", lambda: ProjectManager(str(data_root)))
+    use_project_manager(monkeypatch, ProjectManager(str(data_root)))
     app = FastAPI()
     app.include_router(
         file_view.router, prefix="/api/v1", dependencies=[*AUTH_DEPENDENCIES, Depends(require_project_migration_ok)]

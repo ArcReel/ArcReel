@@ -9,7 +9,8 @@ from sqlalchemy import update
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest, VideoGenerationResult
 from lib.backends.backend_assembly.specs import builtin_video_metered_usage
 from lib.backends.providers import PROVIDER_GEMINI
-from lib.backends.video_backends.ark import ArkVideoBackend
+from lib.backends.video_backends.ark import Seedance2VideoBackend
+from lib.catalog import query as catalog
 from lib.config.resolver import ConfigResolver
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
@@ -26,6 +27,7 @@ from lib.script.reference_video.request_projection import (
 )
 from server.services.admission import cost_estimation
 from server.services.admission.cost_estimation import CostEstimationService, quote_video_request
+from tests.catalog_support import install_catalog, with_entry_changes
 from tests.factories import activate_reference_project, make_video_request_facts
 from tests.fakes import fake_reference_request_facts
 
@@ -169,6 +171,15 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
     }
 
 
+@pytest.fixture(autouse=True)
+def active_video_pricing_models(monkeypatch):
+    """费用用例验证请求与计量，关停行为由生命周期用例验证。"""
+    data = catalog.factory_snapshot()
+    for model in ("veo-3.1-generate-preview", "veo-3.1-fast-generate-preview", "veo-3.1-lite-generate-preview"):
+        data = with_entry_changes(data, "gemini-aistudio", model, discontinued=False, shutdown_date=None)
+    install_catalog(monkeypatch, data)
+
+
 class TestCostEstimationService:
     async def test_storyboard_facts_failure_reports_each_segment_without_video_quote(
         self, db_factory, set_video_request_facts
@@ -204,7 +215,7 @@ class TestCostEstimationService:
         [
             ("gemini-aistudio", "veo-3.1-generate-preview", "1080p", 8),
             ("grok", "grok-imagine-video-1.5", "1080p", 8),
-            ("dashscope", "happyhorse-1.1-i2v", "1080p", 8),
+            ("dashscope", "wan3.0-video", "1080p", 8),
             ("grok", "grok-imagine-video", "720p", 8),
             ("minimax", "MiniMax-H3", "2k", 6),
             ("minimax", "MiniMax-Hailuo-2.3", "1080p", 6),
@@ -268,7 +279,7 @@ class TestCostEstimationService:
             generate_audio=executed.requested_generate_audio,
         )
         tokens = (
-            ArkVideoBackend.estimate_video_tokens(model, resolution=executed.resolution, ratio="9:16", seconds=duration)
+            Seedance2VideoBackend.estimate_video_tokens(resolution=executed.resolution, ratio="9:16", seconds=duration)
             if provider == "ark"
             else None
         )
@@ -536,7 +547,7 @@ class TestCostEstimationService:
             db_factory,
             "proj",
             "image",
-            "gemini-3.1-flash-image-preview",
+            "gemini-3.1-flash-image",
             resolution="1K",
             cost_amount=0.067,
             currency="USD",
@@ -780,7 +791,7 @@ class TestCostEstimationService:
             db_factory,
             "proj",
             "image",
-            "gemini-3.1-flash-image-preview",
+            "gemini-3.1-flash-image",
             resolution="2K",
             cost_amount=0.101,
             currency="USD",
@@ -984,7 +995,7 @@ class TestCostEstimationService:
             db_factory,
             "proj",
             "image",
-            "gemini-3.1-flash-image-preview",
+            "gemini-3.1-flash-image",
             resolution="2K",
             cost_amount=0.101,
             currency="USD",
@@ -1027,7 +1038,7 @@ class TestCostEstimationService:
             db_factory,
             "proj",
             "image",
-            "gemini-3.1-flash-image-preview",
+            "gemini-3.1-flash-image",
             resolution="1K",
             cost_amount=0.067,
             currency="USD",
@@ -1070,8 +1081,8 @@ class TestCostEstimationService:
                         "model_id": "img",
                         "display_name": "Img",
                         "endpoint": "openai-images",
-                        # 按张计价、与分辨率无关的条目：Grok Imagine Pro 每张 0.07 USD
-                        "entry_binding": "xai/grok-imagine-image-pro",
+                        # 按张计价、与分辨率无关的条目：Grok Imagine 每张 0.02 USD
+                        "entry_binding": "xai/grok-imagine-image",
                     },
                 ],
             )
@@ -1099,9 +1110,9 @@ class TestCostEstimationService:
 
         total_4k = await _estimated_image_total("4K")
         assert total_4k > 0
-        # 未配置分辨率（None）与 2K 同样落在门控内
-        assert await _estimated_image_total("2K") == pytest.approx(total_4k * 2, rel=1e-4)  # 每条份额各自 round(…, 6)
-        assert await _estimated_image_total(None) == pytest.approx(total_4k * 2, rel=1e-4)  # 每条份额各自 round(…, 6)
+        # 12 个份额各自 round(…, 6)，两倍总数的累计舍入误差不超过 18e-6。
+        assert await _estimated_image_total("2K") == pytest.approx(total_4k * 2, abs=2e-5)
+        assert await _estimated_image_total(None) == pytest.approx(total_4k * 2, abs=2e-5)
 
     async def test_grid_estimate_prices_at_resolved_resolution(self, db_factory, monkeypatch):
         """宫格图按执行期生效的分辨率档计价：4K 项目按 4K 单价，未配置回落保底档。
@@ -1237,7 +1248,7 @@ class TestCostEstimationService:
                 db_factory,
                 "proj",
                 "image",
-                "gemini-3.1-flash-image-preview",
+                "gemini-3.1-flash-image",
                 resolution="1K",
                 cost_amount=0.067,
                 currency="USD",
@@ -2007,12 +2018,12 @@ class TestCostEstimationService:
         [
             # 未设分辨率时 Veo 按 720p 出片。AI Studio 无 audio-off 档，供应商恒按含音价出账：
             # 无论开关状态，预估都须落在 veo-3.1-lite-generate-preview 720p 的含音价 0.05 USD/s。
-            ("gemini-aistudio", True, 0.05),
-            ("gemini-aistudio", False, 0.05),
+            ("gemini-aistudio/veo-3.1-lite-generate-preview", True, 0.05),
+            ("gemini-aistudio/veo-3.1-lite-generate-preview", False, 0.05),
             # Vertex 有独立的 audio-off 档，不受 AI Studio 修正影响，预估随开关走
             # （veo-3.1-fast-generate-001 720p：含音 0.10 / 无音 0.08 USD/s）。
-            ("gemini-vertex", True, 0.10),
-            ("gemini-vertex", False, 0.08),
+            ("gemini-vertex/veo-3.1-fast-generate-001", True, 0.10),
+            ("gemini-vertex/veo-3.1-fast-generate-001", False, 0.08),
         ],
     )
     async def test_video_estimate_generate_audio_by_provider(
@@ -2294,7 +2305,7 @@ class TestCostEstimationService:
                         "model_id": "img",
                         "display_name": "Img",
                         "endpoint": "openai-images",
-                        "entry_binding": "xai/grok-imagine-image-pro",
+                        "entry_binding": "xai/grok-imagine-image",
                     },
                     {
                         "model_id": "relay/kling-v2-6",
@@ -2334,8 +2345,8 @@ class TestCostEstimationService:
 
         assert result["models"]["image"] == {"provider": "custom-1", "model": "img"}
         seg = result["episodes"][0]["segments"][0]
-        # image：绑定的条目按张计费，0.07 USD（不随 1K/2K 变化）
-        assert seg["estimate"]["image"]["USD"] == pytest.approx(0.07)
+        # image：绑定的条目按张计费，0.02 USD（不随 1K/2K 变化）
+        assert seg["estimate"]["image"]["USD"] == pytest.approx(0.02)
         # video：名字对上可灵 2.6，720p 无声 0.3 CNY/秒 × 6 秒 × 模型倍率 0.5 = 0.9 CNY
         assert seg["estimate"]["video"]["CNY"] == pytest.approx(0.9)
         # audio：1 万个汉字按 2 计 → 2 万字符 / 1 万 × 2.0 = 4.0 CNY
@@ -2358,8 +2369,8 @@ class TestCostEstimationService:
                         "model_id": "img",
                         "display_name": "Img",
                         "endpoint": "openai-images",
-                        # 按张计价、与分辨率无关的条目：Grok Imagine Pro 每张 0.07 USD
-                        "entry_binding": "xai/grok-imagine-image-pro",
+                        # 按张计价、与分辨率无关的条目：Grok Imagine 每张 0.02 USD
+                        "entry_binding": "xai/grok-imagine-image",
                     },
                 ],
             )
@@ -2381,12 +2392,12 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="test-grid-custom")
 
-        # 9 格拼成 1 张 grid，每张 0.07 USD 摊到 9 格
+        # 9 格拼成 1 张 grid，每张 0.02 USD 摊到 9 格
         segments = result["episodes"][0]["segments"]
         for seg in segments:
-            assert seg["estimate"]["image"]["USD"] == pytest.approx(round(0.07 / 9, 6))
-        # 集合计 = 满张单价 0.07 USD
-        assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(0.07, abs=1e-4)
+            assert seg["estimate"]["image"]["USD"] == pytest.approx(round(0.02 / 9, 6))
+        # 集合计 = 满张单价 0.02 USD
+        assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(0.02, abs=1e-4)
 
     async def test_grid_estimate_counts_every_chunk_of_oversized_group(self, db_factory):
         """超过单张格数上限的分组按切块后的张数计价，与入队实际产出的宫格张数一致。"""
@@ -2404,8 +2415,8 @@ class TestCostEstimationService:
                         "model_id": "img",
                         "display_name": "Img",
                         "endpoint": "openai-images",
-                        # 按张计价、与分辨率无关的条目：Grok Imagine Pro 每张 0.07 USD
-                        "entry_binding": "xai/grok-imagine-image-pro",
+                        # 按张计价、与分辨率无关的条目：Grok Imagine 每张 0.02 USD
+                        "entry_binding": "xai/grok-imagine-image",
                     },
                 ],
             )
@@ -2431,7 +2442,7 @@ class TestCostEstimationService:
         expected_grids = len(plan_grid_chunks(seg_ids, "9:16", allow_large_grid=False))
         assert expected_grids == 2
         assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(
-            0.07 * expected_grids, abs=1e-4
+            0.02 * expected_grids, abs=1e-4
         )
 
     async def test_custom_provider_without_price_degrades_to_zero(self, db_factory):
@@ -2635,8 +2646,16 @@ class TestUnpricedCosts:
 class TestImageBatchEstimate:
     """整批图片预估与结算同一个目录查询与计算器：用量由调用通道按请求事实推出。"""
 
-    async def test_openai_output_tokens_estimated_from_size_and_quality(self, db_factory):
+    async def test_openai_output_tokens_estimated_from_size_and_quality(self, db_factory, monkeypatch):
+        from lib.catalog import query
         from server.services.admission.cost_estimation import estimate_image_batch_cost
+        from tests.catalog_support import install_catalog, with_entry_facts
+
+        # 输出 token 按条目上的质量档基数估算；用例自己给出基数，不依赖出厂快照的收录情况
+        bases = {"low": 16, "medium": 48, "high": 96}
+        install_catalog(
+            monkeypatch, with_entry_facts(query.factory_snapshot(), "openai", "gpt-image-2", output_token_bases=bases)
+        )
 
         project = {
             "title": "T",

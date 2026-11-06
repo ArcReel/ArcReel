@@ -9,12 +9,32 @@ import shutil
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
+import httpx
+
 from lib.infra.data_root_layout import PROJECT_FILENAME, DataRootLayout, is_project_dir
 from lib.infra.env_init import PROJECT_ROOT
 
 _HANDLER_ATTR = "_arcreel_logging"
 _FILE_HANDLER_ATTR = "_arcreel_file_logging"
 _DISABLED_TRUTHY = frozenset({"1", "true", "yes"})
+
+
+class _StripUrlQueryFilter(logging.Filter):
+    """httpx 在 INFO 级别记录每个请求的完整 URL。预签名 URL 的 query 在有效期内等同下载凭证，记录前去掉 query。"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and any(isinstance(arg, httpx.URL) and arg.query for arg in args):
+            record.args = tuple(
+                arg.copy_with(query=None) if isinstance(arg, httpx.URL) and arg.query else arg for arg in args
+            )
+        return True
+
+
+def _install_httpx_url_redaction() -> None:
+    httpx_logger = logging.getLogger("httpx")
+    if not any(isinstance(f, _StripUrlQueryFilter) for f in httpx_logger.filters):
+        httpx_logger.addFilter(_StripUrlQueryFilter())
 
 
 def _file_logging_disabled() -> bool:
@@ -155,6 +175,13 @@ def setup_logging(level: str | None = None, *, file: bool = True) -> None:
 
     # 抑制 aiosqlite 的 DEBUG 噪音（每次 SQL 操作都会输出两行日志）
     logging.getLogger("aiosqlite").setLevel(max(numeric_level, logging.INFO))
+
+    # TOS SDK 在 INFO 级别记录重试时会带上请求体（上传的对象内容），DEBUG 级别记录签名过程；
+    # 媒体内容与签名不进普通诊断日志，只放行 WARNING 及以上。
+    logging.getLogger("tos").setLevel(max(numeric_level, logging.WARNING))
+
+    # 供应商签发的素材与产物下载地址带签名参数，请求日志只保留去掉 query 的地址。
+    _install_httpx_url_redaction()
 
 
 def attach_file_handler(formatter: logging.Formatter | None = None) -> None:

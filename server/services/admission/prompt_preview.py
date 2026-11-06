@@ -96,8 +96,8 @@ async def reference_image_limit(
     project_name: str,
     project: dict[str, Any],
     project_path: Path,
-) -> tuple[int, str]:
-    """image lane 的 backend 参考图上限与模型名，与执行期同一裁剪口径；``0`` 表示不裁剪。
+) -> tuple[int | None, str]:
+    """image lane 的参考图裁剪上限与模型名，与执行期同一裁剪口径；``None`` 表示不裁剪。
 
     解析 image lane 会构造 backend（需凭证）。预览是只读视图，凭证缺失 / 供应商未配置时
     不该连提示词都看不到：解析失败按不裁剪处理并记一条 info——这种项目本来也跑不了生成，
@@ -115,7 +115,7 @@ async def reference_image_limit(
         )
     except Exception as exc:
         logger.info("预览无法解析 image lane，参考图不按后端上限裁剪：%s", exc)
-        return 0, ""
+        return None, ""
     return ctx.image.max_reference_images, ctx.image.backend_model
 
 
@@ -189,7 +189,7 @@ async def preview_item_prompts(
     limit = (
         await reference_image_limit(project_name, project, project_path)
         if generation_input is not None and generation_input.references
-        else (0, "")
+        else (None, "")
     )
 
     def _render_both() -> ItemPromptPreview:

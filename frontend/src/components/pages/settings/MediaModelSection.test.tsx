@@ -32,10 +32,12 @@ const CANDIDATES = {
   image: {
     default: ["gemini/nano-banana", "openai/gpt-image-edit"],
     buckets: { t2i: ["gemini/nano-banana"], i2i: ["gemini/nano-banana", "openai/gpt-image-edit"] },
+    filtered: {},
   },
   video: {
     default: ["gemini/veo-3", "ark/seedance"],
     buckets: { i2v: ["gemini/veo-3"], r2v: ["ark/seedance"] },
+    filtered: {},
   },
   provider_names: {},
 };
@@ -178,6 +180,23 @@ describe("MediaModelSection", () => {
     await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
     expect(await screen.findByRole("option", { name: /seedance/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /veo-3/ })).not.toBeInTheDocument();
+  });
+
+  it("names the models a purpose filters out and why, without letting them be picked", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "getModelCandidates").mockResolvedValue({
+      ...CANDIDATES,
+      video: { ...CANDIDATES.video, filtered: { r2v: [{ option: "gemini/veo-3", unmet: ["max_reference_images"] }] } },
+    } as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>);
+    render(<MediaModelSection />);
+    await screen.findByRole("combobox", { name: "默认视频模型" });
+
+    await user.click(screen.getAllByText("按用途指定模型")[0]);
+    await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
+    const veo = await screen.findByRole("option", { name: /veo-3/ });
+    expect(veo).toHaveTextContent("不接受参考图");
+    expect(veo).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("group", { name: "不能用于参考生视频" })).toContainElement(veo);
   });
 
   it("shows the global default model behind 跟随默认 in each unset sub-field", async () => {
@@ -386,6 +405,7 @@ describe("MediaModelSection", () => {
           video: {
             default: ["kling/v3-omni"],
             buckets: { i2v: ["kling/v3-omni"], r2v: ["kling/v3-omni"] },
+            filtered: {},
           },
         } as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>);
         vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
@@ -417,6 +437,43 @@ describe("MediaModelSection", () => {
         expect(await omniRowIn(user, "参考生视频")).toContain("无声");
       });
     });
+  });
+
+  it("lists the default audio model's voices under the narration voice", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      options: { ...CONFIG.options, audio_backends: ["dashscope/qwen-audio-3.0-tts-plus"] },
+      settings: {
+        ...CONFIG.settings,
+        default_audio_backend: "dashscope/qwen-audio-3.0-tts-plus",
+        narration_voice: "longanlingxin",
+      },
+    } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+    const capabilities = vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({
+      supports_speed: true,
+      voices: [
+        { id: "longanlingxin", label: "龙安灵心 · 知心温暖音（女）" },
+        { id: "longanlufeng", label: "龙安鲁风 · 明亮开朗音（男）" },
+      ],
+    });
+    render(<MediaModelSection />);
+
+    const input = await screen.findByLabelText("旁白音色 ID");
+    await screen.findByText("从列表选择音色，或照所选供应商文档填写音色 id；留空使用默认音色");
+    expect(capabilities).toHaveBeenCalledWith("dashscope/qwen-audio-3.0-tts-plus", expect.anything());
+    await user.clear(input);
+    await user.click(input);
+    await user.click(await screen.findByRole("option", { name: "longanlufeng · 龙安鲁风 · 明亮开朗音（男）" }));
+    expect(input).toHaveValue("longanlufeng");
+  });
+
+  it("does not ask for voices while the default audio model is auto-selected", async () => {
+    const capabilities = vi.spyOn(API, "getTtsModelCapabilities");
+    render(<MediaModelSection />);
+
+    await userEvent.click(await screen.findByLabelText("旁白音色 ID"));
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    expect(capabilities).not.toHaveBeenCalled();
   });
 
   it("auto-expands a channel whose sub-field is already configured", async () => {
@@ -477,5 +534,135 @@ describe("MediaModelSection – 语言切换", () => {
     await user.click(trigger);
     // 选项行主行为译名，model id 仍在行内可辨识
     expect(await screen.findByRole("option", { name: /Veo 3/ })).toHaveTextContent("veo-3");
+  });
+});
+
+describe("MediaModelSection – 引用处的下线提示", () => {
+  type Candidates = Awaited<ReturnType<typeof API.getModelCandidates>>;
+
+  function mockLifecycle(lifecycle: Candidates["lifecycle"]) {
+    vi.spyOn(API, "getModelCandidates").mockResolvedValue({
+      ...CANDIDATES,
+      model_names: { "gemini/veo-4": "Veo 4" },
+      lifecycle,
+    } as unknown as Candidates);
+  }
+
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    vi.restoreAllMocks();
+    vi.spyOn(API, "getAutoBackends").mockResolvedValue(NO_AUTO);
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
+    vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
+  });
+
+  it("shows the retiring date and successor under every reference, offering a switch only where the successor qualifies", async () => {
+    const user = userEvent.setup();
+    mockConfig({ default_video_backend_i2v: "gemini/veo-3" });
+    mockLifecycle({
+      "gemini/veo-3": {
+        status: "retiring",
+        shutdown_date: "2026-11-24",
+        successor: "google/veo-4",
+        successor_name: "Veo 4",
+        // 后继不支持图生视频：这一处没有切换目标，只写后继名称
+        switch_targets: { default: "gemini/veo-4", i2v: null, r2v: null },
+      },
+    });
+    const patch = vi
+      .spyOn(API, "updateSystemConfig")
+      .mockResolvedValue(CONFIG as unknown as Awaited<ReturnType<typeof API.updateSystemConfig>>);
+    render(<MediaModelSection />);
+
+    const notices = await screen.findAllByText("即将下线（2026-11-24），官方建议改用 Veo 4");
+    expect(notices).toHaveLength(2);
+    // 只有默认层有切换入口
+    expect(screen.getAllByRole("button", { name: "切换到 Veo 4" })).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "切换到 Veo 4" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    // 一键切换只改这一处：图生视频的引用原样保留
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ default_video_backend: "gemini/veo-4" }));
+  });
+
+  it("tells a discontinued reference without a successor to pick another model, with no switch", async () => {
+    mockConfig({ default_text_backend: "gemini/g25" });
+    mockLifecycle({
+      "gemini/g25": {
+        status: "discontinued",
+        shutdown_date: null,
+        successor: null,
+        successor_name: null,
+        switch_targets: { default: null },
+      },
+    });
+    render(<MediaModelSection />);
+
+    expect(await screen.findByText("已下线，无法继续生成，请重新选择模型")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /切换到/ })).not.toBeInTheDocument();
+  });
+
+  it("offers the successor switch for a discontinued reference that has left the provider list", async () => {
+    const user = userEvent.setup();
+    // 官方数据删除了清单项、只剩本地保留条目的旧型号：值不在任何候选里，提示照样给出
+    mockConfig({ default_video_backend: "gemini/veo-3-preview" });
+    mockLifecycle({
+      "gemini/veo-3-preview": {
+        status: "discontinued",
+        shutdown_date: "2026-10-22",
+        successor: "google/veo-4",
+        successor_name: "Veo 4",
+        switch_targets: { default: "gemini/veo-4", i2v: null, r2v: null },
+      },
+    });
+    const patch = vi
+      .spyOn(API, "updateSystemConfig")
+      .mockResolvedValue(CONFIG as unknown as Awaited<ReturnType<typeof API.updateSystemConfig>>);
+    render(<MediaModelSection />);
+
+    expect(
+      await screen.findByText("已下线（2026-10-22），无法继续生成，官方建议改用 Veo 4"),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "切换到 Veo 4" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ default_video_backend: "gemini/veo-4" }));
+  });
+
+  it("asks to pick another model when a reference has no lifecycle to show", async () => {
+    mockConfig({ default_image_backend: "gemini/nano-banana-preview" });
+    mockLifecycle({
+      "gemini/nano-banana-preview": {
+        status: "unavailable",
+        shutdown_date: null,
+        successor: null,
+        successor_name: null,
+        switch_targets: { default: null, t2i: null, i2i: null },
+      },
+    });
+    render(<MediaModelSection />);
+
+    expect(await screen.findByText("已不可用，请重新选择模型")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /切换到/ })).not.toBeInTheDocument();
+  });
+
+  it("names the successor of a discontinued reference when it cannot be switched to here", async () => {
+    mockConfig();
+    mockLifecycle({
+      "gemini/nano-banana": {
+        status: "discontinued",
+        shutdown_date: "2026-10-22",
+        successor: "google/nano-banana-2",
+        successor_name: "Nano Banana 2",
+        switch_targets: { default: null, t2i: null, i2i: null },
+      },
+    });
+    render(<MediaModelSection />);
+
+    expect(
+      await screen.findByText("已下线（2026-10-22），无法继续生成，官方建议改用 Nano Banana 2"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /切换到/ })).not.toBeInTheDocument();
   });
 });

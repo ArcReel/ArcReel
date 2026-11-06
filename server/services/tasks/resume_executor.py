@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from arcreel_market_core.video_backend_contract import ResumeEndpointChangedError
+from lib.backends.resume_guard import resume_guard_accepts
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.generation.deleted_target import GenerationTargetDeletedError
 from lib.project.project_change_hints import project_change_source
@@ -44,9 +45,12 @@ def _ensure_checkpoint_endpoint_unchanged(
     *,
     job_id: str,
 ) -> None:
-    """Submitted video jobs use an exact endpoint guard, including builtin/custom transitions."""
+    """提交时冻结的协议守卫与当下的比对：同一端点或退役端点的协议等价后继才放行（见 lib.backends.resume_guard）。
 
-    if checkpoint.endpoint_guard == current_endpoint:
+    内置与自定义之间的切换、换了端点或路径覆盖都拒绝续跑。
+    """
+
+    if resume_guard_accepts(checkpoint.endpoint_guard, current_endpoint):
         return
     raise ResumeEndpointChangedError(
         job_id=job_id,
@@ -118,7 +122,8 @@ async def execute_resume_video_task(
     resolver_payload = {
         f"video_provider_{checkpoint.generation_type}": f"{checkpoint.provider_id}/{checkpoint.provider_model_id}"
     }
-    video_request = VideoLaneRequest(generation_type=checkpoint.generation_type)
+    # 厂商侧的任务已经提交（可能已经计费），续跑只轮询它：模型在提交之后下线，结果也要照常取回。
+    video_request = VideoLaneRequest(generation_type=checkpoint.generation_type, submitted_job=True)
 
     project, project_path = await asyncio.to_thread(
         lambda: (

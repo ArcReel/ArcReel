@@ -64,9 +64,9 @@ class TestCapabilities:
         assert b.capabilities == {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
     def test_wan_image_t2i_and_i2i(self):
-        from lib.backends.image_backends.dashscope import DashScopeImageBackend
+        from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
-        b = DashScopeImageBackend(api_key="sk", model="wan2.7-image-pro")
+        b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image-pro")
         assert b.capabilities == {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
 
@@ -99,9 +99,9 @@ class TestTextToImage:
     async def test_wan_default_size_follows_aspect(self, tmp_path: Path):
         download = AsyncMock()
         with _generate_route(_img_response(), download) as route:
-            from lib.backends.image_backends.dashscope import DashScopeImageBackend
+            from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
-            b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
+            b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image")
             # 默认 aspect_ratio=9:16，wan 方式二像素值按比例精确算（默认 2K 档短边 1440）
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
 
@@ -110,9 +110,9 @@ class TestTextToImage:
     async def test_explicit_tier_translated_to_aspect_pixels(self, tmp_path: Path):
         download = AsyncMock()
         with _generate_route(_img_response(), download) as route:
-            from lib.backends.image_backends.dashscope import DashScopeImageBackend
+            from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
-            b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
+            b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image")
             # 档位词「2K」（短边 1440）按比例算精确像素，绝不原样下传（否则 wan 文生图会被强制方图）
             await b.generate(
                 ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="9:16", image_size="2K")
@@ -123,9 +123,9 @@ class TestTextToImage:
     async def test_custom_pixel_size_strips_embedded_ratio(self, tmp_path: Path):
         download = AsyncMock()
         with _generate_route(_img_response(), download) as route:
-            from lib.backends.image_backends.dashscope import DashScopeImageBackend
+            from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
-            b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
+            b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image")
             # 自定义像素值（16:9 的 1920*1080）只贡献 min 当短边，比例仍由项目 aspect_ratio=9:16 决定
             await b.generate(
                 ImageGenerationRequest(
@@ -143,9 +143,9 @@ class TestTextToImage:
     async def test_low_tier_translated_to_aspect_pixels(self, tmp_path: Path):
         download = AsyncMock()
         with _generate_route(_img_response(), download) as route:
-            from lib.backends.image_backends.dashscope import DashScopeImageBackend
+            from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
-            b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
+            b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image")
             # 1K 档（短边 1024）按比例精确算
             await b.generate(
                 ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="16:9", image_size="1K")
@@ -190,10 +190,10 @@ class TestEditSeriesSize:
         download = AsyncMock()
         ref = _make_ref(tmp_path, "ref.png")
         with _generate_route(_img_response(), download) as route:
-            from lib.backends.image_backends.dashscope import DashScopeImageBackend
+            from lib.backends.image_backends.dashscope import DashScopeQwenEditImageBackend
 
             # 编辑系列宽高均 ∈ [512, 2048]：9:16 受 max_long_edge=2048 收口 → 1152*2048（精确）
-            b = DashScopeImageBackend(api_key="sk", model="qwen-image-edit-plus")
+            b = DashScopeQwenEditImageBackend(api_key="sk", model="qwen-image-edit-plus")
             await b.generate(
                 ImageGenerationRequest(
                     prompt="edit", output_path=tmp_path / "o.png", aspect_ratio="9:16", reference_images=[ref]
@@ -223,40 +223,28 @@ class TestImageToImage:
         assert content[0]["image"].startswith("data:image/png;base64,")
         assert content[-1] == {"text": "edit it"}
 
-    async def test_qwen_ref_limit_3(self, tmp_path: Path):
-        download = AsyncMock()
-        refs = [_make_ref(tmp_path, f"r{i}.png") for i in range(5)]
-        with _generate_route(_img_response(), download) as route:
-            from lib.backends.image_backends.dashscope import DashScopeImageBackend
-
-            b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
-            await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=refs))
-
-        content = request_json(only_request(route))["input"]["messages"][0]["content"]
-        images = [c for c in content if "image" in c]
-        # qwen 上限裁剪；声明的上限即实际下传张数，编排层按它裁剪后编号。
-        assert len(images) == (await b.reference_image_limit()) == 3
-
-    async def test_wan_ref_limit_9(self, tmp_path: Path):
+    @pytest.mark.parametrize("model", ["qwen-image-2.0", "wan2.7-image-pro"])
+    async def test_channel_sends_every_reference_whatever_the_model_name(self, tmp_path: Path, model: str):
+        # qwen 系与 wan 系的参考图上限记在条目上，由编排层按生效上限裁剪；通道不按型号名截断。
         download = AsyncMock()
         refs = [_make_ref(tmp_path, f"r{i}.png") for i in range(11)]
         with _generate_route(_img_response(), download) as route:
             from lib.backends.image_backends.dashscope import DashScopeImageBackend
 
-            b = DashScopeImageBackend(api_key="sk", model="wan2.7-image-pro")
+            b = DashScopeImageBackend(api_key="sk", model=model)
             await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=refs))
 
         content = request_json(only_request(route))["input"]["messages"][0]["content"]
-        images = [c for c in content if "image" in c]
-        assert len(images) == (await b.reference_image_limit()) == 9
+        assert len([c for c in content if "image" in c]) == 11
+        assert await b.reference_image_limit() is None
 
 
 class TestCapabilityGating:
     async def test_wan_pro_4k_i2i_raises(self, tmp_path: Path):
-        from lib.backends.image_backends.dashscope import DashScopeImageBackend
+        from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
         ref = _make_ref(tmp_path, "ref.png")
-        b = DashScopeImageBackend(api_key="sk", model="wan2.7-image-pro")
+        b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image-pro")
         with pytest.raises(ImageCapabilityError) as ei:
             await b.generate(
                 ImageGenerationRequest(
@@ -268,24 +256,14 @@ class TestCapabilityGating:
     async def test_wan_pro_4k_t2i_allowed(self, tmp_path: Path):
         download = AsyncMock()
         with _generate_route(_img_response(), download) as route:
-            from lib.backends.image_backends.dashscope import DashScopeImageBackend
+            from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
-            b = DashScopeImageBackend(api_key="sk", model="wan2.7-image-pro")
+            b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image-pro")
             # 4K 在 pro 文生图允许，按比例精确算（4K 短边 2160、预算 4096²），不下传「4K」档位
             await b.generate(
                 ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", aspect_ratio="16:9", image_size="4K")
             )
         assert _sent_size(route) == "3840*2160"
-
-    async def test_wan_non_pro_4k_t2i_raises(self, tmp_path: Path):
-        from lib.backends.image_backends.dashscope import DashScopeImageBackend
-
-        # 非 pro 的 wan2.7-image 完全不支持 4K（即便文生图），须拒绝而非透传给上游
-        b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
-        with pytest.raises(ImageCapabilityError) as ei:
-            await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size="4K"))
-        assert ei.value.code == "image_dashscope_4k_t2i_only"
-        assert ei.value.params["model"] == "wan2.7-image"
 
     async def test_all_refs_missing_raises(self, tmp_path: Path):
         from lib.backends.image_backends.dashscope import DashScopeImageBackend
@@ -319,26 +297,15 @@ class TestCapabilityGating:
         assert ei.value.params["names"] == "#1"
         assert "空路径" not in ei.value.params["names"]
 
-    async def test_oversized_numeric_t2i_raises(self, tmp_path: Path):
-        from lib.backends.image_backends.dashscope import DashScopeImageBackend
-
-        # 超 2048×2048 总像素预算的像素值（文档 4K=4096×4096，及其它超预算写法/分隔符）
-        # 须被门控拦截，不能因数字写法绕过；非 pro 完全不支持
-        b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
-        for size in ("4096*4096", "4096×2160", "3000*3000"):
-            with pytest.raises(ImageCapabilityError) as ei:
-                await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size=size))
-            assert ei.value.code == "image_dashscope_4k_t2i_only"
-
     async def test_narrow_size_within_budget_not_gated(self, tmp_path: Path):
         download = AsyncMock()
         with _generate_route(_img_response(), download) as route:
-            from lib.backends.image_backends.dashscope import DashScopeImageBackend
+            from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
             # 窄幅尺寸总像素在 2048×2048 预算内（4096*512=2.1M < 4.19M）→ 门控不误拒
             # （门控用总像素而非单维阈值，否则会错杀这类比例尺寸）。size 取 min(4096,512)=512
             # 当短边、比例由默认 aspect_ratio=9:16 决定（剥离自带的 8:1）。
-            b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
+            b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image")
             await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size="4096*512"))
         assert _sent_size(route) == "576*1024"
 

@@ -39,7 +39,7 @@ class BuiltinProviderModelRepository(BaseRepository):
         await self.session.flush()
 
     async def add_user_model(
-        self, provider_id: str, model_id: str, *, media_type: str, entry_binding: str | None
+        self, provider_id: str, model_id: str, *, media_type: str, entry_binding: str | None, endpoint: str
     ) -> BuiltinProviderModelState:
         row = BuiltinProviderModelState(
             provider_id=provider_id,
@@ -48,6 +48,7 @@ class BuiltinProviderModelRepository(BaseRepository):
             user_added=True,
             media_type=media_type,
             entry_binding=entry_binding,
+            endpoint=endpoint,
         )
         self.session.add(row)
         await self.session.flush()

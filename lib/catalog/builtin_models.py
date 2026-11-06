@@ -1,7 +1,8 @@
 """内置供应商的供应商模型：官方收录模型的启用与停用，用户按 ID 添加与移除（docs/adr/0099）。
 
 模型清单与官方收录模型的全部字段来自目录查询；本地只在内置供应商模型表里记启用状态与用户添加的模型。
-官方收录的模型没有状态行时，条目未下架即为启用。写入后由调用方提交事务，再把用户添加的模型重新装入目录查询
+官方收录的模型没有状态行时，条目未下线即为启用。已下线的模型无论启用与否都不作候选（:func:`disabled_builtin_models`），
+仍在供应商模型列表里显示状态。写入后由调用方提交事务，再把用户添加的模型重新装入目录查询
 （``server.routers.provider_models.reload_user_added_models``）。
 """
 
@@ -12,6 +13,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_catalog_core import MEDIA_TYPES
+from lib.backends.backend_assembly import specs as builtin_endpoints
 from lib.catalog import query as catalog
 from lib.catalog.model_id import has_dot_segment
 from lib.config import registry
@@ -38,14 +40,14 @@ class BuiltinModelItem:
 
     @property
     def is_default(self) -> bool:
-        """官方数据指定的默认模型，且没有被停用。"""
+        """官方数据指定的默认模型，且没有被停用、没有下线。"""
         return self.enabled and self.view.model.default
 
 
 def _enabled(view: catalog.ProviderModelView, row: BuiltinProviderModelState | None) -> bool:
     if row is not None:
         return row.enabled
-    return view.entry is None or not view.entry.discontinued
+    return not view.lifecycle.discontinued
 
 
 def _ensure_builtin(provider_id: str) -> None:
@@ -67,13 +69,29 @@ async def list_builtin_models(session: AsyncSession, provider_id: str) -> list[B
     ]
 
 
+async def default_builtin_model(session: AsyncSession, provider_id: str, media_type: str) -> str | None:
+    """内置供应商在该媒体类型下实际可用的默认模型键：目录指定的默认模型，已下线或被用户停用时为 ``None``。
+
+    没有给模型的调用（裸供应商覆盖、缺模型的 payload、装配层）都经这里补默认，``None`` 即按没有指定默认模型处理；
+    与自动挑选（``ProviderStatus.disabled_models``）同一口径。不是内置供应商时同样为 ``None``。
+    """
+    model_id = catalog.default_model(provider_id, media_type)  # 已下线的默认模型目录不给
+    if model_id is None:
+        return None
+    row = await BuiltinProviderModelRepository(session).get(provider_id, model_id)
+    return model_id if row is None or row.enabled else None
+
+
 def disabled_without_state(provider_id: str) -> frozenset[str]:
-    """没有任何状态行时停用的模型键：条目已下架的官方收录模型。"""
+    """没有任何状态行时不作候选的模型键：条目已下线的模型。"""
     return frozenset(view.model_id for view in catalog.provider_models(provider_id) if not _enabled(view, None))
 
 
 async def disabled_builtin_models(session: AsyncSession) -> dict[str, frozenset[str]]:
-    """每个内置供应商停用的模型键；全局与项目默认模型设置的候选只来自其余（已启用的）模型。"""
+    """每个内置供应商不作候选的模型键：停用的，加上已下线的（用户手动启用过也算）。
+
+    全局设置、项目设置与任务类型桶的候选，以及没有默认模型设置时的自动挑选，只来自其余模型。
+    """
     rows: dict[tuple[str, str], BuiltinProviderModelState] = {
         (row.provider_id, row.model_id): row for row in await BuiltinProviderModelRepository(session).list_all()
     }
@@ -81,7 +99,7 @@ async def disabled_builtin_models(session: AsyncSession) -> dict[str, frozenset[
         provider_id: frozenset(
             view.model_id
             for view in catalog.provider_models(provider_id)
-            if not _enabled(view, rows.get((provider_id, view.model_id)))
+            if view.lifecycle.discontinued or not _enabled(view, rows.get((provider_id, view.model_id)))
         )
         for provider_id in registry.PROVIDER_REGISTRY
     }
@@ -123,12 +141,14 @@ async def add_builtin_model(
     media_type: str | None = None,
     entry_binding: str | None = None,
     inferred_media_type: str | None = None,
+    endpoint: str | None = None,
 ) -> AddedModel:
     """按 ID 添加模型。
 
     先按清单中的 API 模型名精确匹配官方收录的模型，两栖模型再按 ``media_type`` 区分；对上了就启用它。
     匹配不上的作为用户添加的模型，经条目绑定或名字对应条目（docs/adr/0105），媒体类型取 ``media_type``，
-    没给时取名字对应上的条目的媒体类型，对应不上再取调用方按名字推断的 ``inferred_media_type``。
+    没给时取名字对应上的条目的媒体类型，对应不上再取调用方按名字推断的 ``inferred_media_type``。调用端点取
+    ``endpoint``，须是这个供应商在该媒体类型下的内置调用端点；没给时按名字预填（与自定义供应商同一套推断规则）。
     """
     _ensure_builtin(provider_id)
     model_id = model_id.strip()
@@ -173,18 +193,39 @@ async def add_builtin_model(
         raise BuiltinModelError("builtin_model_media_type_unsupported", media_type=resolved_media)
     if binding and catalog.binding_key(binding, resolved_media) is None:
         raise BuiltinModelError("builtin_model_binding_invalid", binding=binding)
+    chosen = _checked_endpoint(provider_id, resolved_media, endpoint, model_id=model_id)
 
     row = await repo.get(provider_id, model_id)
     if row is None:
-        await repo.add_user_model(provider_id, model_id, media_type=resolved_media, entry_binding=binding)
+        await repo.add_user_model(
+            provider_id, model_id, media_type=resolved_media, entry_binding=binding, endpoint=chosen
+        )
     else:
         # 官方数据已不再收录、只剩启用状态的行：转为用户添加的模型。
         row.user_added = True
         row.enabled = True
         row.media_type = resolved_media
         row.entry_binding = binding
+        row.endpoint = chosen
         await session.flush()
     return AddedModel(model_id, official=False)
+
+
+def endpoint_options(provider_id: str, media_type: str) -> tuple[str, ...]:
+    """内置供应商在这个媒体类型下可选的内置调用端点；没有这个媒体类型的调用通道时为空。"""
+    try:
+        return builtin_endpoints.get_provider_endpoints(provider_id, media_type).endpoints
+    except ValueError:
+        return ()
+
+
+def _checked_endpoint(provider_id: str, media_type: str, endpoint: str | None, *, model_id: str) -> str:
+    """用户添加的模型要记下的端点：给了就核对它在可选端点里，没给时按名字预填。"""
+    if endpoint is None:
+        return builtin_endpoints.infer_builtin_endpoint(provider_id, media_type, model_id)
+    if endpoint not in endpoint_options(provider_id, media_type):
+        raise BuiltinModelError("builtin_model_endpoint_unavailable", endpoint=endpoint, media_type=media_type)
+    return endpoint
 
 
 def _entry_media_type(model_id: str) -> str | None:
@@ -214,11 +255,13 @@ async def update_builtin_model(
     multiplier: float | None = None,
     capability_overrides: object = _UNCHANGED,
     entry_binding: object = _UNCHANGED,
+    endpoint: str | None = None,
 ) -> str:
     """保存供应商模型 Sheet 上的供应商设置，返回保存后的模型键。
 
-    官方收录的模型只能启用、停用，其余设置由官方维护；用户添加的模型另可修改模型 ID、供应商模型倍率与能力覆盖。
-    ``capability_overrides`` 不传时不改，传 ``None`` 时清除；值须已经过写入校验
+    官方收录的模型只能启用、停用，其余设置由官方维护；用户添加的模型另可修改模型 ID、调用端点（须是这个供应商在
+    该媒体类型下的内置调用端点）、供应商模型倍率与能力覆盖。
+    ``capability_overrides`` 不传时不改（换了调用端点时清除），传 ``None`` 时清除；值须已经过写入校验
     （``lib.custom_provider.capability_view.check_user_added_overrides``）。``entry_binding`` 同理：传
     「模型厂商/官方模型名」关联到目录里的条目，传 ``None`` 解除，改回按名字对应；条目是否存在由调用方核对。
     """
@@ -230,6 +273,7 @@ async def update_builtin_model(
             or multiplier is not None
             or capability_overrides is not _UNCHANGED
             or entry_binding is not _UNCHANGED
+            or endpoint is not None
         ):
             raise BuiltinModelError("builtin_model_official_settings", model=model_id)
         if enabled is not None:
@@ -253,6 +297,14 @@ async def update_builtin_model(
         if await repo.get(provider_id, target) is not None:
             raise BuiltinModelError("builtin_model_duplicate", model=target)
         row.model_id = target
+    if endpoint is not None:
+        checked = _checked_endpoint(provider_id, row.media_type or "", endpoint, model_id=target)
+        # 能力覆盖是按端点校验后保存的：换了端点又没有一并提交覆盖时清除，不让旧端点下的覆盖套到新端点上。
+        if capability_overrides is _UNCHANGED and checked != builtin_endpoints.builtin_model_endpoint(
+            provider_id, row.media_type or "", model_id
+        ):
+            capability_overrides = None
+        row.endpoint = checked
     if enabled is not None:
         row.enabled = enabled
     if multiplier is not None:

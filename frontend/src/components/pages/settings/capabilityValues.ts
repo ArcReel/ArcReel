@@ -44,9 +44,9 @@ export function scalarText(value: unknown): string {
     : JSON.stringify(value);
 }
 
-/** 维度取值的文字：原值与修改后的值共用。`null` 表示不加约束。 */
+/** 维度取值的文字：原值与修改后的值共用。`null` 表示两侧都没有声明，显示「未收录」。 */
 export function capabilityValueText(t: TFunction, key: CapabilityKey, value: unknown): string {
-  if (value === null || value === undefined) return t("pm_cap_value_unlimited");
+  if (value === null || value === undefined) return t("pm_cap_value_unrecorded");
   if (BOOL_KEYS.has(key)) return t(value ? "pm_cap_value_supported" : "pm_cap_value_unsupported");
   if (key === "durations") {
     const list = value as number[];

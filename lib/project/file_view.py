@@ -3,27 +3,48 @@
 路径来自请求，一律按项目内相对 POSIX 路径解析，不跟随符号链接：符号链接条目不列出，
 路径上任一段是符号链接时与文件不存在同样处理。基础设施文件（见 :func:`is_infrastructure_path`）
 既不列出也不能打开。
+
+远端内容版本的工作文件只是缓存（见 ``docs/adr/0116``、``docs/adr/0117``）：缓存已清理时，列出照样按版本记录给出它
+（标 ``remote_only``，大小取对象登记的字节数），不触发下载；要读字节或删除时经 :func:`local_file` 先从对象存储取回。
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import json
 import os
 import stat
-from collections.abc import Iterator
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator, Iterable, Iterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import VersionManager
 from lib.infra.api_errors import ConflictError
 from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.material.formal_objects import formal_object_sizes, iter_version_records
+from lib.material.storage import CONTENT_VERSION_ID, ObjectLocator
+from lib.material.work_files import local_work_files, remote_work_file_digests, remote_work_files
 from lib.project import project_trash
 from lib.project.reference_index import FileReference, FileRole, ReferenceIndex, is_infrastructure_path
 
-__all__ = ["FileViewEntry", "iter_file_chunks", "list_directory", "move_file_to_trash", "open_project_file"]
+__all__ = [
+    "FileViewEntry",
+    "RemoteFile",
+    "absent_remote_files",
+    "iter_file_chunks",
+    "list_directory",
+    "list_file_view",
+    "local_file",
+    "move_file_to_trash",
+    "open_project_file",
+]
 
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
@@ -38,6 +59,8 @@ class FileViewEntry:
     size: int
     modified_at: str
     reference: FileReference | None = None
+    #: 远端内容版本的工作文件，本地缓存已清理：内容在对象存储里，读取时取回。
+    remote_only: bool = False
 
     def to_dict(self) -> dict[str, object]:
         data: dict[str, object] = {
@@ -52,7 +75,21 @@ class FileViewEntry:
             data["owner"] = None if self.reference.owner is None else self.reference.owner.to_dict()
             if self.reference.current:
                 data["is_current"] = True
+        if self.remote_only:
+            data["remote_only"] = True
         return data
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteFile:
+    """缓存已清理的远端内容版本工作文件：版本记录里有它，本地盘上没有。"""
+
+    path: str
+    stored: ObjectLocator
+    #: 版本记录的创建时间（UTC ISO 8601）。
+    modified_at: str
+    #: 对象登记的字节数；未查询或没有登记时为 0。
+    size: int = 0
 
 
 def _parts(rel: str) -> tuple[str, ...]:
@@ -104,16 +141,93 @@ def _visible_size(directory: Path, rel: str) -> int:
     return total
 
 
-def list_directory(project_dir: Path, rel: str = "", *, index: ReferenceIndex | None = None) -> list[FileViewEntry]:
-    """列出目录的直接子项：目录在前，各自按名称排序。文件带角色，目录带可见内容的总大小。"""
+def _record_time(value: object, fallback: float) -> str:
+    if isinstance(value, str):
+        with contextlib.suppress(ValueError):
+            parsed = datetime.fromisoformat(value)
+            return (parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)).astimezone(UTC).isoformat()
+    return _iso(fallback)
+
+
+def _read_object(path: Path) -> Any:
+    try:
+        return json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return None
+
+
+def absent_remote_files(project_dir: Path, rel: str = "") -> list[RemoteFile]:
+    """``rel`` 目录之下（任意深度）缓存已清理的远端内容版本工作文件，大小未查询（为 0）。
+
+    只读版本历史与 ``project.json``，不取锁、不访问对象存储：两个文件都经原子替换写入，读到的是完整的一版，
+    列出期间被并发取回的文件由 :func:`list_directory` 按盘上条目去重。
+    """
+    parts = _parts(rel)
+    prefix = "".join(f"{part}/" for part in parts)
+
+    def _wanted(path: str) -> bool:
+        if not path.startswith(prefix):
+            return False
+        try:
+            _parts(path)
+        except FileNotFoundError:  # 版本记录里的脏路径、基础设施路径
+            return False
+        return not os.path.lexists(project_dir / path)
+
+    wanted = {path for path in remote_work_file_digests(project_dir) if _wanted(path)}
+    if not wanted:
+        return []
+    versions_file = project_dir / "versions" / "versions.json"
+    versions = _read_object(versions_file)
+    project = _read_object(project_dir / "project.json")
+    try:
+        fallback = versions_file.stat().st_mtime
+    except OSError:
+        fallback = 0.0
+    created = {
+        record.get(CONTENT_VERSION_ID): record.get("created_at") for _rt, _rid, record in iter_version_records(versions)
+    }
+    found: dict[str, RemoteFile] = {}
+    for item in remote_work_files(versions, project if isinstance(project, dict) else {}):
+        if item.path in wanted and item.path not in found:
+            modified_at = _record_time(created.get(item.content_version_id), fallback)
+            found[item.path] = RemoteFile(item.path, item.stored, modified_at)
+    return sorted(found.values(), key=lambda item: item.path)
+
+
+def list_directory(
+    project_dir: Path,
+    rel: str = "",
+    *,
+    index: ReferenceIndex | None = None,
+    remote: Iterable[RemoteFile] = (),
+) -> list[FileViewEntry]:
+    """列出目录的直接子项：目录在前，各自按名称排序。文件带角色，目录带可见内容的总大小。
+
+    ``remote`` 是缓存已清理的远端内容版本工作文件（:func:`absent_remote_files` 加上大小）：直接位于本目录的
+    列为 ``remote_only`` 文件，更深的计入所在子目录的大小。盘上已有同名条目时以盘上为准。
+    """
     parts = _parts(rel)
     directory = _resolve(project_dir, parts)
     if not directory.is_dir():
         raise NotADirectoryError(rel)
     index = index or ReferenceIndex.build(project_dir)
+    prefix = "".join(f"{part}/" for part in parts)
+    remote_here: dict[str, RemoteFile] = {}
+    remote_below: dict[str, int] = {}
+    for item in remote:
+        if not item.path.startswith(prefix):
+            continue
+        head, nested, _rest = item.path.removeprefix(prefix).partition("/")
+        if nested:
+            remote_below[head] = remote_below.get(head, 0) + item.size
+        elif head:
+            remote_here[head] = item
     found: list[FileViewEntry] = []
+    on_disk: set[str] = set()
     with os.scandir(directory) as entries:
         for entry in entries:
+            on_disk.add(entry.name)
             child = "/".join((*parts, entry.name))
             if entry.is_symlink() or is_infrastructure_path(child):
                 continue
@@ -122,7 +236,7 @@ def list_directory(project_dir: Path, rel: str = "", *, index: ReferenceIndex | 
             except FileNotFoundError:  # 生成任务或回收站操作在扫描途中移走了它
                 continue
             if entry.is_dir(follow_symlinks=False):
-                size = _visible_size(Path(entry.path), child)
+                size = _visible_size(Path(entry.path), child) + remote_below.get(entry.name, 0)
                 found.append(FileViewEntry(entry.name, child, True, size, _iso(info.st_mtime)))
             elif stat.S_ISREG(info.st_mode):
                 found.append(
@@ -130,7 +244,63 @@ def list_directory(project_dir: Path, rel: str = "", *, index: ReferenceIndex | 
                         entry.name, child, False, info.st_size, _iso(info.st_mtime), index.reference_of(child)
                     )
                 )
+    for name, item in remote_here.items():
+        if name not in on_disk:
+            reference = index.reference_of(item.path)
+            found.append(
+                FileViewEntry(name, item.path, False, item.size, item.modified_at, reference, remote_only=True)
+            )
     return sorted(found, key=lambda item: (not item.is_dir, item.name))
+
+
+async def list_file_view(
+    project_dir: Path, rel: str = "", *, session_factory: async_sessionmaker[AsyncSession] | None = None
+) -> list[FileViewEntry]:
+    """:func:`list_directory` 加上缓存已清理的远端内容版本工作文件；大小查对象登记，不访问对象存储。"""
+    remote = await asyncio.to_thread(absent_remote_files, project_dir, rel)
+    if remote:
+        sizes = await formal_object_sizes({item.stored for item in remote}, session_factory=session_factory)
+        remote = [replace(item, size=sizes.get(item.stored, 0)) for item in remote]
+    return await asyncio.to_thread(list_directory, project_dir, rel, remote=remote)
+
+
+def _fetch_needed(project_dir: Path, rel: str, *, deleting: bool) -> bool:
+    """``rel`` 是合法远端工作文件，已有缓存也需保护；``deleting`` 时还须是可删除的历史版本。"""
+    try:
+        parts = _parts(rel)
+        if not parts:
+            return False
+        _resolve(project_dir, parts[:-1])  # 父目录同样不跟随符号链接
+    except FileNotFoundError:
+        return False
+    if (project_dir / rel).is_symlink() or rel not in remote_work_file_digests(project_dir):
+        return False
+    if not deleting:
+        return True
+    # 删除会被拒绝的文件（当前版本快照、被引用的正式文件）不为此下载
+    reference = ReferenceIndex.build(project_dir).reference_of(rel)
+    return reference.role is FileRole.HISTORY and not reference.current
+
+
+@asynccontextmanager
+async def local_file(
+    project_dir: Path,
+    rel: str,
+    *,
+    deleting: bool = False,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+) -> AsyncGenerator[None]:
+    """要读字节（``deleting`` 为假）或移进回收站（``deleting`` 为真）的单个文件，期间登记使用、清理不会删除它。
+
+    它是缓存已清理的远端内容版本工作文件时，先经共用读取入口从对象存储取回并校验摘要；删除时只为可删除的历史
+    版本取回，删除记录因此带着内容本身，恢复不依赖网络。其余路径原样放行，由调用方照原有逻辑处理。
+
+    Raises:
+        MaterialConnectionUnavailableError, MaterialFetchFailedError: 取回失败。
+    """
+    fetch = await asyncio.to_thread(_fetch_needed, project_dir, rel, deleting=deleting)
+    async with local_work_files(project_dir, [rel] if fetch else [], session_factory=session_factory):
+        yield
 
 
 def open_project_file(project_dir: Path, rel: str) -> tuple[BinaryIO, os.stat_result]:

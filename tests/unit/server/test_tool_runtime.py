@@ -674,3 +674,13 @@ def test_text_generation_request_rejects_non_string_entry_ids(entry_ids: tuple[o
 
     with pytest.raises(ValueError, match="entry_ids must be non-empty strings"):
         shared_text_generation.TextGenerationRequest(episode=1, entry_ids=entry_ids)
+
+
+def test_source_language_accepts_russian() -> None:
+    """source_language 白名单包含 ru，俄语项目可保存；未登记语言仍被拒。"""
+    from server.tool_runtime import _SOURCE_LANGUAGE_VALUES, _coerce_setting_value
+
+    assert "ru" in _SOURCE_LANGUAGE_VALUES
+    assert _coerce_setting_value("source_language", "ru") == "ru"
+    with pytest.raises(ValueError, match="source_language"):
+        _coerce_setting_value("source_language", "klingon")

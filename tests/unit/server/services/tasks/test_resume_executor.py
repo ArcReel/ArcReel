@@ -549,10 +549,11 @@ _V3_POST_PRODUCTION_NARRATION = {
 
 
 def _as_schema_v3(checkpoint_json: str, narration: dict[str, Any]) -> str:
-    """把当前版本的检查点改写成升级前落库的 schema v3 形状：多一份旁白交付事实，摘要随之重算。"""
+    """把当前版本的检查点改写成升级前落库的 schema v3 形状：多一份旁白交付事实、没有供应商素材引用，摘要随之重算。"""
 
     raw = json.loads(checkpoint_json)
     raw.pop("request_digest")
+    raw.pop("provider_asset_references")
     raw["schema_version"] = 3
     raw["narration"] = narration
     raw["request_digest"] = canonical_json_digest(raw)
@@ -705,7 +706,7 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
 @pytest.mark.parametrize(
     "legacy_narration",
     [None, _V3_USE_TTS_NARRATION, _V3_POST_PRODUCTION_NARRATION],
-    ids=["schema-v4", "schema-v3-use-tts", "schema-v3-post-production"],
+    ids=["schema-current", "schema-v3-use-tts", "schema-v3-post-production"],
 )
 async def test_reference_resume_without_tts_config_declares_no_audio_lane(
     monkeypatch, fake_pm, legacy_narration: dict[str, Any] | None

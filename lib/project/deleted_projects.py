@@ -145,16 +145,16 @@ def purge(layout: DataRootLayout, entry_id: str) -> None:
     shutil.rmtree(claimed)
 
 
-def purge_expired(layout: DataRootLayout, *, now: datetime | None = None) -> int:
-    """彻底删除超过保留期的已删除项目，返回删除的个数；顺带清掉上次中断的彻底删除留下的目录。"""
+def purge_expired(layout: DataRootLayout, *, now: datetime | None = None) -> list[str]:
+    """彻底删除超过保留期的已删除项目，返回删除的墓碑名；顺带清掉上次中断的彻底删除留下的目录。"""
     cutoff = (now or datetime.now(UTC)) - RETENTION
-    purged = 0
+    purged: list[str] = []
     for entry in list_entries(layout):
         if entry.deleted_at > cutoff:
             continue
         try:
             purge(layout, entry.id)
-            purged += 1
+            purged.append(entry.id)
         except NotFoundError:
             continue
     for leftover in layout.deleted_projects_dir.glob(f"{_PURGING_PREFIX}*"):

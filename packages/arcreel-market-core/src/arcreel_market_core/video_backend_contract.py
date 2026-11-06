@@ -163,14 +163,15 @@ class VideoAudioMode(StrEnum):
     ALWAYS_OFF = "always_off"
 
 
-def audio_capability_pair_is_coherent(*, mode: object, count: int) -> bool:
+def audio_capability_pair_is_coherent(*, mode: object, count: int | None) -> bool:
     """音频两维的合并后不变式：声明支持音色输入就必须给出正的段数上限。
 
     两维各自合法、合起来无意义的组合只有这一种（``direct`` ⊕ 上限 0）：自定义供应商的稀疏覆盖
     只写其中一维就能凑出——覆盖 ``reference_audio_mode=direct`` 而不动系统判定的 0，或反过来把
     ``max_reference_audio_count`` 压成 0 而模式仍是系统判定的 ``direct``；声明式定义则可以两维
     直接写成这个组合。反向组合（``none`` ⊕ 正上限）不算违约：模式为 ``none`` 时上限本就不参与
-    判定，且"关掉音色输入"是正当意图，判违约反会把用户明确关掉的能力顶回开启。
+    判定，且"关掉音色输入"是正当意图，判违约反会把用户明确关掉的能力顶回开启。段数上限为 ``None``
+    （两侧都没有声明段数，见 ``VideoCapabilities``）同样不算违约：不限段数，超出由上游拒绝。
 
     不修正这组的后果是 ``gate_video_request`` 先过模式判定、再撞上限 0，把"该模型不支持参考
     音频"报成"最多支持 0 段参考音频"——用户按提示去减角色数量，减到零段也过不了。
@@ -180,7 +181,7 @@ def audio_capability_pair_is_coherent(*, mode: object, count: int) -> bool:
     （``lib/custom_provider/capabilities.py``）与声明式定义的保存期校验器
     （``arcreel_market_core/endpoint_definition/validator.py``）。
     """
-    return mode in {ReferenceAudioMode.NONE, ReferenceAudioMode.NONE.value} or count > 0
+    return mode in {ReferenceAudioMode.NONE, ReferenceAudioMode.NONE.value} or count is None or count > 0
 
 
 #: 视频执行路径（任务类型桶）：``i2v`` 覆盖文生与图生首帧，``r2v`` 是参考生视频。
@@ -199,8 +200,11 @@ class VideoCapabilities:
 
     ``first_frame`` / ``last_frame`` 描述图生视频路径的首帧与尾帧槽位。
     ``max_reference_images`` 描述参考生视频路径：后端接受 ``reference_images`` 请求字段
-    的数量上限，``> 0`` 即该路径可用（不另设布尔位——两份声明会漂移出「称支持但上限为 0」
-    这类自相矛盾的状态）。两条路径是否可叠加（同一请求同时带首帧与参考图）因后端而异，
+    的数量上限，``0`` 即不接受参考图（调用通道的声明里表示没有实现这条路径），``None`` 表示接受
+    但没有声明数量上限（不另设布尔位——两份声明会漂移出「称支持但上限为 0」这类自相矛盾的状态）。
+    调用通道只声明它实现了什么、一次能承载多少（通道事实）；模型接受什么输入、能接受多少记在模型
+    条目上，生效能力是两侧共同约束的结果（ArcReel 的 ``lib.backends.video_capabilities``，
+    docs/adr/0104），在生效能力里 ``None`` 即两侧都没有声明的「未收录」。两条路径是否可叠加（同一请求同时带首帧与参考图）因后端而异，
     不是统一契约：部分后端拒绝叠加（如 Agnes 抛 ``VideoCapabilityError``），部分静默叠加
     （如 v2 中转、Grok、Sora 首帧与参考共享单槽）。调用方不应假设某种统一行为，需按具体
     后端核实。
@@ -216,8 +220,8 @@ class VideoCapabilities:
     「参考生视频优先」的合并规则。
 
     ``reference_audio_mode`` / ``max_reference_audio_count`` 描述参考音频路径，与参考图
-    同构：模式非 ``NONE`` 时后端接受 ``reference_audio_files`` 请求字段，段数受上限约束。
-    上限按 backend 各自的供应商约束声明，不取各家交集。
+    同构：模式非 ``NONE`` 时后端接受 ``reference_audio_files`` 请求字段，段数受上限约束，
+    上限为 ``None`` 表示没有声明段数。上限按 backend 各自的供应商约束声明，不取各家交集。
 
     ``reference_audio_per_image``：音频是否必须逐段挂在某个具体的参考素材项上（如 wan2.7-r2v
     的 ``reference_voice`` 字段），而非作为独立的音色输入通道（如 Seedance 2.0 的
@@ -257,9 +261,9 @@ class VideoCapabilities:
     text_to_video: bool = True
     first_frame: bool = True
     last_frame: bool = False
-    max_reference_images: int = 0
+    max_reference_images: int | None = 0
     reference_audio_mode: ReferenceAudioMode = ReferenceAudioMode.NONE
-    max_reference_audio_count: int = 0
+    max_reference_audio_count: int | None = 0
     max_reference_audio_total_seconds: float | None = None
     reference_audio_per_image: bool = False
     max_prompt_chars: int | None = None
@@ -290,6 +294,10 @@ class VideoGenerationRequest:
     start_image: Path | None = None
     end_image: Path | None = None  # For first_last mode
     reference_images: list[Path] | None = None  # For multi-reference mode
+    # 与 ``reference_images`` 等长同序：第 i 项非 None 时，第 i 张参考图以这个供应商素材引用
+    # （如 ``asset://<id>``）代替图片内容发出，位置与提示词里的图片编号不变。只有对参考图槽位声明了
+    # 素材引用能力的 backend 会收到非 None 项；其余 backend 不读此字段。
+    reference_image_asset_uris: list[str | None] | None = None
     # 参考音频（音色复刻）。列表顺序即 prompt 中「音频N」的指认契约：编排层按该顺序拼指认
     # 文本，后端按同一顺序下发，故任何一侧都不得重排或跳过。哪个角色对应哪段音频不进请求
     # ——绑定由 prompt 文本表达，供应商 API 均无结构化的「角色-音频」字段。

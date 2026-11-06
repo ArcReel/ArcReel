@@ -4,13 +4,13 @@
 
 输入：PR、stage branch、stage worktree、本 stage issues、batch handoff 目录、stage handoff 绝对路径、轮次预算 `rounds`（可选，形如 `评估点/硬停`）。
 
-1. 确认 stage worktree、branch 与远程最新提交一致：首次启动时该提交是 stage-reviewer 交付的 **green HEAD**，接力时是前任硬停汇报的 HEAD。读 stage 内所有 issue 及其 handoff，以 stage handoff 已有各段为已裁决起点。git 命令一律写 `git -C <stage worktree 绝对路径>`。
+1. 确认 stage worktree、branch 与远程最新提交一致：首次启动时该提交是最新交付的 **green HEAD**，接力时是前任硬停汇报的 HEAD。读 stage 内所有 issue 及其 handoff，以 stage handoff 已有各段为已裁决起点。git 命令一律写 `git -C <stage worktree 绝对路径>`。
 2. 将 PR 转为 ready。
 3. 使用 Skill 工具调用 `pr-ai-review-loop`，采用其工程判断、覆盖核对、等待、轮次与终核约定；委派方为 team-lead，轮次预算以输入的 `rounds` 为准（省略即该 skill 的默认值）。
-   - wait.sh 与质量门等长任务前台阻塞执行。
-   - 普通修复以额外 integration-fix commits push，commit message 按 [`CONTRIBUTING.md` 提交规范](../../../../CONTRIBUTING.md)；质量门持续失败时记为 `fault` 并上报 team-lead。
+   - wait.sh 与完整闸门等长任务前台阻塞执行。
+   - 普通修复以额外 integration-fix commits push，commit message 按 [`CONTRIBUTING.md` 提交规范](../../../../CONTRIBUTING.md)；完整闸门卡住（同一失败特征第 2 次出现）时记为 `fault` 并上报 team-lead。
    - 评估汇报、按 [escalation.md](../../../../docs/agents/escalation.md) 需要找用户的事项与故障询问均发给 team-lead。
-   - 达到硬停后，按该 skill 完成最后一批必要复审与终核：新意见都能以回复结案时，回复后进入第 6 步；需要改代码时，按 [handoff.md](handoff.md) 追加「审查循环」段，按 [lessons.md](../../../../docs/agents/lessons.md)「收尾自查」自查，向 team-lead 作硬停汇报并停止。
-4. 收到 rebase 指令时，rebase 到最新 `origin/main`，解决冲突、重跑累计质量门，以 `--force-with-lease` push，并按 [handoff.md](handoff.md) 记录新旧 HEAD。保留每个 issue 的单个 conventional commit 与 `Refs #<N>`。
-5. reviewer 意见超出批次范围时，按该 skill 判断是否阻塞验收；非阻塞项回复边界并记为 follow-up 候选。意见按 escalation.md 需要找用户时请示 team-lead，收到裁决后回执确认；team-lead 按主流程的暂停边界持久化 issue 状态并阻断当前 stage 合并，直到用户裁决并完成对应恢复或重建。
+   - 达到硬停后，按该 skill 完成最后一批必要复审与终核：新发现都能以回复结案时，回复后进入第 6 步；需要改代码时，按 [handoff.md](handoff.md) 追加「审查循环」段，按 [lessons.md](../../../../docs/agents/lessons.md)「收尾自查」自查，向 team-lead 作硬停汇报并停止。
+4. 收到 rebase 指令时，rebase 到最新 `origin/main`，解决冲突、重跑完整闸门，以 `--force-with-lease` push，并按 [handoff.md](handoff.md) 记录新旧 HEAD。保留每个 issue 的单个 conventional commit 与 `Refs #<N>`。
+5. reviewer 的发现超出批次范围时，按该 skill 定性；属于存量的，回复边界并记为 follow-up 候选。发现按 escalation.md 需要找用户时请示 team-lead，收到裁决后回执确认；team-lead 按主流程的暂停边界持久化 issue 状态并阻断当前 stage 合并，直到用户裁决并完成对应恢复或重建。
 6. 终核通过后，将本 stage 的所有非 issue commits 压成一个同规范的 integration-fix commit。确认压缩前后 tree 一致后，以 `--force-with-lease` push；新 HEAD 的 required checks 通过后，按 lessons.md「收尾自查」自查，按 [handoff.md](handoff.md) 追加「审查循环」段，回报达标 HEAD 与轮数并停止。

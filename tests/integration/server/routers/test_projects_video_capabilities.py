@@ -103,7 +103,7 @@ class TestRealResolverResponse:
     """成功路径走真实 ConfigResolver + registry + 内存 DB，覆盖响应体经 JSON 序列化后的实际形状。"""
 
     #: registry 里声明了「1080p 只剩 8 秒」「参考图路径只剩 8 秒」的型号。
-    VEO = "gemini-aistudio/veo-3.1-generate-preview"
+    VEO = "gemini-vertex/veo-3.1-generate-001"
 
     @pytest.mark.parametrize("fixed_bucket", ["i2v", "r2v"])
     async def test_endpoint_fixed_follows_the_bucket_the_payload_answers(
@@ -147,7 +147,7 @@ class TestRealResolverResponse:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["model"] == "veo-3.1-generate-preview"
+        assert body["model"] == "veo-3.1-generate-001"
         assert body["supported_durations"] == [4, 6, 8]
         # excluded 在 Python 侧是 int 键；经 JSON 后只能是字符串键，前端按 String(duration) 查表。
         assert body["duration_constraints"] == {
@@ -228,7 +228,7 @@ class TestDurationConstraintsMatchRequestFacts:
     预览未保存的分辨率（``resolution`` 查询参数）与把该分辨率存进项目后按事实求值，结果一致。
     """
 
-    VEO = "gemini-aistudio/veo-3.1-generate-preview"
+    VEO = "gemini-vertex/veo-3.1-generate-001"
 
     @pytest.mark.parametrize("candidate", [False, True], ids=["saved-model", "candidate-model"])
     @pytest.mark.parametrize(
@@ -292,7 +292,7 @@ class TestDurationConstraintsMatchRequestFacts:
         set_video_request_facts(
             VideoRequestFactsFailure(
                 "video_supported_durations_incompatible",
-                (("provider", "gemini-aistudio"), ("model", "veo-3.1-generate-preview"), ("resolution", "4k")),
+                (("provider", "gemini-vertex"), ("model", "veo-3.1-generate-001"), ("resolution", "4k")),
             )
         )
         pm = _FakePM(tmp_path)
@@ -303,7 +303,7 @@ class TestDurationConstraintsMatchRequestFacts:
             response = client.get("/api/v1/projects/ready/video-capabilities", params={"resolution": "4k"})
         assert response.status_code == 422
         assert response.json()["detail"] == zh_errors.MESSAGES["video_supported_durations_incompatible"].format(
-            **make_display_names().apply({"provider": "gemini-aistudio", "model": "veo-3.1-generate-preview"})
+            **make_display_names().apply({"provider": "gemini-vertex", "model": "veo-3.1-generate-001"})
         )
 
     @pytest.mark.parametrize("candidate", [False, True], ids=["saved-model", "candidate-model"])

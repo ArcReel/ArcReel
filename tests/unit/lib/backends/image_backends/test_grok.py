@@ -124,12 +124,12 @@ class TestGenerateT2I:
             )
             result = await grok_backend.generate(request)
 
-        # 验证 SDK 调用参数（image_size 透传，不再做小写映射）
+        # 验证 SDK 调用参数（目录取值 "2K" 下发前转成 SDK 接受的小写 "2k"）
         grok_backend._client.image.sample.assert_awaited_once_with(
             prompt="A beautiful sunset",
             model="grok-imagine-image",
             aspect_ratio="16:9",
-            resolution="2K",
+            resolution="2k",
         )
         assert result.image_path == output
         assert result.provider == "grok"
@@ -294,11 +294,11 @@ class TestModeration:
 
 
 # ---------------------------------------------------------------------------
-# resolution 透传测试
+# resolution 小写转换测试
 # ---------------------------------------------------------------------------
 
 
-class TestResolutionPassthrough:
+class TestResolutionLowercase:
     @pytest.mark.asyncio
     async def test_image_size_none_omits_resolution_kwarg(self, grok_backend, tmp_path):
         captured: dict = {}
@@ -320,7 +320,7 @@ class TestResolutionPassthrough:
         assert "resolution" not in captured
 
     @pytest.mark.asyncio
-    async def test_image_size_passed_as_is(self, grok_backend, tmp_path):
+    async def test_image_size_lowercased_for_sdk(self, grok_backend, tmp_path):
         captured: dict = {}
 
         async def fake_sample(**kwargs):
@@ -337,7 +337,7 @@ class TestResolutionPassthrough:
         with pytest.raises(RuntimeError):
             await grok_backend.generate(request)
 
-        assert captured["resolution"] == "2K"
+        assert captured["resolution"] == "2k"
 
 
 # ---------------------------------------------------------------------------

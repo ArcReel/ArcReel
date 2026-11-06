@@ -5,6 +5,8 @@ import re
 import shutil
 import threading
 import zipfile
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -367,6 +369,10 @@ async def test_export_cancelled_while_packing_leaves_no_archive(tmp_path, monkey
     archive_path = tmp_path / "demo-export.zip"
 
     class _BlockingArchiveService:
+        @asynccontextmanager
+        async def export_materials_held(self, project_name: str, *, scope: str = "full") -> AsyncGenerator[None]:
+            yield  # 项目没有远端图片，不需要取回
+
         def export_project(self, project_name: str, *, scope: str = "full") -> tuple[Path, str]:
             started.set()
             release.wait(5)

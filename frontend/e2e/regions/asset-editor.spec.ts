@@ -424,6 +424,7 @@ defineRegionScenarios("资产详情 Sheet", [
       await waitForEntrance(menu);
       await expect(menu.getByRole("menuitem", { name: "删除" })).toBeInViewport({ ratio: 1 });
     },
+    screenshot: { name: "asset-editor-derivative-menu", target: (page) => page.getByRole("menu") },
   },
   {
     name: "打开「新增衍生」弹层",

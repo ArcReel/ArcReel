@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict
 from lib.artifacts.artifact_currency import active_artifact_currency_resolver, read_artifact_content_digest
 from lib.artifacts.artifact_manifest import ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.artifacts.rendered_artifact import commit_rendered_artifact, read_render_record
-from lib.artifacts.version_manager import VersionManager, VersionSnapshotCorruptedError
+from lib.artifacts.version_manager import VersionManager
 from lib.bgm.library import resolve_bgm_sources
 from lib.edit_timeline.bgm import bgm_ids, place_bgm
 from lib.edit_timeline.errors import EditTimelineError
@@ -73,6 +73,7 @@ from lib.jianying_draft.placement import (
     UnitMaterialUnavailableError,
     place_timeline,
 )
+from lib.material.storage import VersionSnapshotCorruptedError
 from lib.project.project_manager import ProjectManager
 from lib.speech.narration_config import project_narration_delivery
 from lib.speech.narration_delivery import USE_TTS

@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.catalog import query as catalog
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
-from lib.config.retired_model_ids import GLOBAL_MODEL_SETTING_KEYS, migrate_retired_model_reference
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.infra.data_root_layout import DataRootLayout
 
@@ -172,22 +171,4 @@ async def migrate_text_tier_settings(session: AsyncSession) -> None:
             await repo.set("text_backend_simple", simple)
         for key in _LEGACY_TEXT_TASK_KEYS:
             await repo.delete(key)
-        await session.commit()
-
-
-async def migrate_retired_model_settings(session: AsyncSession) -> None:
-    """全局 system_settings 的退役模型启动迁移：所有模型设置项里已改名的模型改写为后继模型。
-
-    只改写退役模型映射里精确命中的值，幂等；已下架而没有后继的模型原样保留，运行时报错由用户重选。
-    """
-    repo = SystemSettingRepository(session)
-    migrated_any = False
-    for key in GLOBAL_MODEL_SETTING_KEYS:
-        value = await repo.get(key)
-        migrated = migrate_retired_model_reference(value)
-        if migrated != value:
-            await repo.set(key, migrated)
-            migrated_any = True
-    if migrated_any:
-        logger.info("Migrated retired model references in global settings")
         await session.commit()

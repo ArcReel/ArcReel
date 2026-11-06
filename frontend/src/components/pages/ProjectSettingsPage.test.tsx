@@ -50,10 +50,12 @@ const FAKE_CANDIDATES = {
   image: {
     default: ["gemini/nano-banana"],
     buckets: { t2i: ["gemini/nano-banana"], i2i: ["gemini/nano-banana"] },
+    filtered: {},
   },
   video: {
     default: ["gemini/veo-3"],
     buckets: { i2v: ["gemini/veo-3"], r2v: [] },
+    filtered: {},
   },
   provider_names: {},
 };
@@ -109,7 +111,7 @@ beforeEach(() => {
     narration_speed: 1.2,
   });
   vi.spyOn(API, "getAutoBackends").mockResolvedValue({ t2i: null, i2i: null, i2v: null, r2v: null, text: null });
-  vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
+  vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
 });
 
 describe("ProjectSettingsPage – 分页与一次保存", () => {

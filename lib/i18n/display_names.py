@@ -1,6 +1,6 @@
-"""失败文案里的供应商与模型显示名。
+"""失败文案里的供应商、模型与条目显示名。
 
-失败的 ``params`` 存机器值（供应商 ID、上游模型 ID），Agent 与前端都按它们定位；渲染成文时才把
+失败的 ``params`` 存机器值（供应商 ID、上游模型 ID、条目引用），Agent 与前端都按它们定位；渲染成文时才把
 约定参数名的值换成创作者认得的名称。替换规则只有 :meth:`DisplayNames.apply` 这一份，所有失败
 渲染函数都把目录作为必填参数传到这里。
 """
@@ -15,6 +15,8 @@ from typing import Any
 PROVIDER_PARAMS = ("provider", "provider_id", "claimed_provider_id", "actual_provider_id")
 #: 值是模型 ID 的参数名。
 MODEL_PARAM = "model"
+#: 值是条目引用（「模型厂商/官方模型名」）的参数名：已下线模型的官方后继。
+SUCCESSOR_PARAM = "successor"
 DISPLAY_NAME_PARAMS = frozenset((*PROVIDER_PARAMS, MODEL_PARAM))
 
 
@@ -33,9 +35,10 @@ def agent_provider_id(credential_id: int) -> str:
 
 @dataclass(frozen=True)
 class DisplayNames:
-    """一次请求内按请求语言成文的供应商名与模型名。
+    """一次请求内按请求语言成文的供应商名、模型名与条目名。
 
-    ``providers`` 以供应商 ID 为键；``models`` 以 ``(供应商 ID, 模型 ID)`` 为键。
+    ``providers`` 以供应商 ID 为键；``models`` 以 ``(供应商 ID, 模型 ID)`` 为键；``entries`` 以条目引用为键，
+    只收显示名唯一的引用（两栖条目各媒体类型的显示名不同时不收）。
     ``deleted_provider`` 是目录里查不到的供应商的泛称；``deleted_agent_provider`` 是查不到的
     Agent 供应商（``agent-<凭证 id>``，凭证已删除）的泛称，未提供时与 ``deleted_provider`` 相同。
     """
@@ -44,6 +47,7 @@ class DisplayNames:
     models: Mapping[tuple[str, str], str]
     deleted_provider: str
     deleted_agent_provider: str | None = None
+    entries: Mapping[str, str] = field(default_factory=dict)
     _models_by_id: Mapping[str, str] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -70,6 +74,10 @@ class DisplayNames:
             return self.models.get((provider_id, model_id), model_id)
         return self._models_by_id.get(model_id, model_id)
 
+    def entry(self, ref: str) -> str:
+        """条目显示名；目录里查不到、或同一引用有多个显示名时返回条目引用。"""
+        return self.entries.get(ref, ref)
+
     def apply(self, params: Mapping[str, Any]) -> dict[str, Any]:
         """返回把约定参数名的 ID 换成显示名后的参数副本，其余参数原样保留。"""
         applied = dict(params)
@@ -81,4 +89,7 @@ class DisplayNames:
         model = params.get(MODEL_PARAM)
         if isinstance(model, str):
             applied[MODEL_PARAM] = self.model(model, provider_id=owner)
+        successor = params.get(SUCCESSOR_PARAM)
+        if isinstance(successor, str):
+            applied[SUCCESSOR_PARAM] = self.entry(successor)
         return applied

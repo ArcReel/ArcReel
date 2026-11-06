@@ -247,8 +247,10 @@ export function ModelConfigSection({
         {
           key: "i2v",
           ...bucketLabels.i2v,
+          bucket: "i2v",
           value: value.videoProviderI2V,
           options: mediaCandidates?.video.buckets.i2v ?? [],
+          filtered: mediaCandidates?.video.filtered.i2v,
           effective: effectiveModel(value.videoBackend, globalDefaults.videoI2V, globalDefaults.video),
           auto: globalDefaults.auto?.i2v,
           onChange: (next: string) => applyVideoLayer({ videoProviderI2V: next }),
@@ -256,8 +258,10 @@ export function ModelConfigSection({
         {
           key: "r2v",
           ...bucketLabels.r2v,
+          bucket: "r2v",
           value: value.videoProviderR2V,
           options: mediaCandidates?.video.buckets.r2v ?? [],
+          filtered: mediaCandidates?.video.filtered.r2v,
           effective: effectiveModel(value.videoBackend, globalDefaults.videoR2V, globalDefaults.video),
           auto: globalDefaults.auto?.r2v,
           onChange: (next: string) => applyVideoLayer({ videoProviderR2V: next }),
@@ -270,8 +274,10 @@ export function ModelConfigSection({
         {
           key: "t2i",
           ...bucketLabels.t2i,
+          bucket: "t2i",
           value: value.imageBackendT2I,
           options: mediaCandidates?.image.buckets.t2i ?? [],
+          filtered: mediaCandidates?.image.filtered.t2i,
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageT2I, globalDefaults.image),
           auto: globalDefaults.auto?.t2i,
           onChange: (next: string) => applyImageLayer({ imageBackendT2I: next }),
@@ -279,8 +285,10 @@ export function ModelConfigSection({
         {
           key: "i2i",
           ...bucketLabels.i2i,
+          bucket: "i2i",
           value: value.imageBackendI2I,
           options: mediaCandidates?.image.buckets.i2i ?? [],
+          filtered: mediaCandidates?.image.filtered.i2i,
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageI2I, globalDefaults.image),
           auto: globalDefaults.auto?.i2i,
           onChange: (next: string) => applyImageLayer({ imageBackendI2I: next }),
@@ -304,6 +312,19 @@ export function ModelConfigSection({
     usesReferenceImages: false,
     enabled: !!usesReferenceImages && !!value.videoResolutions,
   });
+  // 这条生成路径的执行模型取自本卡片的引用（该路径的细分项优先，其次默认层），且那里已显示「已下线」或「不可用」
+  // 提示时，能力查询的报错说的是同一件事，不再重复显示。即将下线的模型仍可调用，报错另有原因，照常显示；执行模型
+  // 来自全局默认、或来自本页未显示的细分项时，本页没有对应提示，也照常显示。别的路径引用了同一模型不算。
+  const videoModelError = (bucketReference: string, error: string | null) => {
+    const reference = bucketReference ? (showSubFields ? bucketReference : "") : value.videoBackend;
+    const status = reference ? candidates?.lifecycle?.[reference]?.status : undefined;
+    return status === "discontinued" || status === "unavailable" ? null : error;
+  };
+  const executingVideoError = videoModelError(
+    usesReferenceImages ? value.videoProviderR2V : value.videoProviderI2V,
+    capabilities.videoModelError,
+  );
+  const executingI2VError = videoModelError(value.videoProviderI2V, i2vCapabilities.videoModelError);
   const { rawDurations, supportedDurations, voiceConsistency } = capabilities;
   // 约束上下文（分辨率 / 参考图路径）变了但模型没变时，旧的收窄结果会一直挂到新结果落地：
   // 这样切档位不闪加载态，但这段窗口里的选项属于上一个上下文。期间只展示、不接受选择，
@@ -513,6 +534,7 @@ export function ModelConfigSection({
             renderOptionMeta={renderVideoOptionMeta}
             subFields={videoSubFields}
             subFieldsError={mediaCandidatesError}
+            lifecycle={candidates?.lifecycle}
           >
           {executingVideo && (
             <VideoModelSpecBar
@@ -528,9 +550,7 @@ export function ModelConfigSection({
             (v) => onChange({ ...value, videoResolutions: { ...value.videoResolutions, [executingI2V]: v } }),
             `${bucketLabels.i2v.label} · ${t("resolution_label")}`,
           )}
-          {usesReferenceImages && i2vCapabilities.videoModelError && (
-            <InlineWarning message={i2vCapabilities.videoModelError} />
-          )}
+          {usesReferenceImages && executingI2VError && <InlineWarning message={executingI2VError} />}
           {renderResolutionField(
             executingVideo,
             value.videoResolution,
@@ -541,7 +561,7 @@ export function ModelConfigSection({
               ? `${bucketLabels.r2v.label} · ${t("resolution_label")}`
               : t("resolution_label"),
           )}
-          {capabilities.videoModelError && <InlineWarning message={capabilities.videoModelError} />}
+          {executingVideoError && <InlineWarning message={executingVideoError} />}
 
           {/* 档位空集且该模型的时长本就不由 ArcReel 驱动：控件无从渲染，但要说清为什么没有，
               否则用户只会看见时长这一节凭空消失。 */}
@@ -644,6 +664,7 @@ export function ModelConfigSection({
             modelNames={options.modelNames}
             subFields={imageSubFields}
             subFieldsError={mediaCandidatesError}
+            lifecycle={candidates?.lifecycle}
           >
             {renderResolutionField(executingImage, value.imageResolution, (v) =>
               onChange({ ...value, imageResolution: v }),
@@ -690,6 +711,7 @@ export function ModelConfigSection({
             }}
             auto={globalDefaults.auto?.text}
             showTiers={showSubFields}
+            lifecycle={candidates?.lifecycle}
           />
         </ChannelCard>
       )}

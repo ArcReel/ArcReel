@@ -17,6 +17,7 @@ function item(overrides: Partial<ProviderModelItem> & Pick<ProviderModelItem, "m
     official: true,
     flags: [],
     price: null,
+    lifecycle: { status: "available", shutdown_date: null, successor: null },
     endpoint: null,
     ...overrides,
   };
@@ -29,11 +30,12 @@ function detailOf(model: ProviderModelItem): ProviderModelDetail {
     provider_multiplier: 1,
     entry: null,
     entry_binding: null,
-    capabilities: { media_type: model.media_type, editable: [], base: {}, overrides: {}, effective: {} },
+    capabilities: { media_type: model.media_type, editable: [], displayed: [], base: {}, overrides: {}, effective: {} },
     endpoint: null,
     resolution: null,
     path_overrides: null,
     requests: [],
+    endpoint_options: [],
   };
 }
 
@@ -91,7 +93,7 @@ describe("ProviderModelList", () => {
     expect(within(text).getByText("$0.05/百万 token 输入，$0.15–0.3/百万 token 输出")).toBeInTheDocument();
     // 没有显示名时显示模型 ID
     expect(within(text).getAllByText("chat-legacy")).toHaveLength(2);
-    expect(within(text).getByText("已下架")).toBeInTheDocument();
+    expect(within(text).getByText("已下线")).toBeInTheDocument();
     expect(within(text).getByText("未定价")).toBeInTheDocument();
     expect(within(image).getByText("Image One")).toBeInTheDocument();
     // 改过模型信息的行带「已修改」
@@ -317,11 +319,12 @@ describe("ProviderModelList", () => {
       provider_multiplier: 1,
       entry: null,
       entry_binding: null,
-      capabilities: { media_type: "text" as const, editable: [], base: {}, overrides: {}, effective: {} },
+      capabilities: { media_type: "text" as const, editable: [], displayed: [], base: {}, overrides: {}, effective: {} },
       endpoint: null,
       resolution: null,
       path_overrides: null,
       requests: [],
+      endpoint_options: [],
     };
     vi.spyOn(API, "getProviderModel").mockResolvedValue(detail);
     const update = vi

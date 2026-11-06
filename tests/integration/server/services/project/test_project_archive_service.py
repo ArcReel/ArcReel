@@ -60,16 +60,16 @@ from tests.legacy_project_shapes import write_legacy_named_reference_bases_proje
 
 
 class _RetireRecorder:
-    """记下覆盖导入收尾的项目名，可在目录替换之后模拟提交失败。数据库那一半由导入路由的测试覆盖。"""
+    """记下覆盖导入收尾的项目目录名，可在目录替换之后模拟提交失败。数据库那一半由导入路由的测试覆盖。"""
 
     def __init__(self, *, fail_after_replace: bool = False) -> None:
         self.retired: list[str] = []
         self._fail_after_replace = fail_after_replace
 
     @contextmanager
-    def __call__(self, project_name: str) -> Generator[str]:
-        self.retired.append(project_name)
-        yield f"{project_name}#deleted-20261025T000000Z"
+    def __call__(self, project_dir: Path) -> Generator[str]:
+        self.retired.append(project_dir.name)
+        yield f"{project_dir.name}#deleted-20261025T000000Z"
         if self._fail_after_replace:
             raise RuntimeError("commit failed")
 
@@ -1349,6 +1349,22 @@ class TestProjectArchiveService:
         assert result.project["title"] == "Demo"
         assert result.project_name != "demo"
         assert (pm.get_project_path(result.project_name) / "project.json").exists()
+
+    @pytest.mark.parametrize("schema_version", [0, 1])
+    def test_import_minimal_legacy_archive_has_no_backup_warnings(self, tmp_path, schema_version):
+        pm = ProjectManager(tmp_path / "projects")
+        archive_path = tmp_path / "legacy.zip"
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            archive.writestr(
+                "project.json",
+                json.dumps({"schema_version": schema_version, "title": "Demo", "content_mode": "narration"}),
+            )
+
+        result = ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="legacy.zip")
+
+        assert result.project["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+        assert list(pm.get_project_path(result.project_name).glob("project.json.bak.v*"))
+        assert not any(warning.key == "val_unrecognized_entry" for warning in result.warnings)
 
     def test_import_legacy_v1_archive_runs_migration(self, tmp_path):
         """启动后导入的旧归档（schema_version=1 + legacy image_backend）在导入入口走完整迁移链。"""

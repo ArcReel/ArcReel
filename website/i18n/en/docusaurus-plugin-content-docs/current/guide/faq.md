@@ -309,7 +309,7 @@ Deleting a whole project moves it to **Deleted projects** on the project list pa
 
 ### What is the difference between a project ZIP and a full-instance backup? {#project-zip-vs-full-backup}
 
-A project ZIP imports or migrates a single project and can include only the current version or the complete version history. It does not include global provider settings, login configuration, task and cost records, Agent sessions, or Agent memory.
+A project ZIP imports or migrates a single project and can include only the current version or the complete version history. It does not include global provider settings, login configuration, task and cost records, Agent sessions, or Agent memory. Available provider asset links of the images go along with the project ZIP; see [Project ZIPs and Provider Asset Links](./providers.md#asset-library-in-project-zip) for how they are used after import.
 
 The project trash is not included in a project ZIP, while a full data-root backup keeps its deletion records. For how to use the project trash, see [File View and Project Trash](./files-and-trash.md).
 
