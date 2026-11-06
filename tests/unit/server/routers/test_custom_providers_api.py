@@ -230,6 +230,7 @@ class TestEndpointCatalog:
             "vidu-video-q1",
             "vidu-video-q1-classic",
             "vidu-video-2",
+            "vidu-video-q4",
             "openrouter-video",
             "xai-video",
             "dashscope-qwen-image",

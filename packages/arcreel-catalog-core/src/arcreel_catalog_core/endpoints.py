@@ -105,6 +105,7 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
         "dashscope-speech-synthesizer": BuiltinEndpoint("audio", since="0.35.1"),
         "gemini-interactions-video": BuiltinEndpoint("video", since="0.35.1"),
         "gemini-vertex-interactions-video": BuiltinEndpoint("video", since="0.35.1"),
+        "vidu-video-q4": BuiltinEndpoint("video", since="0.35.1"),
     }
 )
 
@@ -198,6 +199,7 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
                     "vidu-video-q1",
                     "vidu-video-q1-classic",
                     "vidu-video-2",
+                    "vidu-video-q4",
                 ),
                 "vidu-video-q3-turbo",
             ),

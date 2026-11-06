@@ -1769,6 +1769,7 @@ export default {
   'endpoint_vidu_video_q1_display': 'Vidu 视频（Q1）',
   'endpoint_vidu_video_q1_classic_display': 'Vidu 视频（Q1-CLASSIC）',
   'endpoint_vidu_video_2_display': 'Vidu 视频（2）',
+  'endpoint_vidu_video_q4_display': 'Vidu 视频（Q4）',
   'endpoint_dashscope_async_video_display': '阿里百炼（异步视频）',
   'endpoint_minimax_image_display': 'MiniMax（图片）',
   'endpoint_kling_image_display': '可灵 Kling（图片）',
