@@ -89,6 +89,8 @@ const MODEL_LIST_STATES: ApiOverrides = {
           price: null,
           lifecycle: { status: "discontinued", shutdown_date: "2026-03-31", successor: null },
           endpoint: null,
+          min_app_version: null,
+          min_app_version_satisfied: true,
         },
       ],
     },
@@ -224,6 +226,8 @@ const customListItems = customProvider.models.map((m) => ({
       : null,
   lifecycle: { status: "available", shutdown_date: null, successor: null },
   endpoint: m.endpoint,
+  min_app_version: null,
+  min_app_version_satisfied: true,
 }));
 
 const KLING_ID = "kling-v2-6-master-image-to-video-pro-1080p";

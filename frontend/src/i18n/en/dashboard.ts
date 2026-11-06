@@ -1319,6 +1319,7 @@ export default {
   'pm_flag_retiring': 'Retiring {{date}}',
   'pm_flag_unpriced': 'Unpriced',
   'pm_flag_modified': 'Modified',
+  'pm_requires_app': 'Requires [[brand]] ≥ {{version}}',
   'pm_enable_model': 'Enable "{{name}}"',
   'pm_empty': 'This provider has no models yet.',
   'pm_empty_enabled': 'No models are enabled yet.',

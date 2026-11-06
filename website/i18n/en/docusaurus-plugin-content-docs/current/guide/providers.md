@@ -97,6 +97,8 @@ calls from places that still select it fail with an error that gives the shutdow
 Video tasks already submitted to the vendor before the shutdown date are not affected: when the service restarts and resumes them, their results are retrieved as usual. Tasks submitted after the shutdown date still fail, including tasks queued before it that only reach submission afterwards.
 Use "All / Enabled" to switch what is shown.
 
+Models that need a newer version of ArcReel are listed here too, at the end of their group, labelled "Requires ArcReel ≥ version". The current version cannot call them: the toggle is unavailable and the model settings cannot be opened, and they do not appear among any model candidates or serve as the provider's default model. After you upgrade to the required version, they can be enabled like any other model.
+
 In global and project settings, when a default model, a per-purpose model, or the narration model is set to a retiring or discontinued model,
 a notice below the dropdown gives the shutdown date and the officially recommended successor.
 When the successor is on the same provider and can be used in that place, the notice has a "Switch to …" button: it changes only that one selection,

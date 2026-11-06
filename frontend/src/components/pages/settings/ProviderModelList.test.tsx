@@ -19,6 +19,8 @@ function item(overrides: Partial<ProviderModelItem> & Pick<ProviderModelItem, "m
     price: null,
     lifecycle: { status: "available", shutdown_date: null, successor: null },
     endpoint: null,
+    min_app_version: null,
+    min_app_version_satisfied: true,
     ...overrides,
   };
 }
@@ -111,6 +113,45 @@ describe("ProviderModelList", () => {
 
     expect(screen.queryByText("chat-legacy")).not.toBeInTheDocument();
     expect(screen.getByText("Chat One")).toBeInTheDocument();
+  });
+
+  it("greys out a model that needs a newer app version: labelled, not toggleable, no sheet", async () => {
+    const gated = item({
+      model_id: "chat-next",
+      display_name: "Chat Next",
+      enabled: false,
+      min_app_version: "0.36.0",
+      min_app_version_satisfied: false,
+    });
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [...MODELS, gated], discoverable: false });
+    const getModel = vi.spyOn(API, "getProviderModel").mockResolvedValue(detailOf(MODELS[1]));
+
+    render(<ProviderModelList providerId="acme" providerName="Acme" />);
+
+    const row = (await screen.findByText("Chat Next")).closest("li");
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText("需要 ArcReel ≥ 0.36.0")).toBeInTheDocument();
+    expect(within(row!).getByRole("switch", { name: /Chat Next/ })).toHaveAttribute("aria-disabled", "true");
+    expect(within(row!).queryByRole("button")).not.toBeInTheDocument();
+    // 满足版本要求的行不带这个标注，仍可打开 Sheet
+    expect(screen.getAllByText(/需要 ArcReel/)).toHaveLength(1);
+    fireEvent.click(screen.getByText("Chat One"));
+    await waitFor(() => expect(getModel).toHaveBeenCalled());
+  });
+
+  it("leaves models that need a newer app version out of the add dialog's not-enabled group", async () => {
+    const user = userEvent.setup();
+    const gated = item({ model_id: "chat-next", enabled: false, min_app_version: "0.36.0", min_app_version_satisfied: false });
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [...MODELS, gated], discoverable: false });
+    vi.spyOn(API, "searchCatalogEntries").mockResolvedValue({ entries: [] });
+
+    render(<ProviderModelList providerId="acme" providerName="Acme" />);
+    await screen.findByText("Chat One");
+    await user.click(screen.getByRole("button", { name: "添加模型" }));
+
+    const group = await screen.findByRole("group", { name: "未启用的模型" });
+    expect(within(group).getAllByText("chat-legacy").length).toBeGreaterThan(0);
+    expect(within(group).queryByText("chat-next")).not.toBeInTheDocument();
   });
 
   it("applies a toggle immediately and clears the default when disabling", async () => {

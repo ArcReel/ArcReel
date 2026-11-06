@@ -51,6 +51,8 @@ function item(overrides: Partial<ProviderModelItem> = {}): ProviderModelItem {
     price: null,
     lifecycle: { status: "available", shutdown_date: null, successor: null },
     endpoint: "newapi-video",
+    min_app_version: null,
+    min_app_version_satisfied: true,
     ...overrides,
   };
 }

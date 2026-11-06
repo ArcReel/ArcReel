@@ -24,7 +24,7 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.routers import catalog as catalog_router
 from server.routers import provider_models
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
-from tests.catalog_support import install_catalog
+from tests.catalog_support import install_catalog, with_min_app_version
 from tests.http_capture import capture_http
 
 
@@ -81,6 +81,34 @@ def test_builtin_list_has_state_flags_and_price_summary(models_client: TestClien
     assert (legacy["enabled"], legacy["is_default"]) == (False, False)
     assert "discontinued" in legacy["flags"]
     assert models_client.get("/api/v1/providers/nope/models").status_code == 404
+
+
+async def test_version_gated_model_is_listed_with_its_requirement_but_never_usable(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """最低应用版本高于当前版本的官方收录模型：列表末尾照常列出并带所需版本，但不启用、不作默认，也不能启用。"""
+    install_catalog(
+        monkeypatch, with_min_app_version(catalog.factory_snapshot(), "agnes", "agnes-3.0-flash", "999.0.0")
+    )
+
+    resp = models_client.get("/api/v1/providers/agnes/models")
+    assert resp.status_code == 200
+    gated = resp.json()["models"][-1]
+    assert gated["model_id"] == "agnes-3.0-flash"
+    assert (gated["min_app_version"], gated["min_app_version_satisfied"]) == ("999.0.0", False)
+    assert (gated["enabled"], gated["is_default"], gated["official"]) == (False, False, True)
+    others = resp.json()["models"][:-1]
+    assert others
+    assert all(item["min_app_version_satisfied"] for item in others)
+
+    enable = models_client.put(
+        "/api/v1/providers/agnes/models/enabled", json={"model_id": "agnes-3.0-flash", "enabled": True}
+    )
+    assert enable.status_code == 404
+    async with db_factory() as session:
+        statuses = await ConfigService(session).get_all_providers_status()
+    agnes = next(s for s in statuses if s.name == "agnes")
+    assert "agnes-3.0-flash" not in (agnes.models or {})
 
 
 async def test_disabling_default_model_takes_effect_immediately(

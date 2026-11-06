@@ -1309,6 +1309,7 @@ export default {
   'pm_flag_retiring': 'Sắp ngừng hoạt động ({{date}})',
   'pm_flag_unpriced': 'Chưa định giá',
   'pm_flag_modified': 'Đã sửa',
+  'pm_requires_app': 'Cần [[brand]] ≥ {{version}}',
   'pm_enable_model': 'Bật "{{name}}"',
   'pm_empty': 'Nhà cung cấp này chưa có mô hình nào.',
   'pm_empty_enabled': 'Chưa bật mô hình nào.',

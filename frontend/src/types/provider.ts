@@ -156,6 +156,13 @@ export interface ProviderModelItem {
   lifecycle: ProviderModelLifecycle;
   /** 自定义供应商模型的调用端点键；内置供应商为 null。 */
   endpoint: string | null;
+  /** 官方收录的模型标注的最低应用版本；没有标注、或不是官方收录的模型时为 null。 */
+  min_app_version: string | null;
+  /**
+   * 应用版本达到 `min_app_version`。不满足的模型排在列表末尾，不启用、不作默认，不进入任何候选、也不能调用；
+   * 不能启用，也没有模型设置可打开。
+   */
+  min_app_version_satisfied: boolean;
 }
 
 /** 供应商模型列表（GET /providers/{id}/models）；`discoverable` 为真时可以「获取模型」。 */

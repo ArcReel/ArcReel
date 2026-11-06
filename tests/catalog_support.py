@@ -35,6 +35,17 @@ def with_entry_changes(data: CatalogData, provider_id: str, api_model_name: str,
     return replace(data, entries=entries)
 
 
+def with_min_app_version(data: CatalogData, provider_id: str, api_model_name: str, version: str) -> CatalogData:
+    """给内置供应商的一个官方收录模型标上最低应用版本。"""
+    listing = data.builtin_providers[provider_id]
+    models = tuple(
+        replace(model, min_app_version=version) if model.api_model_name == api_model_name else model
+        for model in listing.models
+    )
+    providers = {**data.builtin_providers, provider_id: replace(listing, models=models)}
+    return replace(data, builtin_providers=providers)
+
+
 def with_entry_facts(data: CatalogData, provider_id: str, api_model_name: str, **changes: Any) -> CatalogData:
     """改写供应商模型所引用条目的模型事实（``facts`` 上的字段）。"""
     listing = data.builtin_providers[provider_id]

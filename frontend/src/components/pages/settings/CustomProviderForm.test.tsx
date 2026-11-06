@@ -119,6 +119,8 @@ function listItem(modelId: string): ProviderModelItem {
     price: null,
     lifecycle: { status: "available", shutdown_date: null, successor: null },
     endpoint: "openai-chat",
+    min_app_version: null,
+    min_app_version_satisfied: true,
   };
 }
 
