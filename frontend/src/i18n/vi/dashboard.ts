@@ -1763,6 +1763,7 @@ export default {
   'endpoint_dashscope_async_video_display': 'Alibaba Model Studio (Video bất đồng bộ)',
   'endpoint_minimax_image_display': 'MiniMax (Ảnh)',
   'endpoint_kling_image_display': 'Kling (Ảnh)',
+  'endpoint_kling_image_single_display': 'Kling (Một ảnh tham chiếu)',
   'endpoint_kling_video_display': 'Kling (Video)',
   'endpoint_kling_video_pro_silent_display': 'Kling Video (Khung cuối Pro, im lặng)',
   'endpoint_kling_video_pro_audio_display': 'Kling Video (Khung cuối và âm thanh Pro)',

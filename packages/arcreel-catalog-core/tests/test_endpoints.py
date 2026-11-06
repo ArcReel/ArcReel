@@ -79,3 +79,8 @@ def test_floor_takes_highest_of_start_version_and_declaration_reading_version(
     monkeypatch.setattr(manifest, "ENDPOINT_DECLARATIONS_SINCE", "0.40.1")
 
     assert endpoint_version_floor(provider_id, media_type, endpoint) == expected
+
+
+@pytest.mark.parametrize("endpoint", ["kling-image", "kling-image-single"])
+def test_kling_image_endpoints_require_declaration_aware_application(endpoint: str):
+    assert endpoint_version_floor("kling", "image", endpoint) == "0.35.1"

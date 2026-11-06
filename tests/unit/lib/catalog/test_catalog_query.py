@@ -288,3 +288,23 @@ def test_user_copy_price_table_is_used_for_pricing(acme_catalog):
         assert (model.capabilities, model.resolutions) == (["text_to_image"], ["1K"])
     finally:
         catalog.install_user_entries(())
+
+
+@pytest.mark.parametrize("api_name", ["kling-v3", "kling-v3-omni"])
+@pytest.mark.parametrize("image_first", [False, True])
+def test_kling_amphibious_models_are_readable_in_both_media(monkeypatch, api_name, image_first):
+    models = [
+        {"api_model_name": api_name, "entry": "acme/omni", "media_type": media}
+        for media in (["image", "video"] if image_first else ["video", "image"])
+    ]
+    raw = {**_CATALOG, "builtin_providers": {"kling": {"models": models, "defaults": {"image": api_name}}}}
+    install_catalog(monkeypatch, parse_catalog(raw))
+
+    assert set(catalog.list_models("kling")) == {api_name, f"{api_name}-image"}
+    video = catalog.get_model("kling", api_name, media_type="video")
+    image = catalog.get_model("kling", f"{api_name}-image", media_type="image")
+    assert video is not None
+    assert video.media_type == "video"
+    assert image is not None
+    assert (image.media_type, image.api_model_name, image.default) == ("image", api_name, True)
+    assert catalog.default_model("kling", "image") == f"{api_name}-image"

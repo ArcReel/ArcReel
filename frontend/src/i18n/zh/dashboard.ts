@@ -1772,6 +1772,7 @@ export default {
   'endpoint_dashscope_async_video_display': '阿里百炼（异步视频）',
   'endpoint_minimax_image_display': 'MiniMax（图片）',
   'endpoint_kling_image_display': '可灵 Kling（图片）',
+  'endpoint_kling_image_single_display': '可灵 Kling（单参考图）',
   'endpoint_kling_video_display': '可灵 Kling（视频）',
   'endpoint_kling_video_pro_silent_display': 'Kling 视频（旧版 Pro 尾帧，无声）',
   'endpoint_kling_video_pro_audio_display': 'Kling 视频（旧版 Pro 尾帧与音轨）',
