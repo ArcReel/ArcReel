@@ -1949,6 +1949,48 @@
         ]
       },
       {
+        "key": "kling-image-single",
+        "media_type": "image",
+        "family": "kling",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_kling_image_single_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/v1/images/generations",
+        "image_capabilities": [
+          "image_to_image",
+          "text_to_image"
+        ],
+        "end_image_capable": false,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "submit",
+            "display_name_key": "cp_request_submit",
+            "default_path": "/images/generations",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "ensure_v1"
+          },
+          {
+            "name": "poll",
+            "display_name_key": "cp_request_poll",
+            "default_path": "/images/generations/{{ task_id }}",
+            "placeholders": [
+              "model",
+              "task_id"
+            ],
+            "base_url_rule": "ensure_v1"
+          }
+        ]
+      },
+      {
         "key": "kling-video-pro-silent",
         "media_type": "video",
         "family": "kling",

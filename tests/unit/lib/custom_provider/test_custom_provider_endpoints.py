@@ -330,6 +330,7 @@ class TestRegistry:
             "dashscope-reference-voice-video",
             "dashscope-wan3-video",
             "minimax-h3",
+            "vidu-video-q4",
         }
 
     def test_audio_endpoint_spec(self):

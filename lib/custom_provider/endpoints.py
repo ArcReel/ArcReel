@@ -1023,6 +1023,9 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
             metering_backend=backend,
             video_caps_for_model=backend.video_capabilities_for_model,
             end_image_capable=True,
+            # 参考生视频把 reference_audio_files 写进 sounds 的端点（Q4）才下发参考音频；取自 backend 的
+            # 同一份段数声明，不另写端点清单。
+            reference_audio_capable=backend.endpoint.max_reference_audio > 0,
         )
         for key, backend in VIDU_BACKENDS.items()
     },

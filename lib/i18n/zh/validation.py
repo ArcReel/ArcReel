@@ -258,6 +258,7 @@ MESSAGES = {
     "val_ce_enum_map_value_missing": "enum_maps.{name} 缺少 '{value}' 的映射",
     "val_ce_template_text_variable_null": "变量 {name} 为空，不能嵌入混合文本",
     "val_ce_each_value_not_list": "$each.in 指向的 {name} 在运行时不是列表",
+    "val_ce_each_key_duplicate": "对象式 $each 铺出的键 {field} 与同一对象里的其他键重名，请求无法承载全部素材",
     # ---- ComfyUI 端点 · 节点绑定与导入分流 ----
     "val_ce_comfyui_binding_required": "语义键 {binding_key} 必须绑定到节点后才能保存：提示词决定画什么，产物决定取哪个文件",
     "val_ce_comfyui_binding_key_not_allowed": "{media_type} 端点没有 {binding_key} 这一项语义，可用的语义键：{allowed}",

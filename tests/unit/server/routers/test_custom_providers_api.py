@@ -247,6 +247,7 @@ class TestEndpointCatalog:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-image",
+            "kling-image-single",
             "kling-video-pro-silent",
             "kling-video-pro-audio",
             "kling-video-audio",
