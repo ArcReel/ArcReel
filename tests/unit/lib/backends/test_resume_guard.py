@@ -28,6 +28,11 @@ _PATHS = {"poll": "/v2/tasks/{{ task_id }}"}
         (None, builtin_endpoint_guard("ark-seedance-2")),
         (builtin_endpoint_guard("ark-seedance-2"), builtin_endpoint_guard("ark-seedance-2")),
         (builtin_endpoint_guard("kling-video-model-path"), builtin_endpoint_guard("kling-video-model-path")),
+        (builtin_endpoint_guard("gemini-interactions-video"), builtin_endpoint_guard("gemini-interactions-video")),
+        (
+            builtin_endpoint_guard("gemini-vertex-interactions-video"),
+            builtin_endpoint_guard("gemini-vertex-interactions-video"),
+        ),
     ],
 )
 def test_equivalent_protocols_resume(submitted: str | None, current: str) -> None:
@@ -46,6 +51,10 @@ def test_equivalent_protocols_resume(submitted: str | None, current: str) -> Non
         (builtin_endpoint_guard("kling-video-pro-audio"), builtin_endpoint_guard("kling-video-model-path")),
         (builtin_endpoint_guard("kling-video-model-path"), builtin_endpoint_guard("kling-video-audio")),
         (endpoint_guard("kling-video-silent", _PATHS), endpoint_guard("kling-video-model-path", _PATHS)),
+        (builtin_endpoint_guard("gemini-video"), builtin_endpoint_guard("gemini-interactions-video")),
+        (builtin_endpoint_guard("gemini-interactions-video"), builtin_endpoint_guard("gemini-video")),
+        (builtin_endpoint_guard("gemini-vertex-video"), builtin_endpoint_guard("gemini-vertex-interactions-video")),
+        (builtin_endpoint_guard("gemini-vertex-interactions-video"), builtin_endpoint_guard("gemini-vertex-video")),
         # 换了协议
         ("ark-seedance", "openai-video"),
         # 后继之间互换仍是换了端点

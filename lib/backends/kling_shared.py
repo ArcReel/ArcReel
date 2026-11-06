@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import base64
-import re
 import time
 from collections.abc import Callable, Mapping
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -26,6 +25,7 @@ from typing import Literal
 
 import jwt
 
+from lib.config.url_utils import strip_base_url_version
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 
 # 官方 base（含 /v1），对齐 ark_shared.ARK_BASE_URL 约定。国内调用域名官方已由 api.klingai.com
@@ -269,20 +269,19 @@ def extract_kling_image_urls(payload: dict) -> list[str]:
 # 新版 API 的任务状态：submitted / processing / succeeded / failed。
 KLING_MODEL_PATH_SUCCEEDED = "succeeded"
 _MODEL_PATH_TERMINAL_STATES = frozenset({KLING_MODEL_PATH_SUCCEEDED, KLING_STATUS_FAILED})
-_VERSION_SUFFIX = re.compile(r"/v\d+(?:\.\d+)?[a-zA-Z]*$")
 
 
 def kling_model_path_base_url(base_url: str | None) -> str:
     """新版 API 的 base_url：补协议、去尾斜杠并剥去末尾的版本段（如内置供应商默认值里的 ``/v1``）。
 
-    未配置时取 :data:`KLING_MODEL_PATH_BASE_URL`。与路径覆盖的 ``strip_version`` 规则同口径。
+    未配置时取 :data:`KLING_MODEL_PATH_BASE_URL`。剥版本段即路径覆盖的 ``strip_version`` 规则。
     """
     stripped = (base_url or "").strip().rstrip("/")
     if not stripped:
         return KLING_MODEL_PATH_BASE_URL
     if "://" not in stripped:
         stripped = f"https://{stripped}"
-    return _VERSION_SUFFIX.sub("", stripped)
+    return strip_base_url_version(stripped)
 
 
 def kling_model_path_task_id(submit_payload: dict) -> str:

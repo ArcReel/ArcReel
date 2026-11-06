@@ -8,6 +8,7 @@ from lib.config.url_utils import (
     InvalidAnthropicBaseUrlError,
     anthropic_endpoint_url,
     normalize_anthropic_base_url,
+    strip_base_url_version,
     validate_anthropic_base_url,
 )
 
@@ -86,3 +87,18 @@ class TestAnthropicEndpointUrl:
         assert anthropic_endpoint_url("https://api.minimaxi.com/anthropic", "/v1/models") == (
             "https://api.minimaxi.com/anthropic/v1/models"
         )
+
+
+@pytest.mark.parametrize(
+    ("base_url", "expected"),
+    [
+        ("https://relay.test/v1", "https://relay.test"),
+        ("https://relay.test/v2beta", "https://relay.test"),
+        ("https://relay.test/v1.5", "https://relay.test"),
+        ("https://relay.test/api", "https://relay.test/api"),
+        # 前端 RequestAddresses 的 VERSION_SUFFIX 只认 ASCII 数字，两侧用例表同口径
+        ("https://relay.test/v\uff11", "https://relay.test/v\uff11"),
+    ],
+)
+def test_strip_version_rule_only_strips_ascii_version_suffix(base_url: str, expected: str):
+    assert strip_base_url_version(base_url) == expected
