@@ -96,7 +96,7 @@ class GrokImageBackend:
         refs = facts.reference_count
         return per_image_usage(
             output_images=1,
-            input_images=None if refs is None else min(refs, _MAX_REFERENCE_IMAGES),
+            input_images=refs,
             dimensions={"resolution": facts.image_size} if facts.image_size is not None else None,
         )
 
@@ -116,9 +116,6 @@ class GrokImageBackend:
         reference_count = 0
         if request.reference_images:
             refs = request.reference_images
-            if len(refs) > _MAX_REFERENCE_IMAGES:
-                logger.warning("Grok 参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
-                refs = refs[:_MAX_REFERENCE_IMAGES]
             # 存在性检查与读图编码都是阻塞 I/O，整体卸载到线程，避免堵住事件循环
             data_uris = await asyncio.to_thread(_encode_existing_refs, [ref.path for ref in refs])
             if data_uris:

@@ -1,6 +1,6 @@
 """KlingImageBackend 单元测试（respx 在 transport 层拦截，不打真实 HTTP）。
 
-覆盖：JWT / Bearer 双模式鉴权注入、请求体构建（文生图 / 图生图 image 数组）、参考图上限截断、
+覆盖：JWT / Bearer 双模式鉴权注入、请求体构建（文生图 / 图生图 image 数组）、参考图完整传输与单图超量拒绝、
 缺失参考图 fail-loud、脱敏日志视图、submit→轮询→取 image_url→下载端到端、失败终态、多图取首张。
 """
 
@@ -339,3 +339,27 @@ async def test_endpoint_request_shape_and_input_metering(tmp_path, endpoint, aut
     expected_limit = 1 if endpoint == "kling-image-single" else None
     assert await backend.reference_image_limit() == expected_limit
     assert endpoint_reference_image_limit(get_endpoint_spec(endpoint)) == expected_limit
+
+
+async def test_single_image_rejects_multiple_references_before_submit(tmp_path):
+    from lib.backends.image_backends.kling import KlingSingleImageBackend
+
+    backend = KlingSingleImageBackend(auth_mode="bearer", api_key="test-bearer")
+    refs = [_ref(tmp_path, "a.png"), _ref(tmp_path, "b.png")]
+    from lib.backends.image_capabilities import gate_image_request
+    from lib.custom_provider.backends import CustomImageBackend
+
+    backend = CustomImageBackend(
+        provider_id="custom-1",
+        delegate=backend,
+        model=backend.model,
+        reference_limit_override=2,
+    )
+    await gate_image_request(backend, provider_id="custom-1", reference_count=2)
+    with capture_http() as router, pytest.raises(ImageCapabilityError) as exc:
+        await backend.generate(_request(tmp_path, reference_images=refs))
+
+    assert exc.value.code == "image_reference_images_exceeded"
+    assert exc.value.params["limit"] == 1
+    assert exc.value.params["count"] == 2
+    assert not router.calls

@@ -179,10 +179,7 @@ class DeclarativeImageBackend:
         return definition_reference_limit(self._definition)
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        # 编排层已按生效上限裁剪并提示；这里的截断只是兜底，超出的图没有落点。定义没有声明上限时不裁剪。
         references = request.reference_images
-        if self._reference_limit is not None:
-            references = references[: self._reference_limit]
         context = await asyncio.to_thread(
             self._engine.request_context,
             {

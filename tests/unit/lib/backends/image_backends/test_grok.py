@@ -202,8 +202,8 @@ class TestGenerateI2I:
         call_kwargs = grok_backend._client.image.sample.call_args.kwargs
         assert len(call_kwargs["image_urls"]) == 2
 
-    async def test_i2i_truncates_references_over_the_declared_limit(self, grok_backend, tmp_path):
-        """编排层未裁剪时的兜底：只发前 reference_image_limit() 张。"""
+    async def test_i2i_sends_every_reference_above_the_channel_limit(self, grok_backend, tmp_path):
+        """能力覆盖放行的参考图全部下发。"""
         refs = []
         for index in range(7):
             ref_path = tmp_path / f"ref{index}.png"
@@ -214,13 +214,23 @@ class TestGenerateI2I:
         mock_response.url = "https://example.com/merged.png"
         grok_backend._client.image.sample = AsyncMock(return_value=mock_response)
 
+        from lib.backends.image_capabilities import gate_image_request
+        from lib.custom_provider.backends import CustomImageBackend
+
+        wrapped = CustomImageBackend(
+            provider_id="custom-1",
+            delegate=grok_backend,
+            model=grok_backend.model,
+            reference_limit_override=7,
+        )
+        await gate_image_request(wrapped, provider_id="custom-1", reference_count=7)
         with _image_download(mock_response.url, b"\x89PNG\r\n\x1a\n" + b"\x00" * 50):
-            await grok_backend.generate(
+            await wrapped.generate(
                 ImageGenerationRequest(prompt="Merge", output_path=tmp_path / "out.png", reference_images=refs)
             )
 
         call_kwargs = grok_backend._client.image.sample.call_args.kwargs
-        assert len(call_kwargs["image_urls"]) == (await grok_backend.reference_image_limit()) == 5
+        assert len(call_kwargs["image_urls"]) == 7
 
     async def test_i2i_reference_encoding_keeps_event_loop_running(self, grok_backend, tmp_path, monkeypatch):
         """参考图 base64 编码要读整张图，必须卸载到线程，否则事件循环被读堵住。"""

@@ -31,6 +31,7 @@ from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import notify_provider_response_to
 from lib.backends.image_backends.base import (
     ImageCapability,
+    ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
 )
@@ -110,6 +111,11 @@ class ComfyuiImageBackend:
         return len(targets_of((self._definition.get("bindings") or {}).get("reference_images")))
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        count = len(request.reference_images)
+        if count > self._reference_slots:
+            raise ImageCapabilityError(
+                "image_reference_images_exceeded", model=self._model, limit=self._reference_slots, count=count
+            )
         job_label = self._job_label or uuid4().hex
         async with artifact_http_client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
             media = await self._upload_media(http, request, job_label=job_label)
@@ -152,15 +158,9 @@ class ComfyuiImageBackend:
     async def _upload_media(
         self, http: httpx.AsyncClient, request: ImageGenerationRequest, *, job_label: str
     ) -> MediaInputs:
-        """把这次要用到的参考图传上去，换回读图节点认的引用名。
-
-        只传落得进格子的那几张：格子数就是这份 workflow 能收几张，多出来的图不会被任何节点读到，
-        白占用户的带宽与磁盘。图像端点没有首尾帧这两个语义键（见 ``comfyui.bindings``），故这里
-        只有参考图一路。
-        """
-        slots = self._reference_slots
+        """把已通过槽位容量校验的参考图全部上传。"""
         references: list[str] = []
-        for index, reference in enumerate(request.reference_images[:slots]):
+        for index, reference in enumerate(request.reference_images):
             path = Path(reference.path)
             references.append(
                 await self._client.upload_image(

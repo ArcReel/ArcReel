@@ -244,9 +244,6 @@ class OpenAIImageBackend:
 
     async def _generate_edit(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         refs = request.reference_images
-        if len(refs) > _MAX_REFERENCE_IMAGES:
-            logger.warning("参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
-            refs = refs[:_MAX_REFERENCE_IMAGES]
 
         def _read_refs() -> list[tuple[str, bytes, str]]:
             """在线程里读出参考图：交给 SDK 的若是文件句柄，multipart 会在事件循环上读文件。"""
