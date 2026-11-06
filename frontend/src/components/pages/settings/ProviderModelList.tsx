@@ -407,7 +407,7 @@ export function ProviderModelList({
                     <span className="flex min-w-0 flex-wrap items-center gap-1.5">
                       <TruncatedText
                         text={name}
-                        focusable={false}
+                        focusable={versionUnmet}
                         className={cn("text-sm", !model.enabled && "text-muted-foreground")}
                       />
                       {model.is_default && (
@@ -424,7 +424,7 @@ export function ProviderModelList({
                       <ProviderModelFlags flags={model.flags} shutdownDate={model.lifecycle.shutdown_date} />
                     </span>
                     <span className="flex min-w-0 flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
-                      <TruncatedText text={model.model_id} focusable={false} className="font-mono" />
+                      <TruncatedText text={model.model_id} focusable={versionUnmet} className="font-mono" />
                       {price && <span>{price}</span>}
                       {model.endpoint && <span>{endpointLabel(model.endpoint)}</span>}
                     </span>
