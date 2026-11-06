@@ -191,6 +191,17 @@ CASES = [
         id="minimax/h3-default-resolution",
     ),
     pytest.param(
+        "minimax-h3",
+        "MiniMax-H3",
+        {"resolution": "480p"},
+        {"task_id": "t-1"},
+        [{"task": {"status": "succeeded", "content": {"url": "https://cdn.test/mm/h3.mp4"}}}],
+        _h3_body(resolution="480P"),
+        "https://cdn.test/mm/h3.mp4",
+        None,
+        id="minimax/h3-480p-resolution",
+    ),
+    pytest.param(
         # 显式指定时缺省值不得插手：请求带的是调用方选的档位，经 enum_maps 映射为供应商侧字面。
         "minimax-h3",
         "MiniMax-H3",
