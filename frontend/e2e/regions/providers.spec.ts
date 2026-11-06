@@ -477,13 +477,13 @@ defineRegionScenarios("供应商", [
     act: async (page) => {
       const models = page.getByRole("region", { name: "模型" });
       await models.scrollIntoViewIfNeeded();
-      await expect(models.getByText("已下线")).toBeVisible();
+      const legacy = models.getByRole("listitem").filter({ hasText: "gemini-2.0-flash-experimental-image-generation-legacy-2025-03-preview" });
+      await expect(legacy.getByText("已下线")).toBeVisible();
       await models.getByRole("button", { name: /已启用/ }).click();
       await expect(models.getByText("已下线")).toHaveCount(0);
       await expect(models.getByRole("switch").first()).toBeChecked();
       // 回到「全部」，截长名称与状态标记所在的行
       await models.getByRole("button", { name: /全部/ }).click();
-      const legacy = models.getByRole("listitem").filter({ hasText: "已下线" });
       await legacy.scrollIntoViewIfNeeded();
       await expect(legacy).toBeInViewport();
     },

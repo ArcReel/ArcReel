@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import userEvent from "@testing-library/user-event";
 import type { FetchedProviderModel, ProviderModelDetail, ProviderModelItem } from "@/types";
 import { ProviderModelList } from "./ProviderModelList";
@@ -137,6 +138,31 @@ describe("ProviderModelList", () => {
     expect(screen.getAllByText(/需要 ArcReel/)).toHaveLength(1);
     fireEvent.click(screen.getByText("Chat One"));
     await waitFor(() => expect(getModel).toHaveBeenCalled());
+  });
+
+  it("lets keyboard users read truncated names and IDs of version-gated models", async () => {
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(480);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(200);
+    const gated = item({
+      model_id: "chat-next-long-model-id",
+      display_name: "Chat Next Long Model Name",
+      enabled: false,
+      min_app_version: "0.36.0",
+      min_app_version_satisfied: false,
+    });
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [gated], discoverable: false });
+    const user = userEvent.setup();
+
+    render(<TooltipProvider><ProviderModelList providerId="acme" providerName="Acme" /></TooltipProvider>);
+    const name = await screen.findByText(gated.display_name!);
+    const modelId = screen.getByText(gated.model_id);
+    screen.getByRole("switch").focus();
+    await user.tab();
+    expect(name).toHaveFocus();
+    await waitFor(() => expect(screen.getAllByText(gated.display_name!)).toHaveLength(2));
+    await user.tab();
+    expect(modelId).toHaveFocus();
+    await waitFor(() => expect(screen.getAllByText(gated.model_id)).toHaveLength(2));
   });
 
   it("leaves models that need a newer app version out of the add dialog's not-enabled group", async () => {
