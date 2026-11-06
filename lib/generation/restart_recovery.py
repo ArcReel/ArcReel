@@ -346,10 +346,11 @@ class RestartRecovery:
         running: dict[str, list[dict[str, Any]]] = {}
         for provider_id, tasks in resumable_by_provider.items():
             for task in tasks:
+                token = self._dispatch_owners.get(task["task_id"])
                 if await self._still_running(task["task_id"]):
                     running.setdefault(provider_id, []).append(task)
                 else:
-                    self._release_ownership(task["task_id"])
+                    self._release_ownership(task["task_id"], token)
         if running:
             await self.dispatch_resumable(running)
 
@@ -366,10 +367,10 @@ class RestartRecovery:
             return False
         return True
 
-    def _release_ownership(self, task_id: str, token: asyncio.Event | None = None) -> None:
-        """放开任务的 dispatcher 归属并唤醒等它的「重试下载」；给了 ``token`` 时只放开这一次归属。"""
+    def _release_ownership(self, task_id: str, token: asyncio.Event | None) -> None:
+        """放开 ``token`` 这一次归属并唤醒等它的「重试下载」；归属已换人或已放开时不动。"""
         current = self._dispatch_owners.get(task_id)
-        if current is None or (token is not None and current is not token):
+        if current is None or current is not token:
             return
         del self._dispatch_owners[task_id]
         current.set()
@@ -478,7 +479,7 @@ class RestartRecovery:
 
         sem = asyncio.Semaphore(cap)
 
-        async def _run_one(t: dict[str, Any]) -> None:
+        async def _run_one(t: dict[str, Any], token: asyncio.Event | None) -> None:
             task_id = t["task_id"]
             acquired = False
             try:
@@ -507,8 +508,8 @@ class RestartRecovery:
                     sem.release()
                 self._slots.release(provider_id, "video", task_id)
                 # 这个任务的续跑结束即放开归属：dispatcher 还在跑别的任务时，它落下的
-                # artifact_download_failed 也能立即被「重试下载」重新派发。归属此刻只可能属于本 dispatcher。
-                self._release_ownership(task_id)
+                # artifact_download_failed 也能立即被「重试下载」重新派发。
+                self._release_ownership(task_id, token)
 
         sub: list[asyncio.Task] = []
         for t in tasks:
@@ -516,7 +517,8 @@ class RestartRecovery:
                 break
             # 父协程同步：先 create_task、再立即以 PENDING 登记——避免「create_task
             # 是异步调度，has_room 在调度未发生前看占用=0 误判可有容量」的瞬时 race。
-            sub_task = asyncio.create_task(_run_one(t), name=f"resume-video-{t['task_id']}")
+            token = self._dispatch_owners.get(t["task_id"])
+            sub_task = asyncio.create_task(_run_one(t, token), name=f"resume-video-{t['task_id']}")
             self._slots.register(provider_id, "video", t["task_id"], sub_task, pending=True)
             sub.append(sub_task)
         if sub:

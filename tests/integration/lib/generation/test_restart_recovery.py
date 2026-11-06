@@ -1,5 +1,7 @@
 import asyncio
 import contextlib
+import gc
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
@@ -48,6 +50,43 @@ def _active_task_named(slots: SlotTable, name: str) -> asyncio.Future[Any]:
     matches = [task for task in slots.all_active_tasks() if isinstance(task, asyncio.Task) and task.get_name() == name]
     assert len(matches) == 1, f"占用台账里没有唯一名为 {name} 的执行体"
     return matches[0]
+
+
+def _recording_resume(monkeypatch, on_resume: Callable[[str], Awaitable[None]] | None = None) -> list[str]:
+    """把续跑执行器换成记录替身，按调用顺序返回接续过的 task_id；``on_resume`` 在记录之后运行。"""
+    resumed: list[str] = []
+
+    async def _resume(task, *, job_id):
+        resumed.append(task["task_id"])
+        if on_resume is not None:
+            await on_resume(task["task_id"])
+        return {"job_id": job_id}
+
+    monkeypatch.setattr(stub_executors, "resume", _resume)
+    return resumed
+
+
+class _StatusQueue(FakeWorkerQueue):
+    """``get_task`` 读到的状态由用例指定。"""
+
+    def __init__(self):
+        super().__init__()
+        self.status = "running"
+
+    async def get_task(self, task_id):
+        return {"task_id": task_id, "status": self.status}
+
+
+class _ObservedFuture(asyncio.Future):
+    """有人开始等它时置位事件：用例据此确认等待方已挂在这个 future 上。"""
+
+    def __init__(self):
+        super().__init__()
+        self.awaited = asyncio.Event()
+
+    def add_done_callback(self, fn, *, context=None):
+        super().add_done_callback(fn, context=context)
+        self.awaited.set()
 
 
 class TestRestartRecovery:
@@ -1007,13 +1046,7 @@ class TestOrphanDispatcherNonBlockingOverride:
 
         monkeypatch.setattr(worker, "reload_limits", _slow_reload)
 
-        resumed: list[str] = []
-
-        async def _resume(task, *, job_id):
-            resumed.append(task["task_id"])
-            return {"job_id": job_id}
-
-        monkeypatch.setattr(stub_executors, "resume", _resume)
+        resumed = _recording_resume(monkeypatch)
 
         await worker._recovery.handle_orphans()
         first = worker._recovery.orphan_dispatcher_task
@@ -1044,13 +1077,7 @@ class TestOrphanDispatcherNonBlockingOverride:
             resume_executor=stub_executors.execute_resume,
         )
 
-        resumed: list[str] = []
-
-        async def _resume(task, *, job_id):
-            resumed.append(task["task_id"])
-            return {"job_id": job_id}
-
-        monkeypatch.setattr(stub_executors, "resume", _resume)
+        resumed = _recording_resume(monkeypatch)
 
         async def _poll_timeout_while_retry_dispatches() -> int:
             # 重扫已拍下排除快照、正在读配置；路由此刻把同一任务翻回 running 并派发。
@@ -1081,19 +1108,16 @@ class TestOrphanDispatcherNonBlockingOverride:
             resume_executor=stub_executors.execute_resume,
         )
 
-        resumed: list[str] = []
         done_finished = asyncio.Event()
         slow_release = asyncio.Event()
 
-        async def _resume(task, *, job_id):
-            resumed.append(task["task_id"])
-            if task["task_id"] == "orphan-slow":
+        async def _hold_slow_task(task_id: str) -> None:
+            if task_id == "orphan-slow":
                 await slow_release.wait()
             else:
                 done_finished.set()
-            return {"job_id": job_id}
 
-        monkeypatch.setattr(stub_executors, "resume", _resume)
+        resumed = _recording_resume(monkeypatch, _hold_slow_task)
 
         await worker._recovery.handle_orphans()
         dispatcher = worker._recovery.orphan_dispatcher_task
@@ -1124,15 +1148,6 @@ class TestOrphanDispatcherNonBlockingOverride:
         self, monkeypatch, staged_project, status_after_owner, expected_resumes
     ):
         """「重试下载」撞上已有归属：不丢这次已受理的重试，等归属放开后按库里的状态决定是否派发。"""
-
-        class _StatusQueue(FakeWorkerQueue):
-            def __init__(self):
-                super().__init__()
-                self.status = "running"
-
-            async def get_task(self, task_id):
-                return {"task_id": task_id, "status": self.status}
-
         orphan = _storyboard_orphan("orphan-x", job_id="job-x")
         queue = _StatusQueue()
         queue._orphans = [orphan]
@@ -1143,18 +1158,15 @@ class TestOrphanDispatcherNonBlockingOverride:
             resume_executor=stub_executors.execute_resume,
         )
 
-        resumed: list[str] = []
         owner_in_resume = asyncio.Event()
         owner_release = asyncio.Event()
 
-        async def _resume(task, *, job_id):
-            resumed.append(task["task_id"])
-            if len(resumed) == 1:
+        async def _hold_first_resume(_task_id: str) -> None:
+            if not owner_in_resume.is_set():
                 owner_in_resume.set()
                 await owner_release.wait()
-            return {"job_id": job_id}
 
-        monkeypatch.setattr(stub_executors, "resume", _resume)
+        resumed = _recording_resume(monkeypatch, _hold_first_resume)
 
         await worker._recovery.handle_orphans()
         await asyncio.wait_for(owner_in_resume.wait(), timeout=2)
@@ -1169,17 +1181,6 @@ class TestOrphanDispatcherNonBlockingOverride:
 
         assert resumed == ["orphan-x"] * expected_resumes
 
-    @staticmethod
-    def _recording_resume(monkeypatch) -> list[str]:
-        resumed: list[str] = []
-
-        async def _resume(task, *, job_id):
-            resumed.append(task["task_id"])
-            return {"job_id": job_id}
-
-        monkeypatch.setattr(stub_executors, "resume", _resume)
-        return resumed
-
     @pytest.mark.asyncio
     async def test_retry_download_dispatches_when_finished_occupant_awaits_drain(self, monkeypatch, staged_project):
         """普通执行体落下下载失败后已结束、占用等主循环 drain：重试立即派发，不被这条占用挡住。"""
@@ -1191,7 +1192,7 @@ class TestOrphanDispatcherNonBlockingOverride:
             executor=stub_executors.execute,
             resume_executor=stub_executors.execute_resume,
         )
-        resumed = self._recording_resume(monkeypatch)
+        resumed = _recording_resume(monkeypatch)
         finished = asyncio.get_running_loop().create_future()
         finished.set_result(None)
         worker._slots.register("ark", "video", "task-x", finished)
@@ -1200,6 +1201,26 @@ class TestOrphanDispatcherNonBlockingOverride:
         await worker._recovery.wait_dispatchers()
 
         assert resumed == ["task-x"]
+
+    @pytest.mark.asyncio
+    async def test_overwriting_finished_occupant_consumes_its_exception(self):
+        """被覆盖的已结束占用不再经过 drain：覆盖时取走异常，asyncio 不报告 never retrieved。"""
+        loop = asyncio.get_running_loop()
+        reported: list[dict[str, Any]] = []
+        loop.set_exception_handler(lambda _loop, context: reported.append(context))
+        slots = SlotTable()
+        finished = loop.create_future()
+        finished.set_exception(RuntimeError("download failed"))
+        slots.register("ark", "video", "task-x", finished)
+        replacement = loop.create_future()
+
+        slots.register("ark", "video", "task-x", replacement)
+        del finished
+        gc.collect()
+
+        assert reported == []
+        loop.set_exception_handler(None)
+        replacement.cancel()
 
     @pytest.mark.asyncio
     async def test_retry_download_waits_for_occupant_still_finishing(self, monkeypatch, staged_project):
@@ -1213,12 +1234,13 @@ class TestOrphanDispatcherNonBlockingOverride:
             executor=stub_executors.execute,
             resume_executor=stub_executors.execute_resume,
         )
-        resumed = self._recording_resume(monkeypatch)
-        finishing = asyncio.get_running_loop().create_future()
+        resumed = _recording_resume(monkeypatch)
+        finishing = _ObservedFuture()
         worker._slots.register("ark", "video", "task-x", finishing)
 
         await worker.retry_artifact_download(dict(orphan), poll_timeout_seconds=60)
-        await asyncio.sleep(0.05)
+        # 握手：等待方已挂在执行体上，此后它在执行体结束前不会再往下走。
+        await asyncio.wait_for(finishing.awaited.wait(), timeout=2)
         assert resumed == [], "执行体结束前不应接续"
 
         finishing.set_result(None)
@@ -1229,13 +1251,6 @@ class TestOrphanDispatcherNonBlockingOverride:
     @pytest.mark.asyncio
     async def test_scan_skips_orphan_that_reached_terminal_state_during_the_scan(self, monkeypatch, staged_project):
         """孤儿行读于扫描开头：扫描让出事件循环期间已落终态的任务不再接续，之后的重试不受影响。"""
-
-        class _StatusQueue(FakeWorkerQueue):
-            status = "running"
-
-            async def get_task(self, task_id):
-                return {"task_id": task_id, "status": self.status}
-
         orphan = _storyboard_orphan("orphan-x", job_id="job-x")
         queue = _StatusQueue()
         queue._orphans = [orphan]
@@ -1245,7 +1260,7 @@ class TestOrphanDispatcherNonBlockingOverride:
             executor=stub_executors.execute,
             resume_executor=stub_executors.execute_resume,
         )
-        resumed = self._recording_resume(monkeypatch)
+        resumed = _recording_resume(monkeypatch)
 
         async def _poll_timeout_while_task_finishes() -> int:
             queue.status = "succeeded"
@@ -1279,7 +1294,7 @@ class TestOrphanDispatcherNonBlockingOverride:
             executor=stub_executors.execute,
             resume_executor=stub_executors.execute_resume,
         )
-        resumed = self._recording_resume(monkeypatch)
+        resumed = _recording_resume(monkeypatch)
 
         await worker._recovery.handle_orphans()
         await worker._recovery.wait_dispatchers()
