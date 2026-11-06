@@ -98,6 +98,7 @@ class TestRegistry:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-image",
+            "kling-image-single",
             "kling-video-pro-silent",
             "kling-video-pro-audio",
             "kling-video-audio",
@@ -362,6 +363,7 @@ class TestRegistry:
             "dashscope-qwen-image-edit",
             "minimax-image",
             "kling-image",
+            "kling-image-single",
             "ark-seedream-3",
             "ark-seedream-4",
         }
@@ -744,6 +746,7 @@ def test_image_endpoint_registry_entries():
         "dashscope-qwen-image-edit",
         "minimax-image",
         "kling-image",
+        "kling-image-single",
         "ark-seedream-3",
         "ark-seedream-4",
     }

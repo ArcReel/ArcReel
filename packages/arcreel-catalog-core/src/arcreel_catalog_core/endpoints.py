@@ -100,6 +100,7 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
             "vidu-video-q3-turbo",
         ),
         **_baseline("audio", "dashscope-tts", "gemini-tts", "minimax-tts"),
+        "kling-image-single": BuiltinEndpoint("image", since="0.35.1"),
         "kling-video-model-path": BuiltinEndpoint("video", since="0.35.1"),
         "dashscope-speech-synthesizer": BuiltinEndpoint("audio", since="0.35.1"),
         "gemini-interactions-video": BuiltinEndpoint("video", since="0.35.1"),
@@ -157,7 +158,7 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
             "video": ProviderEndpointOptions(("grok-video-classic", "grok-video-mixed"), "grok-video-classic"),
         },
         "kling": {
-            "image": _single("kling-image"),
+            "image": ProviderEndpointOptions(("kling-image", "kling-image-single"), "kling-image"),
             "video": ProviderEndpointOptions(
                 (
                     "kling-video-pro-silent",

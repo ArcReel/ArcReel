@@ -7,10 +7,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import re
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import NamedTuple
 
 import httpx
@@ -294,3 +297,45 @@ class TestRegistration:
         assert PROVIDER_KLING in get_registered_backends()
         backend = create_backend(PROVIDER_KLING, auth_mode="jwt", access_key="ak", secret_key=_SECRET)
         assert isinstance(backend, KlingImageBackend)
+
+
+@pytest.mark.parametrize("endpoint", ["kling-image", "kling-image-single"])
+@pytest.mark.parametrize("auth", ["jwt", "bearer", "custom"])
+@pytest.mark.parametrize("with_reference", [False, True])
+async def test_endpoint_request_shape_and_input_metering(tmp_path, endpoint, auth, with_reference):
+    from lib.backends.backend_assembly.loaded_config import LoadedConfig
+    from lib.backends.backend_assembly.specs import get_provider_spec
+    from lib.config.registry import PROVIDER_REGISTRY
+    from lib.custom_provider.endpoints import endpoint_reference_image_limit, get_endpoint_spec
+
+    if auth == "custom":
+        provider = SimpleNamespace(
+            provider_id="custom-test", api_key="static-key", base_url="https://api-beijing.klingai.com"
+        )
+        backend = get_endpoint_spec(endpoint).build_backend(provider, "kling-v3")
+    else:
+        credentials = {"access_key": "ak-1", "secret_key": _SECRET} if auth == "jwt" else {"api_key": "static-key"}
+        backend = get_provider_spec("kling", "image", endpoint).build_backend(
+            LoadedConfig(credentials=credentials, provider_meta=PROVIDER_REGISTRY["kling"], rate_limiter=None),
+            "kling-v3",
+        )
+    refs = [_ref(tmp_path, "a.png")] if with_reference else []
+    with _kling_image_api() as routes:
+        routes.submit.mock(return_value=_resp(_submit()))
+        routes.poll.mock(return_value=_resp(_query("succeed", urls=["https://x/final.png"])))
+        routes.download.mock(return_value=httpx.Response(200, content=b"png-bytes"))
+        result = await backend.generate(_request(tmp_path, reference_images=refs))
+        payload = json.loads(only_request(routes.submit).content)
+
+    assert payload["model_name"] == "kling-v3"
+    if with_reference:
+        encoded = base64.b64encode((tmp_path / "a.png").read_bytes()).decode()
+        assert payload["image"] == (encoded if endpoint == "kling-image-single" else [encoded])
+    else:
+        assert "image" not in payload
+    assert result.image_path.read_bytes() == b"png-bytes"
+    assert result.usage is not None
+    assert result.usage.quantities == {"output_images": 1, "input_images": int(with_reference)}
+    expected_limit = 1 if endpoint == "kling-image-single" else None
+    assert await backend.reference_image_limit() == expected_limit
+    assert endpoint_reference_image_limit(get_endpoint_spec(endpoint)) == expected_limit

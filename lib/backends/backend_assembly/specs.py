@@ -404,13 +404,13 @@ def _build_kling(config: LoadedConfig, model_id: str | None, *, media_type: str,
     return _media_create_backend(media_type)(endpoint or _KLING_REGISTRY_BACKEND, **kwargs)
 
 
-def _kling_spec(media_type: str) -> ProviderSpec:
+def _kling_spec(media_type: str, *, endpoint: str | None = None) -> ProviderSpec:
     return ProviderSpec(
         provider_id=_KLING_REGISTRY_BACKEND,
         media_type=media_type,
-        registry_backend=_KLING_REGISTRY_BACKEND,
-        build_backend=partial(_build_kling, media_type=media_type),
-        endpoint=f"kling-{media_type}",
+        registry_backend=endpoint or _KLING_REGISTRY_BACKEND,
+        build_backend=partial(_build_kling, media_type=media_type, endpoint=endpoint),
+        endpoint=endpoint or f"kling-{media_type}",
     )
 
 
@@ -646,7 +646,7 @@ _specs += [
     for provider_id, backend_type in _GEMINI_BACKEND_TYPES.items()
     for by_backend_type in _GEMINI_VIDEO_ENDPOINTS.values()
 ]
-_specs += [_kling_spec("image")]
+_specs += [_kling_spec("image"), _kling_spec("image", endpoint="kling-image-single")]
 _specs += [
     ProviderSpec(
         provider_id=provider,
@@ -758,6 +758,7 @@ _MULTI_ENDPOINT_DEFAULTS: Mapping[tuple[str, str], str] = {
     ("minimax", "video"): "minimax-hailuo-v1",
     ("grok", "video"): "grok-video-classic",
     ("vidu", "video"): "vidu-video-q3-turbo",
+    ("kling", "image"): "kling-image",
     ("kling", "video"): "kling-video-pro-silent",
     ("dashscope", "video"): "dashscope-always-on-video",
     ("dashscope", "audio"): "dashscope-tts",

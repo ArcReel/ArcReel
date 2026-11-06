@@ -15,6 +15,7 @@ import pytest
 
 from lib.backends.image_backends.ark import SEEDREAM_BACKENDS
 from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS
+from lib.backends.image_backends.kling import KLING_IMAGE_BACKENDS
 from lib.backends.provider_assets import InferenceCredentialRef
 from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 from lib.backends.video_backends.dashscope import DASHSCOPE_VIDEO_BACKENDS
@@ -33,7 +34,6 @@ _ENDPOINT_BACKEND_CLASSES = (
     "GeminiAudioBackend",
     "GeminiImageBackend",
     "GeminiTextBackend",
-    "KlingImageBackend",
     "MiniMaxImageBackend",
     "OpenAIAudioBackend",
     "OpenAIImageBackend",
@@ -62,6 +62,7 @@ def _endpoint_backends() -> Generator[list[dict[str, Any]]]:
         seedance = {key: _recorder(backend.__name__) for key, backend in SEEDANCE_BACKENDS.items()}
         stack.enter_context(patch("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", seedance))
         for mapping_name, backends in (
+            ("KLING_IMAGE_BACKENDS", KLING_IMAGE_BACKENDS),
             ("SEEDREAM_BACKENDS", SEEDREAM_BACKENDS),
             ("DASHSCOPE_IMAGE_BACKENDS", DASHSCOPE_IMAGE_BACKENDS),
         ):

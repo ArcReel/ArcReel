@@ -35,7 +35,7 @@ from lib.backends.image_backends.ark import SEEDREAM_BACKENDS
 from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS
 from lib.backends.image_backends.gemini import GeminiImageBackend
-from lib.backends.image_backends.kling import KlingImageBackend
+from lib.backends.image_backends.kling import KLING_IMAGE_BACKENDS
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.openai import OpenAIImageBackend
 from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
@@ -778,12 +778,12 @@ def _build_minimax_image(
 
 
 def _build_kling_image(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES, *, endpoint: str
 ) -> CustomImageBackend:
     # 中转站「原样代理可灵」：bearer 模式旁路 JWT 管理器，用静态 api_key 直发可灵原生异步图像端点。
     # 仅 host 时补全可灵协议挂载路径 /v1（含显式路径则原样信任）；原生 model_name 透传不解耦别名。
     base_url = _ensure_url_path_suffix(provider.base_url, "/v1")
-    delegate = KlingImageBackend(
+    delegate = KLING_IMAGE_BACKENDS[endpoint](
         auth_mode="bearer",
         api_key=provider.api_key,
         base_url=base_url,
@@ -1125,18 +1125,21 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         requests=_MINIMAX_IMAGE_REQUESTS,
         metering_backend=MiniMaxImageBackend,
     ),
-    "kling-image": EndpointSpec(
-        key="kling-image",
-        media_type="image",
-        family="kling",
-        display_name_key="endpoint_kling_image_display",
-        request_method="POST",
-        request_path_template="/v1/images/generations",
-        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
-        build_backend=_build_kling_image,
-        requests=_KLING_IMAGE_REQUESTS,
-        metering_backend=KlingImageBackend,
-    ),
+    **{
+        key: EndpointSpec(
+            key=key,
+            media_type="image",
+            family="kling",
+            display_name_key="endpoint_" + key.replace("-", "_") + "_display",
+            request_method="POST",
+            request_path_template="/v1/images/generations",
+            image_capabilities=backend.CHANNEL_CAPABILITIES,
+            build_backend=partial(_build_kling_image, endpoint=key),
+            requests=_KLING_IMAGE_REQUESTS,
+            metering_backend=backend,
+        )
+        for key, backend in KLING_IMAGE_BACKENDS.items()
+    },
     **{
         key: EndpointSpec(
             key=key,

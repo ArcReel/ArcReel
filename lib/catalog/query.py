@@ -66,6 +66,7 @@ ModelCapability = Literal[
 #: 两栖模型沿用的旧模型键。目录数据里供应商模型的身份是（API 模型名, 条目媒体类型），同一 API 模型名的
 #: 两个供应商模型在这里各取一个键；不在表中的供应商模型以 API 模型名为键。设置与项目里已存的键靠它保持可解析。
 _LEGACY_MODEL_KEYS: Mapping[tuple[str, str, str], str] = {
+    ("kling", "kling-v3", "image"): "kling-v3-image",
     ("kling", "kling-v3-omni", "image"): "kling-v3-omni-image",
 }
 
