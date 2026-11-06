@@ -1358,6 +1358,7 @@ export default {
   'pm_flag_retiring': 'Снимается с поддержки {{date}}',
   'pm_flag_unpriced': 'Без цены',
   'pm_flag_modified': 'Изменено',
+  'pm_requires_app': 'Требуется [[brand]] ≥ {{version}}',
   'pm_enable_model': 'Включить «{{name}}»',
   'pm_empty': 'У этого провайдера пока нет моделей.',
   'pm_empty_enabled': 'Включённых моделей пока нет.',

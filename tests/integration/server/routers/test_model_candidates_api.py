@@ -38,7 +38,13 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
 from server.routers import system_config as system_config_router
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes, with_entry_facts
+from tests.catalog_support import (
+    install_catalog,
+    set_catalog_today,
+    with_entry_changes,
+    with_entry_facts,
+    with_min_app_version,
+)
 from tests.factories import make_display_names
 from tests.fakes import use_project_manager
 
@@ -217,6 +223,18 @@ class TestBuiltinBucketFiltering:
         assert DS_R2V not in body["video"]["default"]
         assert DS_R2V not in body["video"]["buckets"]["r2v"]
         assert DS_R2V not in body["video"]["buckets"]["i2v"]
+
+    def test_version_gated_models_absent_from_every_list(self, make_client, monkeypatch):
+        """最低应用版本高于当前版本的模型不进默认层与任何任务类型桶。"""
+        gated_id = DS_R2V.split("/", 1)[1]
+        install_catalog(monkeypatch, with_min_app_version(factory_snapshot(), "dashscope", gated_id, "999.0.0"))
+        with make_client(["dashscope"]) as client:
+            body = client.get(CANDIDATES_URL).json()
+        assert DS_I2V_ONLY in body["video"]["default"]
+        assert DS_R2V not in body["video"]["default"]
+        assert DS_R2V not in body["video"]["buckets"]["r2v"]
+        assert DS_R2V not in body["video"]["buckets"]["i2v"]
+        assert all(item["option"] != DS_R2V for items in body["video"]["filtered"].values() for item in items)
 
     async def test_manually_enabled_discontinued_model_stays_out_of_candidates(
         self, make_client, session_factory_and_engine, monkeypatch

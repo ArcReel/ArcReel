@@ -35,7 +35,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3-pro-image",
@@ -62,7 +64,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.1-flash-image",
@@ -89,7 +93,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "veo-3.1-generate-preview",
@@ -116,7 +122,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "veo-3.1-fast-generate-preview",
@@ -143,7 +151,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "veo-3.1-lite-generate-preview",
@@ -170,7 +180,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.8-flash-tts",
@@ -203,7 +215,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.8-flash-lite-tts",
@@ -236,7 +250,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.1-flash-lite",
@@ -269,7 +285,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.1-pro-preview",
@@ -302,7 +320,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.5-flash",
@@ -335,7 +355,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.5-flash-lite",
@@ -368,7 +390,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.6-flash",
@@ -401,7 +425,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.7-flash",
@@ -434,7 +460,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.8-flash",
@@ -467,7 +495,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-4-argon",
@@ -500,7 +530,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemma-4-26b-a4b-it",
@@ -519,7 +551,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemma-4-31b-it",
@@ -538,7 +572,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       }
     ],
     "discoverable": true

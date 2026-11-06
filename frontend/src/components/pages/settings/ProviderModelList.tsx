@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ChevronRight, CloudDownload, Loader2, Plus } from "lucide-react";
+import { AlertTriangle, ChevronRight, CloudDownload, Loader2, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { TruncatedText } from "@/components/shared/TruncatedText";
@@ -60,6 +60,7 @@ function addRequestFor({ model, mediaType, endpoint, binding }: FetchSelection, 
  * 供应商详情的模型列表：按文本、图片、视频、音频分组，筛选「全部 / 已启用」。行上的启用开关点击即生效，
  * 停用时同时取消默认。上方是「获取模型」（有模型列表接口的供应商）与「添加模型」，添加后打开新模型的 Sheet。
  * 内置与自定义供应商共用；自定义供应商的行另显示调用端点。
+ * 应用版本不够的官方收录模型排在各组末尾，置灰并标出所需版本：开关不可用，也不能打开 Sheet（docs/adr/0103）。
  */
 export function ProviderModelList({
   providerId,
@@ -400,43 +401,57 @@ export function ProviderModelList({
               {group.map((model) => {
                 const name = model.display_name ?? model.model_id;
                 const price = model.price ? priceSummaryText(t, model.price) : "";
+                const versionUnmet = !model.min_app_version_satisfied;
+                const details = (
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <TruncatedText
+                        text={name}
+                        focusable={false}
+                        className={cn("text-sm", !model.enabled && "text-muted-foreground")}
+                      />
+                      {model.is_default && (
+                        <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-primary/15 px-1.5 text-xs text-primary">
+                          {t("pm_default_badge")}
+                        </span>
+                      )}
+                      {versionUnmet && (
+                        <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-warn/50 px-1.5 text-xs whitespace-nowrap text-warn">
+                          <AlertTriangle aria-hidden className="size-3" />
+                          {t("pm_requires_app", { version: model.min_app_version })}
+                        </span>
+                      )}
+                      <ProviderModelFlags flags={model.flags} shutdownDate={model.lifecycle.shutdown_date} />
+                    </span>
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+                      <TruncatedText text={model.model_id} focusable={false} className="font-mono" />
+                      {price && <span>{price}</span>}
+                      {model.endpoint && <span>{endpointLabel(model.endpoint)}</span>}
+                    </span>
+                  </span>
+                );
                 return (
                   <li key={model.model_id} className="flex items-center gap-3 py-1 pr-1 pl-3">
                     <Switch
                       size="sm"
                       checked={model.enabled}
-                      disabled={pending.has(model.model_id)}
+                      disabled={versionUnmet || pending.has(model.model_id)}
                       aria-label={t("pm_enable_model", { name })}
                       onCheckedChange={(checked) => voidCall(setEnabled(model, checked))}
                     />
-                    <button
-                      type="button"
-                      aria-haspopup="dialog"
-                      onClick={() => openSheet(model.model_id)}
-                      className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left focus-ring hover:bg-muted/60"
-                    >
-                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          <TruncatedText
-                            text={name}
-                            focusable={false}
-                            className={cn("text-sm", !model.enabled && "text-muted-foreground")}
-                          />
-                          {model.is_default && (
-                            <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-primary/15 px-1.5 text-xs text-primary">
-                              {t("pm_default_badge")}
-                            </span>
-                          )}
-                          <ProviderModelFlags flags={model.flags} shutdownDate={model.lifecycle.shutdown_date} />
-                        </span>
-                        <span className="flex min-w-0 flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
-                          <TruncatedText text={model.model_id} focusable={false} className="font-mono" />
-                          {price && <span>{price}</span>}
-                          {model.endpoint && <span>{endpointLabel(model.endpoint)}</span>}
-                        </span>
-                      </span>
-                      <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                    </button>
+                    {versionUnmet ? (
+                      <div className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1">{details}</div>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-haspopup="dialog"
+                        onClick={() => openSheet(model.model_id)}
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left focus-ring hover:bg-muted/60"
+                      >
+                        {details}
+                        <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                      </button>
+                    )}
                   </li>
                 );
               })}

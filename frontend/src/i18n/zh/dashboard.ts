@@ -1318,6 +1318,7 @@ export default {
   'pm_flag_retiring': '即将下线（{{date}}）',
   'pm_flag_unpriced': '未定价',
   'pm_flag_modified': '已修改',
+  'pm_requires_app': '需要 [[brand]] ≥ {{version}}',
   'pm_enable_model': '启用「{{name}}」',
   'pm_empty': '这个供应商还没有模型。',
   'pm_empty_enabled': '还没有启用的模型。',
