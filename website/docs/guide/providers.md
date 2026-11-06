@@ -471,7 +471,7 @@ ArcReel 可以接入 OpenAI 兼容或 Google 兼容服务。典型用途：
 
 百炼异步视频按请求方式分为通用视频、固定有声视频、参考生视频、参考图配音视频和 Wan3 视频。参考生视频必须带参考图；参考图配音把音频逐项绑定到参考图；Wan3 可以切换音轨，并可使用单独的 MaaS 接口地址。添加模型时按名称预填，在[模型设置](#model-settings)里可以修改。已有模型在升级时按此前使用的请求方式自动设置，升级前提交的任务可以继续取回结果。
 
-Veo 的音轨开关由调用方式决定：AI Studio 固定有声，Vertex AI 可以切换音轨。Gemini Omni 经 Interactions API 调用，在 AI Studio 与 Vertex AI 下对应调用端点「Gemini 视频 (Omni)」与「Vertex AI 视频 (Omni)」，Veo 仍是两者的默认调用端点。Omni 的成片固定有声，只能在提示词里描述想要的声音；首尾帧与参考图不能同时使用，也不能单独使用尾帧。自己添加的模型名称含 `gemini-omni` 时预填 Omni 端点。Sora 是否支持 1080p 由模型目录条目的分辨率决定，不根据型号名中的 `pro` 判断。
+Veo 的音轨开关由调用方式决定：AI Studio 固定有声，Vertex AI 可以切换音轨。Gemini Omni 经 Interactions API 调用，在 AI Studio 与 Vertex AI 下对应调用端点「Gemini 视频 (Omni)」与「Vertex AI 视频 (Omni)」，Veo 仍是两者的默认调用端点。Omni 的成片固定有声，只能在提示词里描述想要的声音；首尾帧与参考图不能同时使用，也不能单独使用尾帧。自己添加的模型名称含 `gemini-omni` 时预填 Omni 端点，包含 `gemini-omni-1.2-*`。自定义供应商也可选择「Gemini 视频 (Omni)」，使用 API Key 连接兼容 Interactions API 的服务，并分别覆盖提交与轮询路径；Vertex AI 版仍只供内置供应商使用。Sora 是否支持 1080p 由模型目录条目的分辨率决定，不根据型号名中的 `pro` 判断。
 
 可灵视频有两套请求格式。旧版 API 在参数里指定型号，按尾帧与音轨的请求约定分为四个调用端点；新版 API 把型号名写在请求路径里，对应调用端点「Kling 视频（新版 API，固定有声）」，用于 kling-4.0、kling-4.0-flash、kling-3.0-turbo 这类只在新版 API 上提供的型号。新版 API 只支持 API Key 鉴权，内置可灵只填写了 Access Key 与 Secret Key 时无法使用这个端点。这个端点的成片固定有声，没有音轨开关；目前支持文生视频和首尾帧，不支持参考图与参考视频。添加名称为上述型号的模型时，会预填这个端点。
 

@@ -105,6 +105,7 @@ class TestRegistry:
             "kling-video-silent",
             "kling-video-model-path",
             "gemini-video",
+            "gemini-interactions-video",
             "openai-tts",
             "dashscope-tts",
             "dashscope-speech-synthesizer",
@@ -199,6 +200,7 @@ class TestRegistry:
             "minimax-h3",
             "kling-video-pro-silent",
             "gemini-video",
+            "gemini-interactions-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
         # 既有显式 int 保留，行为零变化
@@ -229,6 +231,7 @@ class TestRegistry:
             "minimax-h3",
             "kling-video-pro-silent",
             "gemini-video",
+            "gemini-interactions-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
         # 显式 int 的 video endpoint 不应再绑 caps 函数
@@ -402,6 +405,7 @@ class TestRegistry:
             "kling-video-silent",
             "kling-video-model-path",
             "gemini-video",
+            "gemini-interactions-video",
         }
 
 
@@ -781,3 +785,23 @@ def test_existing_image_endpoints_have_full_capabilities():
     # Verify endpoint_spec_to_dict serializes capabilities to sorted list[str]
     serialized = endpoint_spec_to_dict(ENDPOINT_REGISTRY["openai-images"])
     assert serialized["image_capabilities"] == ["image_to_image", "text_to_image"]
+
+
+@pytest.mark.parametrize("discovery_format", ["google", "openai"])
+@pytest.mark.parametrize(
+    "model", ["gemini-omni-1.1-flash", "gemini-omni-1.2-flash", "proxy/Gemini-Omni-1.2-flash-preview"]
+)
+def test_omni_names_prefill_the_interactions_video_endpoint(model: str, discovery_format: str):
+    from lib.custom_provider.endpoints import infer_media_type
+
+    assert infer_endpoint(model, discovery_format) == "gemini-interactions-video"
+    assert infer_endpoint(model, discovery_format, "video") == "gemini-interactions-video"
+    assert infer_media_type(model, discovery_format) == "video"
+
+
+def test_vertex_interactions_is_not_a_custom_provider_endpoint():
+    from lib.backends.backend_assembly.specs import PROVIDER_ONLY_ENDPOINTS
+
+    assert "gemini-vertex-interactions-video" in PROVIDER_ONLY_ENDPOINTS
+    assert "gemini-vertex-interactions-video" not in ENDPOINT_REGISTRY
+    assert "gemini-interactions-video" not in PROVIDER_ONLY_ENDPOINTS

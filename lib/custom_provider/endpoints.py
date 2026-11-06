@@ -53,6 +53,7 @@ from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBacke
 from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 from lib.backends.video_backends.dashscope import DASHSCOPE_VIDEO_BACKENDS, classify_wan_model
 from lib.backends.video_backends.gemini import GeminiVideoBackend
+from lib.backends.video_backends.gemini_interactions import GeminiInteractionsVideoBackend
 from lib.backends.video_backends.kling import KLING_BACKENDS
 from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
 from lib.backends.video_backends.openai import OpenAIVideoBackend
@@ -522,16 +523,23 @@ def _build_openai_video(
 
 
 def _build_gemini_video(
-    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider,
+    model_id: str,
+    path_overrides: PathOverrides = NO_PATH_OVERRIDES,
+    *,
+    backend_class: type[GeminiVideoBackend] = GeminiVideoBackend,
+    requests: tuple[EndpointRequest, ...] | None = None,
 ) -> CustomVideoBackend:
     # 自定义供应商只走 AI Studio 模式（Vertex 凭证不经 base_url）；SDK 自己拼 api_version
     base_url = ensure_google_base_url(provider.base_url) or None
-    delegate = GeminiVideoBackend(
+    delegate = backend_class(
         backend_type="aistudio",
         api_key=provider.api_key,
         base_url=base_url,
         video_model=model_id,
-        transport_layer=_google_path_layer(_GEMINI_VIDEO_REQUESTS, provider.base_url, model_id, path_overrides),
+        transport_layer=_google_path_layer(
+            requests or _GEMINI_VIDEO_REQUESTS, provider.base_url, model_id, path_overrides
+        ),
     )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
@@ -618,6 +626,13 @@ _GEMINI_VIDEO_REQUESTS = _python_requests(
     ("poll", "cp_request_poll", "/v1beta/{{ task_id }}"),
     # SDK 从产物 uri 取出文件 id，再按 base_url 拼下载地址，所以下载也相对 base_url
     ("download", "cp_request_download", "/v1beta/files/{{ file_id }}:download"),
+)
+
+
+_GEMINI_INTERACTIONS_VIDEO_REQUESTS = _python_requests(
+    "strip_version",
+    ("submit", "cp_request_submit", "/v1beta/interactions"),
+    ("poll", "cp_request_poll", "/v1beta/interactions/{{ task_id }}"),
 )
 
 
@@ -1074,6 +1089,23 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         # 参考图上限、音轨形态按 model 读 backend 纯 caps 函数（不构造 client）
         video_caps_for_model=GeminiVideoBackend.video_capabilities_for_model,
         # generate() 把 end_image 下传为 config.last_frame
+        end_image_capable=True,
+    ),
+    "gemini-interactions-video": EndpointSpec(
+        key="gemini-interactions-video",
+        media_type="video",
+        family="google",
+        display_name_key="endpoint_gemini_interactions_video_display",
+        request_method="POST",
+        request_path_template="/v1beta/interactions",
+        build_backend=partial(
+            _build_gemini_video,
+            backend_class=GeminiInteractionsVideoBackend,
+            requests=_GEMINI_INTERACTIONS_VIDEO_REQUESTS,
+        ),
+        requests=_GEMINI_INTERACTIONS_VIDEO_REQUESTS,
+        metering_backend=GeminiInteractionsVideoBackend,
+        video_caps_for_model=GeminiInteractionsVideoBackend.video_capabilities_for_model,
         end_image_capable=True,
     ),
     "minimax-tts": EndpointSpec(
@@ -1722,8 +1754,8 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
        语义但本质是视频）；其余含 image 语义走 "kling-image"，否则走 "kling-video"。kling 同时命中
        _VIDEO_PATTERN，须先于通用 is_video 拦截，否则视频会落到 openai-video；v3-omni 图像/视频同名
        默认归视频、图像手动选。
-    3) gemini 原生模型（非 video）→ TTS 走 "gemini-tts"，image 形态走 "gemini-image"，否则文本走
-       "gemini-generate"（不分 discovery_format）
+    3) gemini-omni → "gemini-interactions-video"；其余 gemini 原生模型（非 video）→ TTS 走 "gemini-tts"，
+       image 形态走 "gemini-image"，否则文本走 "gemini-generate"（不分 discovery_format）
     4) 视频家族 → seedance 按名字里的代际取 "ark-seedance-2-5" / "ark-seedance-2"，没写明代际取
        "ark-seedance-1"；viduq3→"vidu-video"、Veo 且 discovery_format=google→"gemini-video"、否则 "openai-video"
     5) 图像家族 → seedream→"ark-seedream-3" / "ark-seedream-4"（不分 discovery_format），其余 discovery_format=google 走
@@ -1827,6 +1859,8 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     # 图像家族推断。复用上面的 wan_image_variant（排除 image-to-video 续接别名后的图像判定）。
     is_video = bool(_VIDEO_PATTERN.search(model_id)) and not wan_image_variant
 
+    if "gemini-omni" in lowered:
+        return "gemini-interactions-video"
     if "gemini" in lowered and not is_video:
         if "tts" in lowered:
             return "gemini-tts"

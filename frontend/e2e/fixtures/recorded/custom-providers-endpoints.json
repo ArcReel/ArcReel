@@ -1517,6 +1517,45 @@
         ]
       },
       {
+        "key": "gemini-interactions-video",
+        "media_type": "video",
+        "family": "google",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_gemini_interactions_video_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/v1beta/interactions",
+        "image_capabilities": null,
+        "end_image_capable": true,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "submit",
+            "display_name_key": "cp_request_submit",
+            "default_path": "/v1beta/interactions",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "strip_version"
+          },
+          {
+            "name": "poll",
+            "display_name_key": "cp_request_poll",
+            "default_path": "/v1beta/interactions/{{ task_id }}",
+            "placeholders": [
+              "model",
+              "task_id"
+            ],
+            "base_url_rule": "strip_version"
+          }
+        ]
+      },
+      {
         "key": "minimax-tts",
         "media_type": "audio",
         "family": "minimax",
