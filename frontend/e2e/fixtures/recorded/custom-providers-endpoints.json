@@ -1285,6 +1285,72 @@
         ]
       },
       {
+        "key": "vidu-video-q4",
+        "media_type": "video",
+        "family": "vidu",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_vidu_video_q4_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/ent/v2/img2video",
+        "image_capabilities": null,
+        "end_image_capable": true,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "submit_text2video",
+            "display_name_key": "cp_request_submit_text2video",
+            "default_path": "/text2video",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "ensure_ent_v2"
+          },
+          {
+            "name": "submit_img2video",
+            "display_name_key": "cp_request_submit_img2video",
+            "default_path": "/img2video",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "ensure_ent_v2"
+          },
+          {
+            "name": "submit_start_end2video",
+            "display_name_key": "cp_request_submit_start_end2video",
+            "default_path": "/start-end2video",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "ensure_ent_v2"
+          },
+          {
+            "name": "submit_reference2video",
+            "display_name_key": "cp_request_submit_reference2video",
+            "default_path": "/reference2video",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "ensure_ent_v2"
+          },
+          {
+            "name": "poll",
+            "display_name_key": "cp_request_poll",
+            "default_path": "/tasks/{{ task_id }}/creations",
+            "placeholders": [
+              "model",
+              "task_id"
+            ],
+            "base_url_rule": "ensure_ent_v2"
+          }
+        ]
+      },
+      {
         "key": "dashscope-qwen-image",
         "media_type": "image",
         "family": "dashscope",

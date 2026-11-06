@@ -1627,7 +1627,7 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
 _IMAGE_PATTERN = re.compile(r"image|dall|img|imagen|flux|seedream|jimeng|viduq[12](?:[-_].*)?", re.IGNORECASE)
 _VIDEO_PATTERN = re.compile(
     r"video|sora|kling|wan|seedance|cog|mochi|veo|pika|runway|"
-    r"vidu2(?:\.0)?(?:[-_].*)?|viduq3(?:[-_].*)?",
+    r"vidu2(?:\.0)?(?:[-_].*)?|viduq[34](?:[-_].*)?",
     re.IGNORECASE,
 )
 # TTS 模型 id 识别（tts-1 / gpt-4o-mini-tts / speech-1.5 / cosyvoice 等）。
@@ -1757,7 +1757,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     3) gemini-omni → "gemini-interactions-video"；其余 gemini 原生模型（非 video）→ TTS 走 "gemini-tts"，
        image 形态走 "gemini-image"，否则文本走 "gemini-generate"（不分 discovery_format）
     4) 视频家族 → seedance 按名字里的代际取 "ark-seedance-2-5" / "ark-seedance-2"，没写明代际取
-       "ark-seedance-1"；viduq3→"vidu-video"、Veo 且 discovery_format=google→"gemini-video"、否则 "openai-video"
+       "ark-seedance-1"；viduq3 / viduq4→"vidu-video"、Veo 且 discovery_format=google→"gemini-video"、否则 "openai-video"
     5) 图像家族 → seedream→"ark-seedream-3" / "ark-seedream-4"（不分 discovery_format），其余 discovery_format=google 走
        "gemini-image" 否则 "openai-images"（imagen 随图像家族推断，不再单独拦截）
     6) TTS 家族（tts/speech/cosyvoice）→ qwen-audio-<版本>-tts 走 "dashscope-speech-synthesizer"，
@@ -1868,7 +1868,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     if is_video:
         if "seedance" in lowered:
             return _seedance_endpoint(model_id)
-        if "viduq3" in lowered:
+        if "viduq3" in lowered or "viduq4" in lowered:
             return _request_profile_endpoint("vidu", model_id)
         # Veo 的 OpenAI 兼容层沿用 /v1/videos，只有 google 发现协议才是原生 predictLongRunning
         if "veo" in lowered and discovery_format == "google":

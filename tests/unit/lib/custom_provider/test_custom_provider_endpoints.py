@@ -82,6 +82,7 @@ class TestRegistry:
             "vidu-video-q1",
             "vidu-video-q1-classic",
             "vidu-video-2",
+            "vidu-video-q4",
             "openrouter-video",
             "xai-video",
             "dashscope-qwen-image",
@@ -388,6 +389,7 @@ class TestRegistry:
             "vidu-video-q1",
             "vidu-video-q1-classic",
             "vidu-video-2",
+            "vidu-video-q4",
             "openrouter-video",
             "xai-video",
             "dashscope-video",
@@ -521,6 +523,7 @@ class TestInferEndpoint:
             ("viduq3-mix", "openai", "vidu-video-q3-reference"),
             ("viduq3-pro", "openai", "vidu-video-q3-pro"),
             ("viduq3-turbo", "openai", "vidu-video-q3-turbo"),
+            ("viduq4-preview", "openai", "vidu-video-q4"),
             ("viduq3-i2v", "openai", "vidu-video-generic"),
             ("proxy/viduq3-turbo", "openai", "vidu-video-q3-turbo"),
             # ── 阿里百炼 wan2.x / wan3.0 → 百炼异步视频端点（image 变体不受影响）──

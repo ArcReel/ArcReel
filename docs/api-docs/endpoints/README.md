@@ -58,4 +58,5 @@
 - [vidu-video-q3-pro](vidu-video-q3-pro.md)
 - [vidu-video-q3-reference](vidu-video-q3-reference.md)
 - [vidu-video-q3-turbo](vidu-video-q3-turbo.md)
+- [vidu-video-q4](vidu-video-q4.md)
 - [xai-video](xai-video.md)

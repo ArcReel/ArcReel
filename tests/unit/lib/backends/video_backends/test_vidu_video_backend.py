@@ -8,11 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from arcreel_market_core.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
-from lib.backends.backend_assembly.specs import request_profile_endpoint_for_name
+from lib.backends.backend_assembly.specs import _VIDU_PROFILES, request_profile_endpoint_for_name
 from lib.backends.providers import PROVIDER_VIDU
 from lib.backends.video_backends.vidu import (
-    _ENDPOINT_MODELS,
-    _KNOWN_MODELS,
     DEFAULT_MODEL,
     VIDU_BACKENDS,
     ViduVideoBackend,
@@ -28,8 +26,7 @@ def _profile(model: str):
 
 _DURATION_RULES = {
     (model, path): list(values)
-    for models in _ENDPOINT_MODELS.values()
-    for model in models
+    for model in _VIDU_PROFILES
     for path, values in _profile(model).endpoint.durations.items()
 }
 
@@ -150,6 +147,12 @@ class TestCoerceDuration:
     def test_q3_reference2video_min_3(self):
         # range 3..16；请求 1 → 取最近 3
         assert _coerce_duration(_profile("viduq3").endpoint, "/reference2video", 1) == 3
+
+    @pytest.mark.parametrize("model", ["viduq2-pro", "viduq2-turbo", "viduq2-pro-fast"])
+    @pytest.mark.parametrize("seconds", [9, 10])
+    def test_q2_start_end2video_keeps_9_and_10_seconds(self, model: str, seconds: int):
+        # 官方首尾帧时长 1–10 秒（viduq2-pro、viduq2-turbo、viduq2-pro-fast 同此），9、10 秒原样发出
+        assert _coerce_duration(_profile(model).endpoint, "/start-end2video", seconds) == seconds
 
     def test_unknown_combination_passthrough(self):
         # 表里无项时不强校（透传 / 兜底 5）
@@ -309,17 +312,16 @@ class TestUnsendableInputsRejected:
 class TestPromptLength:
     """prompt 超限一律拒绝，不再客户端静默截断。"""
 
-    def test_reference_only_model_declares_narrow_limit(self):
-        """viduq3 只跑 /reference2video，静态声明取该端点的窄值。"""
-        assert ViduVideoBackend.video_capabilities_for_model("viduq3").max_prompt_chars == 2000
+    @pytest.mark.parametrize("model", ["viduq3", "proxy-x"])
+    def test_reference_only_endpoint_declares_narrow_limit(self, model: str):
+        """vidu-video-q3-reference 只跑 /reference2video，静态声明取该子路径的窄值，与型号名无关。"""
+        assert VIDU_BACKENDS["vidu-video-q3-reference"].video_capabilities_for_model(model).max_prompt_chars == 2000
 
-    def test_multi_endpoint_model_declares_wide_limit(self):
-        """viduq3-turbo 还能跑 t2v/i2v，静态声明取宽值——否则会误拒其合法的长 prompt。"""
-        assert ViduVideoBackend.video_capabilities_for_model("viduq3-turbo").max_prompt_chars == 5000
-
-    def test_unknown_model_declares_wide_limit(self):
-        """未登记 model（中转自定义命名）取宽值：能力不明时误拒是更糟的降级。"""
-        assert ViduVideoBackend.video_capabilities_for_model("proxy-x").max_prompt_chars == 5000
+    @pytest.mark.parametrize("model", ["viduq3", "viduq3-turbo", "proxy-x"])
+    def test_multi_path_endpoint_declares_wide_limit(self, model: str):
+        """还能跑 t2v/i2v 的端点静态声明取宽值——否则会误拒其合法的长 prompt；走 r2v 时由请求构造兜底。"""
+        assert VIDU_BACKENDS["vidu-video-q3-turbo"].video_capabilities_for_model(model).max_prompt_chars == 5000
+        assert VIDU_BACKENDS["vidu-video-generic"].video_capabilities_for_model(model).max_prompt_chars == 5000
 
     def test_reference2video_over_limit_raises(self, video_output_path: Path):
         backend = _profile("viduq3-turbo")(api_key="k", model="viduq3-turbo")
@@ -390,7 +392,7 @@ class TestRegistryBackendConsistency:
         model_info = self._vidu2_model_info()
         assert model_info.duration_resolution_constraints == {"360p": [4], "1080p": [4]}
 
-    @pytest.mark.parametrize("name", sorted(_KNOWN_MODELS))
+    @pytest.mark.parametrize("name", sorted(_VIDU_PROFILES))
     def test_durations_within_endpoint_rules(self, name: str):
         """目录时长须落在端点级时长表内，否则 _coerce_duration 会把用户选的时长静默改成最近值。
 
@@ -481,3 +483,139 @@ class TestCreateTaskAmbiguity:
         assert data["task_id"] == "vidu-conn"
         # ConnectError 请求确定未送达，应重试
         assert client.post.call_count == 3
+
+
+class TestQ4Endpoint:
+    """vidu-video-q4：参考图、提示词上限与参考音频由端点声明（官方 viduq4-preview 图生视频、参考生视频文档）。"""
+
+    @staticmethod
+    def _backend() -> ViduVideoBackend:
+        return VIDU_BACKENDS["vidu-video-q4"](api_key="k", model="viduq4-preview")
+
+    @staticmethod
+    def _files(tmp_path: Path, suffix: str, count: int) -> list[Path]:
+        paths = [tmp_path / f"f{i}{suffix}" for i in range(count)]
+        for p in paths:
+            p.write_bytes(b"x")
+        return paths
+
+    def test_prefilled_for_viduq4_preview(self):
+        assert request_profile_endpoint_for_name("vidu", "viduq4-preview") == "vidu-video-q4"
+
+    def test_declares_endpoint_limits(self):
+        from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoAudioMode
+
+        caps = VIDU_BACKENDS["vidu-video-q4"].video_capabilities_for_model("viduq4-preview")
+        assert caps.max_reference_images == 15
+        assert caps.max_prompt_chars == 20000
+        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
+        assert caps.max_reference_audio_count == 3
+        assert caps.audio_track is VideoAudioMode.CONTROLLABLE
+
+    @pytest.mark.parametrize("endpoint", sorted(set(VIDU_BACKENDS) - {"vidu-video-q4"}))
+    def test_other_endpoints_keep_seven_images_and_no_reference_audio(self, endpoint: str):
+        from arcreel_market_core.video_backend_contract import ReferenceAudioMode
+
+        caps = VIDU_BACKENDS[endpoint].video_capabilities_for_model("opaque-id")
+        assert caps.max_reference_images == 7
+        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+
+    @pytest.mark.parametrize(("requested", "sent"), [(1, 3), (3, 3), (16, 16), (20, 16)])
+    def test_img2video_and_reference2video_durations_are_3_to_16(self, requested: int, sent: int):
+        endpoint = VIDU_BACKENDS["vidu-video-q4"].endpoint
+        assert _coerce_duration(endpoint, "/img2video", requested) == sent
+        assert _coerce_duration(endpoint, "/reference2video", requested) == sent
+
+    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
+    def test_reference2video_accepts_15_images_and_long_prompt(self, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="字" * 20000,
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 15),
+            duration_seconds=8,
+        )
+        endpoint, body = self._backend()._build_request(req)
+        assert endpoint == "/reference2video"
+        assert len(body["images"]) == 15
+        assert len(body["prompt"]) == 20000
+        # 默认请求有声：音轨开关随端点发出
+        assert body["audio"] is True
+        assert "sounds" not in body
+
+    def test_reference2video_rejects_16_images(self, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="x", output_path=video_output_path, reference_images=self._files(tmp_path, ".png", 16)
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend()._build_request(req)
+        assert exc.value.code == "video_reference_images_exceeded"
+        assert exc.value.params == {"model": "viduq4-preview", "limit": 15, "count": 16}
+
+    def test_rejects_prompt_over_20000(self, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="字" * 20001, output_path=video_output_path, start_image=self._files(tmp_path, ".png", 1)[0]
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend()._build_request(req)
+        assert exc.value.code == "video_prompt_too_long"
+        assert exc.value.params["limit"] == 20000
+
+    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
+    def test_reference2video_sends_sounds_in_order(self, tmp_path: Path, video_output_path: Path):
+        audio = [tmp_path / f"voice{i}.mp3" for i in range(3)]
+        for i, p in enumerate(audio):
+            p.write_bytes(bytes([i]))
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 1),
+            reference_audio_files=audio,
+        )
+        _endpoint, body = self._backend()._build_request(req)
+        # 官方示例的内容类型字符串是 data:video/mp3
+        assert body["sounds"] == [
+            "data:video/mp3;base64,AA==",
+            "data:video/mp3;base64,AQ==",
+            "data:video/mp3;base64,Ag==",
+        ]
+
+    def test_reference2video_rejects_more_than_3_sounds(self, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 1),
+            reference_audio_files=self._files(tmp_path, ".mp3", 4),
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend()._build_request(req)
+        assert exc.value.code == "video_reference_audio_exceeded"
+        assert exc.value.params == {"provider": PROVIDER_VIDU, "model": "viduq4-preview", "limit": 3, "count": 4}
+
+    def test_reference2video_rejects_non_mp3_sound(self, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 1),
+            reference_audio_files=self._files(tmp_path, ".wav", 1),
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend()._build_request(req)
+        assert exc.value.code == "video_reference_audio_format_unsupported"
+
+    def test_img2video_rejects_sounds(self, tmp_path: Path, video_output_path: Path):
+        # 只有参考生视频接口收 sounds；图生视频带参考音频在提交前拒绝，不静默丢弃
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            start_image=self._files(tmp_path, ".png", 1)[0],
+            reference_audio_files=self._files(tmp_path, ".mp3", 1),
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend()._build_request(req)
+        assert exc.value.code == "video_reference_audio_unsupported"
+
+    def test_sounds_are_not_logged(self):
+        from lib.backends.vidu_shared import safe_body_for_log
+
+        view = safe_body_for_log({"model": "viduq4-preview", "sounds": ["data:video/mp3;base64,SECRET"]})
+        assert view["sounds"] == "<1 data uri>"

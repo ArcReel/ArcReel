@@ -189,6 +189,7 @@ _VIDU_PROFILES = {
     "viduq1": "q1",
     "viduq1-classic": "q1-classic",
     "vidu2.0": "2",
+    "viduq4-preview": "q4",
 }
 _KLING_PROFILES = {
     "kling-v2-5-turbo": "pro-silent",
@@ -214,6 +215,7 @@ _VIDU_ENDPOINTS = (
     "vidu-video-q1",
     "vidu-video-q1-classic",
     "vidu-video-2",
+    "vidu-video-q4",
 )
 _KLING_ENDPOINTS = (
     "kling-video-pro-silent",
