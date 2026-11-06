@@ -617,6 +617,21 @@ defineRegionScenarios("供应商", [
     screenshot: { name: "providers-custom-endpoint-select", target: (page) => page.getByRole("dialog") },
   },
   {
+    name: "自定义视频模型可选择 Gemini Omni 端点，Vertex Omni 不在选项中",
+    path: CUSTOM_PROVIDER_PATH,
+    api: CUSTOM_PROVIDER_DETAIL,
+    ready: customDetailReady,
+    act: async (page) => {
+      const sheet = await openModelSheet(page, KLING_ID);
+      const trigger = sheet.getByRole("combobox", { name: "调用端点" });
+      await trigger.click();
+      const listbox = page.getByRole("listbox");
+      await expect(listbox.getByRole("option", { name: /^Vertex AI 视频 \(Omni\)/ })).toHaveCount(0);
+      await listbox.getByRole("option", { name: /^Gemini 视频 \(Omni\) POST/ }).click();
+      await expect(trigger).toContainText("Gemini 视频 (Omni)");
+    },
+  },
+  {
     name: "模型 Sheet：价格编辑器点开条件标签，选项留在视口内",
     path: CUSTOM_PROVIDER_PATH,
     api: CUSTOM_PROVIDER_DETAIL,

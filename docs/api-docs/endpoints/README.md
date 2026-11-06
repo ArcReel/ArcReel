@@ -22,6 +22,7 @@
 - [gemini-image](gemini-image.md)
 - [gemini-tts](gemini-tts.md)
 - [gemini-video](gemini-video.md)
+- [gemini-interactions-video](gemini-interactions-video.md)
 - [kling-image](kling-image.md)
 - [kling-video-audio](kling-video-audio.md)
 - [kling-video-model-path](kling-video-model-path.md)

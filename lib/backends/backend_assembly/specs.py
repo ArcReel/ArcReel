@@ -582,7 +582,6 @@ PROVIDER_ONLY_ENDPOINTS: Mapping[str, str] = {
     "agnes-video-2": "video",
     "agnes-video-2-5": "video",
     "gemini-vertex-video": "video",
-    "gemini-interactions-video": "video",
     "gemini-vertex-interactions-video": "video",
 }
 
