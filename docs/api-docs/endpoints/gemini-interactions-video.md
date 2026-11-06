@@ -11,12 +11,13 @@
 
 `gemini-vertex-interactions-video` 使用服务账号，仍只供内置 Vertex AI 供应商使用。它与此端点的凭证不可互换。
 
-## Omni 1.2 契约核对
+## 依赖的契约
 
-截至 2026-11-06，官方示例使用 `gemini-omni-1.2-flash` 原名调用 `interactions.create`。现有的 `input` 图片与文本、`generation_config.video_config.task`、`response_format` 和后台轮询适用于文生视频、首帧、首尾帧与参考图生成。音轨仍由模型生成，请求没有独立的音轨开关，也不支持参考音频。完成结果仍可从 `output_video.data` 解码。
+- 请求：`input` 图片与文本、`generation_config.video_config.task`、`response_format` 与后台轮询，覆盖文生视频、首帧、首尾帧与参考图生成；见 [Gemini Omni](https://ai.google.dev/gemini-api/docs/omni)。音轨由模型生成，请求没有独立的音轨开关，不支持参考音频。
+- 取件：从完成响应的 `output_video.data` 内联解码。官方对较大成片建议的 `delivery="uri"` 此通道尚未实现。
+- 计量：读取 Interactions 响应的输出视频 token，缺少模态拆分时读取总输出 token；字段见 [Interactions 请求与响应字段](https://ai.google.dev/api/interactions)。预估沿用 backend 内分辨率到视频 token 的换算，换算依据见计费页。
+- 模型名：按模型名预填覆盖 `gemini-omni-1.2-*`，不改写发送的模型名；型号路由与版本说明见[模型页](https://ai.google.dev/gemini-api/docs/models/gemini-omni-flash)。
 
-1.2 支持最多 6 张参考图，普通生成支持 3～15 秒，首尾帧插值仍为 3～10 秒；这些是模型事实，由模型目录条目声明，端点不按版本号写入能力上限。按模型名预填覆盖 `gemini-omni-1.2-*`，不改写发送的模型名。官方说明从 2026-12-03 起，1.1 的请求会自动路由到 1.2。
+参考图张数与时长范围由模型目录条目声明。首尾帧插值的时长范围比普通生成更窄；目录的时长约束目前只能按分辨率或参考图收窄，无法表达首尾帧形态，此通道也不做该项前置校验，超出范围的首尾帧请求由上游拒绝。
 
-计量沿用 Interactions 响应的输出视频 token，缺少模态拆分时读取总输出 token；预估沿用分辨率到视频 token 的换算。HTTP 替身验证请求序列化、取件与计量，不代表真实服务的回报已验证。
-
-官方建议超过 4 MB 的成片使用 `delivery="uri"`，此通道目前只实现内联取件。真实账户可用性、服务端限制与实际 usage 回报仍需外部平台验证；不应把离线替身结果当作真实调用成功。
+HTTP 替身只验证请求序列化、取件与计量；真实账户可用性、服务端限制与实际 usage 回报仍需外部平台验证。

@@ -337,6 +337,7 @@ MESSAGES = {
     "val_ce_enum_map_value_missing": "В enum_maps.{name} нет записи для «{value}»",
     "val_ce_template_text_variable_null": "Переменная {name} равна null, её нельзя вставить в текст",
     "val_ce_each_value_not_list": "$each.in указывает на {name}, значение которого во время выполнения не является списком",
+    "val_ce_each_key_duplicate": "Объектная форма $each повторно создала ключ {field} в том же объекте, поэтому запрос не может передать все материалы",
     # ---- ComfyUI endpoint: node bindings and import routing ----
     "val_ce_comfyui_binding_required": (
         "{binding_key} должен быть привязан к узлу, иначе эндпоинт не сохранить: "

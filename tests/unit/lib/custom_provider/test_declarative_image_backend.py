@@ -129,6 +129,28 @@ class TestDeclarativeImageBackend:
             prefix + base64.b64encode(PNG_BYTES + bytes([index])).decode() for index in range(3)
         ]
 
+    async def test_single_slot_template_rejects_overridden_extra_references_before_submit(self, tmp_path: Path):
+        """对象式 ``$each`` 把参考图写进固定键：覆盖放行多张时提交前拒绝，不让后一张悄悄盖掉前一张。"""
+        definition = _image_to_image_definition(max_reference_images=1)
+        del definition["submit"]["body"]["image_urls"]
+        definition["submit"]["body"]["$each"] = {"in": "inputs.refs", "as": "ref", "key": "image", "value": "{{ ref }}"}
+        with capture_http() as router, bounded_poll_clock():
+            submit = router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())
+
+            from lib.backends.image_capabilities import gate_image_request
+            from lib.custom_provider.backends import CustomImageBackend
+
+            delegate = _backend(definition)
+            backend = CustomImageBackend(
+                provider_id="custom-1", delegate=delegate, model=delegate.model, reference_limit_override=2
+            )
+            await gate_image_request(backend, provider_id="custom-1", reference_count=2)
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await backend.generate(_request(tmp_path, reference_images=_reference_files(tmp_path, 2)))
+
+        assert caught.value.code == "declarative_template_render_failed"
+        assert submit.call_count == 0
+
     async def test_text_to_image_on_a_definition_with_optional_references_sends_no_images(self, tmp_path: Path):
         with capture_http() as router, bounded_poll_clock():
             submit = router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())

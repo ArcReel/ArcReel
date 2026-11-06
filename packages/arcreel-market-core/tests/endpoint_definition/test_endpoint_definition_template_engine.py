@@ -271,3 +271,44 @@ def test_width_and_height_follow_the_resolution_tiers_of_the_media_type(
     context = build_context({"aspect_ratio": "1:1", "resolution": resolution}, {}, media_type=media_type)
 
     assert (context["width"], context["height"]) == size
+
+
+def test_object_each_spreads_distinct_keys():
+    request = render_request(
+        {
+            "method": "POST",
+            "url": "{{ base_url }}",
+            "body": {"$each": {"in": "refs", "as": "ref", "key": "image_{{ index }}", "value": "{{ ref }}"}},
+        },
+        _context(refs=["a", "b"]),
+    )
+
+    assert request.body == {"image_0": "a", "image_1": "b"}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"$each": {"in": "refs", "as": "ref", "key": "image", "value": "{{ ref }}"}},
+        {"$each": {"in": "refs", "as": "ref", "key": "image_{{ index }}", "value": "{{ ref }}"}, "image_1": "static"},
+    ],
+    ids=["repeated-each-key", "each-key-then-static-key"],
+)
+def test_object_each_key_collision_fails_instead_of_overwriting(body):
+    with pytest.raises(TemplateRenderError) as exc_info:
+        render_request({"method": "POST", "url": "{{ base_url }}", "body": body}, _context(refs=["a", "b"]))
+
+    assert exc_info.value.code is DefinitionErrorCode.EACH_KEY_DUPLICATE
+
+
+def test_object_each_with_fixed_key_still_carries_a_single_item():
+    request = render_request(
+        {
+            "method": "POST",
+            "url": "{{ base_url }}",
+            "body": {"$each": {"in": "refs", "as": "ref", "key": "image", "value": "{{ ref }}"}},
+        },
+        _context(refs=["a"]),
+    )
+
+    assert request.body == {"image": "a"}

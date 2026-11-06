@@ -343,6 +343,7 @@ MESSAGES = {
     "val_ce_enum_map_value_missing": "enum_maps.{name} has no entry for '{value}'",
     "val_ce_template_text_variable_null": "Variable {name} is null and cannot be embedded in text",
     "val_ce_each_value_not_list": "$each.in points at {name}, whose runtime value is not a list",
+    "val_ce_each_key_duplicate": "Object-form $each produced the key {field}, which another key in the same object already uses, so the request cannot carry every input",
     # ---- ComfyUI endpoint: node bindings and import routing ----
     "val_ce_comfyui_binding_required": (
         "{binding_key} must be bound to a node before this endpoint can be saved: "
