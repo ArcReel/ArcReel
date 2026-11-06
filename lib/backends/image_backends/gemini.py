@@ -23,6 +23,7 @@ from lib.backends.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageOutputMissingError,
     ImageRequestFacts,
     per_image_usage,
 )
@@ -164,7 +165,7 @@ class GeminiImageBackend:
 
         # 5. 解析响应并保存
         # 供应商已返回：解码与写盘不可被取消打断（docs/standards/backend.md「供应商返回之后的落账段不可中断」）
-        await run_noninterruptible_sync(self._process_image_response, response, request.output_path)
+        await run_noninterruptible_sync(self._process_image_response, response, request.output_path, self._image_model)
 
         return ImageGenerationResult(
             image_path=request.output_path,
@@ -180,12 +181,23 @@ class GeminiImageBackend:
             return img.copy()
 
     @staticmethod
-    def _process_image_response(response, output_path: Path) -> Image.Image:
+    def _process_image_response(response, output_path: Path, model: str) -> Image.Image:
         """解析图片生成响应并保存到文件。"""
-        for part in response.parts:
+        # 内容被拦截时（安全审核、禁止内容等）响应没有任何 part，``response.parts`` 为 None
+        for part in response.parts or []:
             if part.inline_data is not None:
                 image = part.as_image()
                 output_path.parent.mkdir(parents=True, exist_ok=True)
                 image.save(output_path)
                 return image
-        raise RuntimeError("API 未返回图片")
+        feedback = getattr(response, "prompt_feedback", None)
+        candidate = (getattr(response, "candidates", None) or [None])[0]
+        logger.warning(
+            "Gemini 未返回图片 model=%s block_reason=%s finish_reason=%s finish_message=%s text=%.200s",
+            model,
+            getattr(feedback, "block_reason", None),
+            getattr(candidate, "finish_reason", None),
+            getattr(candidate, "finish_message", None),
+            (getattr(response, "text", None) if response.parts else None) or "",
+        )
+        raise ImageOutputMissingError(model=model)
