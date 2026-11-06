@@ -83,3 +83,14 @@ def test_output_tokens_are_estimated_from_the_bases_on_the_model_entry(monkeypat
     install_catalog(monkeypatch, with_entry_facts(snapshot, "openai", "gpt-image-2", output_token_bases=bases))
     # 1K → medium、1:1 → 1024x1024：官方计算器 1756 个输出 token
     assert estimate_builtin_image_usage("openai", facts).quantities["image_output_tokens"] == 1756
+
+
+@pytest.mark.parametrize(
+    ("provider", "model", "count"),
+    [("grok", "grok-imagine-image", 8), ("vidu", "viduq2", 9), ("minimax", "image-01", 3)],
+)
+def test_estimate_keeps_reference_counts_above_the_channel_limit(provider: str, model: str, count: int) -> None:
+    usage = estimate_builtin_image_usage(
+        provider, ImageRequestFacts(model=model, aspect_ratio="1:1", reference_count=count)
+    )
+    assert usage.quantities["input_images"] == count

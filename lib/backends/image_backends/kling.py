@@ -206,6 +206,14 @@ class KlingSingleImageBackend(KlingImageBackend):
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = 1
 
     def _build_payload(self, request: ImageGenerationRequest) -> dict:
+        limit = self.CHANNEL_REFERENCE_LIMIT
+        if limit is not None and len(request.reference_images) > limit:
+            raise ImageCapabilityError(
+                "image_reference_images_exceeded",
+                model=self._model,
+                limit=limit,
+                count=len(request.reference_images),
+            )
         payload = super()._build_payload(request)
         if images := payload.get("image"):
             payload["image"] = images[0]

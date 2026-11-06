@@ -31,6 +31,7 @@ from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
     VideoCapabilities,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -96,6 +97,10 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         return binding_video_capabilities(self._definition)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        count = len(request.reference_images or [])
+        slots = derive_video_capabilities(self._definition).max_reference_images
+        if count > slots:
+            raise VideoCapabilityError("video_reference_images_exceeded", model=self._model, limit=slots, count=count)
         job_label = request.task_id or self._job_label or uuid4().hex
         async with artifact_http_client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
             media = await self._upload_media(http, request, job_label=job_label)
@@ -203,17 +208,12 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
     async def _upload_media(
         self, http: httpx.AsyncClient, request: VideoGenerationRequest, *, job_label: str
     ) -> MediaInputs:
-        """把这次要用到的素材传上去，换回读图节点认的引用名。
-
-        只传「绑定了、且这次给了」的那些：多传的图不会被任何节点读到，白占用户的带宽与磁盘，而
-        参考图格子数就是这份 workflow 能收几张，多出来的那几张在构造层本来就用不上。
-        """
+        """上传绑定的首尾帧，以及已通过槽位容量校验的全部参考图。"""
         bindings: Mapping[str, Any] = self._definition.get("bindings") or {}
         start = await self._upload_one(http, request.start_image, bindings, "start_image", job_label=job_label)
         end = await self._upload_one(http, request.end_image, bindings, "end_image", job_label=job_label)
-        slots = len(_targets(bindings.get("reference_images")))
         references: list[str] = []
-        for index, path in enumerate((request.reference_images or [])[:slots]):
+        for index, path in enumerate(request.reference_images or []):
             references.append(
                 await self._client.upload_image(
                     http, path, filename=upload_filename(job_label, "reference_images", path, index)

@@ -120,8 +120,8 @@ class TestOpenAIImageBackend:
         # GPT Image 模型族不支持 response_format；严格兼容网关会 400，因此绝不能传
         assert "response_format" not in call_kwargs
 
-    async def test_declared_reference_limit_equals_what_it_sends(self, tmp_path: Path):
-        """声明的上限即超量时实际下传的张数——编排层按它裁剪，编号才不会指认没发出的图。"""
+    async def test_sends_every_reference_above_the_channel_limit(self, tmp_path: Path):
+        """能力覆盖放行的参考图全部下发。"""
         mock_client = AsyncMock()
         mock_client.images.edit = AsyncMock(return_value=_make_mock_image_response())
 
@@ -136,6 +136,16 @@ class TestOpenAIImageBackend:
             from lib.backends.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
+            from lib.backends.image_capabilities import gate_image_request
+            from lib.custom_provider.backends import CustomImageBackend
+
+            backend = CustomImageBackend(
+                provider_id="custom-1",
+                delegate=backend,
+                model=backend.model,
+                reference_limit_override=20,
+            )
+            await gate_image_request(backend, provider_id="custom-1", reference_count=20)
             result = await backend.generate(
                 ImageGenerationRequest(
                     prompt="Edit these",
@@ -146,7 +156,7 @@ class TestOpenAIImageBackend:
 
         assert result.image_path == output_path
         assert output_path.read_bytes() == b"image_data"
-        assert len(mock_client.images.edit.call_args[1]["image"]) == (await backend.reference_image_limit()) == 16
+        assert len(mock_client.images.edit.call_args[1]["image"]) == 20
 
     async def test_image_to_image(self, tmp_path: Path):
         """I2I 路径应调用 images.edit()。"""
