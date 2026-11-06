@@ -3,11 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
+import { useTasksStore } from "@/stores/tasks-store";
 import { AssetSheetBatchDialog } from "./AssetSheetBatchDialog";
 
 beforeEach(() => {
   useAppStore.setState(useAppStore.getInitialState(), true);
   useAssetSheetBatchStore.setState({ batches: {}, trackedTaskIds: new Set() });
+  useTasksStore.setState({ tasks: [], optimisticActive: new Set(), optimisticActiveScriptFile: new Set() });
 });
 
 afterEach(() => {
@@ -103,5 +105,30 @@ describe("AssetSheetBatchDialog", () => {
 
     expect(await screen.findByText("没有需要生成的资产图")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "开始生成" })).toBeDisabled();
+  });
+
+  it("目标在打开期间被占用时禁用提交，且不发请求", async () => {
+    vi.spyOn(API, "previewAssetSheetBatch").mockResolvedValue({
+      targets: [{ unit_id: "character/Alice", asset_type: "character", name: "Alice", derivative: null, depends_on: null }],
+      skipped: [],
+      estimated_cost: null,
+      unpriced_count: 0,
+    });
+    const submit = vi.spyOn(API, "submitAssetSheetBatch");
+    // 另一标签页或 Agent 抢先占用了这张资产图（乐观占用标记即代表「生成或编辑在途」）
+    useTasksStore.getState().beginOptimisticActive("demo", "character", "Alice", "asset_sheet");
+
+    render(<AssetSheetBatchDialog projectName="demo" scope={{ asset_type: "character" }} onClose={vi.fn()} />);
+
+    expect(await screen.findByText("将生成 1 张")).toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: "开始生成" });
+    await waitFor(() => expect(confirm).toBeDisabled());
+    // 禁用状态必须给出原因：按钮点不动，提交时的 toast 永远触发不了。
+    expect(screen.getByTestId("asset-sheet-batch-busy-hint")).toHaveTextContent(
+      "部分资产正在生成或修改，请等结束后再提交",
+    );
+    fireEvent.click(confirm);
+    expect(submit).not.toHaveBeenCalled();
+    expect(useAppStore.getState().toast).toBeNull();
   });
 });
