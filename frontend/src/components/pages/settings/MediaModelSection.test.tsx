@@ -440,6 +440,7 @@ describe("MediaModelSection", () => {
   });
 
   it("lists the default audio model's voices under the narration voice", async () => {
+    const user = userEvent.setup();
     vi.spyOn(API, "getSystemConfig").mockResolvedValue({
       options: { ...CONFIG.options, audio_backends: ["dashscope/qwen-audio-3.0-tts-plus"] },
       settings: {
@@ -458,21 +459,20 @@ describe("MediaModelSection", () => {
     render(<MediaModelSection />);
 
     const input = await screen.findByLabelText("旁白音色 ID");
-    await waitFor(() => expect(input).toHaveAttribute("list"));
+    await screen.findByText("从列表选择音色，或照所选供应商文档填写音色 id；留空使用默认音色");
     expect(capabilities).toHaveBeenCalledWith("dashscope/qwen-audio-3.0-tts-plus", expect.anything());
-    const listId = CSS.escape(input.getAttribute("list") ?? "");
-    expect(Array.from(document.querySelectorAll(`datalist#${listId} option`)).map((o) => o.getAttribute("value"))).toEqual([
-      "longanlingxin",
-      "longanlufeng",
-    ]);
-    expect(screen.getByText("从列表选择音色，或照所选供应商文档填写音色 id；留空使用默认音色")).toBeInTheDocument();
+    await user.clear(input);
+    await user.click(input);
+    await user.click(await screen.findByRole("option", { name: "longanlufeng · 龙安鲁风 · 明亮开朗音（男）" }));
+    expect(input).toHaveValue("longanlufeng");
   });
 
   it("does not ask for voices while the default audio model is auto-selected", async () => {
     const capabilities = vi.spyOn(API, "getTtsModelCapabilities");
     render(<MediaModelSection />);
 
-    expect(await screen.findByLabelText("旁白音色 ID")).not.toHaveAttribute("list");
+    await userEvent.click(await screen.findByLabelText("旁白音色 ID"));
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
     expect(capabilities).not.toHaveBeenCalled();
   });
 

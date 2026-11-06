@@ -192,7 +192,7 @@ class DashScopeAudioBackend:
                 include_provider_reason=False,
             )
             body = resp.json()
-            # 先校验 URL 存在：缺 URL 的响应（含顶层业务错误）在计费段内抛出，与改造前同一失败位置
+            # 缺 URL 的响应（含顶层业务错误）在计费段内抛出。
             extract_audio_url(body)
             return body
 

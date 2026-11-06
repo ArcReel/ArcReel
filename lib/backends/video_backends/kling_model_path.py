@@ -9,7 +9,7 @@
   计费时长取 ``usage.output_duration``。
 
 请求体没有音轨开关，成片固定有声（官方「音画同步与智能分镜无开关，默认开启。API 也同样默认开启」）。
-第一版不接参考图、参考视频与主体（全能参考 ``/omni-video``）：带输入视频时官方按「输出×2」与「输入+输出」取大计费，
+本通道不接参考图、参考视频与主体（全能参考 ``/omni-video``）：带输入视频时官方按「输出×2」与「输入+输出」取大计费，
 现有计量表达不了。各型号接受哪些输入、时长与分辨率记在模型条目上，与本通道的声明两侧求值（docs/adr/0104）。
 """
 
@@ -68,11 +68,11 @@ TASKS_PATH = "tasks"
 # 前缀用来认出旧版通道写下的 ``text2video:<id>:<audio>`` 一类 job_id，避免把它们发到新版查询端点。
 _JOB_ID_PREFIX = "tasks:"
 
-# 未指定分辨率时下发 720p：三个首批型号（kling-4.0 / kling-4.0-flash / kling-3.0-turbo）都接受，
+# 未指定分辨率时下发 720p：kling-4.0、kling-4.0-flash、kling-3.0-turbo 都接受，
 # 也避免上游按各自默认值（kling-4.0 默认 1080p）出片，与计量的分辨率档位对不上。
 _DEFAULT_RESOLUTION = "720p"
 
-# 通道对任何型号都发得出文生视频、首帧与尾帧；参考图与参考音频这一版没有请求字段。
+# 通道对任何型号都发得出文生视频、首帧与尾帧；参考图与参考音频没有对应的请求字段。
 _CHANNEL_CAPABILITIES = VideoCapabilities(
     text_to_video=True,
     first_frame=True,

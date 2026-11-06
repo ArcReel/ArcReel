@@ -37,6 +37,10 @@ function manyModelsOverrides(): ApiOverrides {
     [...video, ...image, ...text, ...audio].map((id, i) => [id, `超长模型名称 ${i + 1} · 高清长时长电影级生成（预览版）`]),
   );
   return {
+    [`GET /api/v1/system/tts-model-capabilities?backend=${encodeURIComponent(audio[5])}`]: {
+      status: 200,
+      body: { supports_speed: true, voices: [] },
+    },
     "GET /api/v1/system/config": {
       status: 200,
       body: {

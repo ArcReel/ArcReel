@@ -1,6 +1,6 @@
-import { useId } from "react";
+import { Autocomplete } from "@base-ui/react/autocomplete";
 
-import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupInput } from "@/components/ui/input-group";
 import type { TtsVoiceOption } from "@/types";
 
 interface Props {
@@ -13,28 +13,30 @@ interface Props {
   "aria-invalid"?: boolean;
 }
 
-/** 旁白音色：音色表只作候选，克隆音色与表外系统音色照常手填，所以用带 datalist 的输入框而不是下拉。 */
+/** 音色表只作候选，克隆音色与表外系统音色照常手填。 */
 export function NarrationVoiceInput({ id, value, onChange, voices, ...aria }: Props) {
-  const listId = `${useId()}-voices`;
   return (
-    <>
-      <Input
-        id={id}
-        type="text"
-        value={value}
-        list={voices.length > 0 ? listId : undefined}
-        onChange={(e) => onChange(e.target.value)}
-        {...aria}
-      />
-      {voices.length > 0 && (
-        <datalist id={listId}>
-          {voices.map((voice) => (
-            <option key={voice.id} value={voice.id}>
-              {voice.label}
-            </option>
-          ))}
-        </datalist>
-      )}
-    </>
+    <Autocomplete.Root items={voices} itemToStringValue={(voice) => voice.id} value={value} onValueChange={onChange} openOnInputClick>
+      <InputGroup>
+        <Autocomplete.Input id={id} autoComplete="off" spellCheck={false} render={<InputGroupInput />} {...aria} />
+      </InputGroup>
+      <Autocomplete.Portal>
+        <Autocomplete.Positioner sideOffset={6} align="start" className="isolate z-overlay">
+          <Autocomplete.Popup className="max-h-(--available-height) w-(--anchor-width) overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-overlay ring-1 ring-foreground/10 data-closed:animate-out data-closed:fade-out-0 data-open:animate-in data-open:fade-in-0">
+            <Autocomplete.List className="relative max-h-72 overflow-y-auto overscroll-contain p-1 data-empty:p-0">
+              {(voice: TtsVoiceOption) => (
+                <Autocomplete.Item
+                  key={voice.id}
+                  value={voice}
+                  className="cursor-default rounded-md px-2 py-1 text-sm wrap-break-word outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+                >
+                  {voice.id} · {voice.label}
+                </Autocomplete.Item>
+              )}
+            </Autocomplete.List>
+          </Autocomplete.Popup>
+        </Autocomplete.Positioner>
+      </Autocomplete.Portal>
+    </Autocomplete.Root>
   );
 }

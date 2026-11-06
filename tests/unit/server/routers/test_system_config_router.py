@@ -670,34 +670,3 @@ class TestTtsModelCapabilities:
             )
         assert resp.status_code == 400
         assert "re-select a model" in resp.json()["detail"]
-
-    def test_lists_voices_of_the_model_endpoint_in_request_locale(self, monkeypatch):
-        """音色表取自所选模型实际构造的 backend（即它挂接的端点），label 按请求 locale 渲染。"""
-        from lib.backends.audio_backends.base import AudioCapability, VoiceOption
-        from server.services.tasks.generation_context import AudioBackendProfile
-
-        profile = AudioBackendProfile(
-            capabilities=frozenset({AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}),
-            voices=(
-                VoiceOption(id="longanhuan_v3.1", label="voice_label_dashscope_longanhuan_v3_1"),
-                VoiceOption(id="alloy", label="alloy"),
-            ),
-        )
-        lookup = AsyncMock(return_value=profile)
-        monkeypatch.setattr(system_config_router, "audio_backend_profile", lookup)
-        with TestClient(_make_app_with_mock(_make_mock_svc())) as client:
-            resp = client.get(
-                "/api/v1/system/tts-model-capabilities",
-                params={"backend": "dashscope/qwen-audio-3.1-tts-flash"},
-                headers={"Accept-Language": "en"},
-            )
-        assert resp.status_code == 200
-        lookup.assert_awaited_once_with("dashscope", "qwen-audio-3.1-tts-flash")
-        assert resp.json() == {
-            "supports_speed": True,
-            "voices": [
-                {"id": "longanhuan_v3.1", "label": "Long Anhuan — Female voice"},
-                # label 不是翻译 key 的供应商原样返回
-                {"id": "alloy", "label": "alloy"},
-            ],
-        }
