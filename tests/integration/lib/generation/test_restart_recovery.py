@@ -1208,19 +1208,86 @@ class TestOrphanDispatcherNonBlockingOverride:
         loop = asyncio.get_running_loop()
         reported: list[dict[str, Any]] = []
         loop.set_exception_handler(lambda _loop, context: reported.append(context))
-        slots = SlotTable()
-        finished = loop.create_future()
-        finished.set_exception(RuntimeError("download failed"))
-        slots.register("ark", "video", "task-x", finished)
         replacement = loop.create_future()
+        try:
+            slots = SlotTable()
+            finished = loop.create_future()
+            finished.set_exception(RuntimeError("download failed"))
+            slots.register("ark", "video", "task-x", finished)
 
-        slots.register("ark", "video", "task-x", replacement)
-        del finished
-        gc.collect()
+            slots.register("ark", "video", "task-x", replacement)
+            del finished
+            gc.collect()
 
-        assert reported == []
-        loop.set_exception_handler(None)
-        replacement.cancel()
+            assert reported == []
+        finally:
+            loop.set_exception_handler(None)
+            replacement.cancel()
+
+    @pytest.mark.asyncio
+    async def test_retry_download_rechecks_status_after_taking_ownership(self, monkeypatch, staged_project):
+        """等待路径核对到 running 之后、取得归属之前，任务被别的持有者接续到终态：取得归属后再核对，不再派发。"""
+
+        class _FinishedDuringReadQueue(_StatusQueue):
+            async def get_task(self, task_id):
+                row = await super().get_task(task_id)
+                # 读库让出事件循环期间，孤儿重扫接走任务、接续到终态并放开了归属。
+                self.status = "succeeded"
+                return row
+
+        orphan = _storyboard_orphan("task-x", job_id="job-x")
+        queue = _FinishedDuringReadQueue()
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"ark": {"image": 0, "video": 1}}),
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+        )
+        resumed = _recording_resume(monkeypatch)
+        finishing = _ObservedFuture()
+        worker._slots.register("ark", "video", "task-x", finishing)
+
+        await worker.retry_artifact_download(dict(orphan), poll_timeout_seconds=60)
+        await asyncio.wait_for(finishing.awaited.wait(), timeout=2)
+        finishing.set_result(None)
+        await worker._recovery.wait_dispatchers()
+
+        assert resumed == []
+
+    @pytest.mark.asyncio
+    async def test_dispatching_a_bucket_directly_leaves_other_ownership_alone(self, monkeypatch, staged_project):
+        """绕过 _spawn_dispatcher 直接派发一个桶时没有令牌：续跑结束不放开别的 dispatcher 持有的归属。"""
+        queue = FakeWorkerQueue()
+        orphan = _storyboard_orphan("orphan-x", job_id="job-x")
+        queue._orphans = [orphan]
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=capacity_table({"ark": {"image": 0, "video": 1}}),
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+        )
+        owner_in_resume = asyncio.Event()
+        owner_release = asyncio.Event()
+
+        async def _hold_first_resume(_task_id: str) -> None:
+            if not owner_in_resume.is_set():
+                owner_in_resume.set()
+                await owner_release.wait()
+
+        resumed = _recording_resume(monkeypatch, _hold_first_resume)
+        await worker._recovery.handle_orphans()
+        first = worker._recovery.orphan_dispatcher_task
+        await asyncio.wait_for(owner_in_resume.wait(), timeout=2)
+
+        # 别处直接派发同一任务的桶（不经 _spawn_dispatcher）：它结束时不应放掉孤儿 dispatcher 的归属。
+        await worker._recovery.dispatch_provider_bucket("ark", [dict(orphan)])
+        assert resumed == ["orphan-x", "orphan-x"]
+
+        await worker._recovery.handle_orphans()
+        assert worker._recovery.orphan_dispatcher_task is first, "归属仍在孤儿 dispatcher 手里，重扫不应再派发"
+
+        owner_release.set()
+        await worker._recovery.wait_dispatchers()
 
     @pytest.mark.asyncio
     async def test_retry_download_waits_for_occupant_still_finishing(self, monkeypatch, staged_project):

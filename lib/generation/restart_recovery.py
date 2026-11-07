@@ -22,7 +22,7 @@ from lib.project.project_manager import get_project_manager
 from lib.script.reference_video.execution_checkpoint import VideoResumeState, classify_video_resume_state
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping
     from datetime import datetime
 
     from lib.generation.generation_queue import GenerationQueue
@@ -333,12 +333,16 @@ class RestartRecovery:
             for task_id, token in tokens.items():
                 self._release_ownership(task_id, token)
 
-        dispatch = self._dispatch_still_running(owned) if verify_running else self.dispatch_resumable(owned)
+        dispatch = (
+            self._dispatch_still_running(owned, tokens) if verify_running else self.dispatch_resumable(owned, tokens)
+        )
         dispatcher = asyncio.create_task(dispatch, name=name)
         dispatcher.add_done_callback(_release)
         return dispatcher
 
-    async def _dispatch_still_running(self, resumable_by_provider: dict[str, list[dict[str, Any]]]) -> None:
+    async def _dispatch_still_running(
+        self, resumable_by_provider: dict[str, list[dict[str, Any]]], tokens: Mapping[str, asyncio.Event]
+    ) -> None:
         """只派发库里仍是 running 的任务：归属已在手，别的 dispatcher 动不了它们，读到的状态不再过时。
 
         扫描期间已被前一个持有者接续到终态的任务在这里放开归属、不再派发。
@@ -346,13 +350,12 @@ class RestartRecovery:
         running: dict[str, list[dict[str, Any]]] = {}
         for provider_id, tasks in resumable_by_provider.items():
             for task in tasks:
-                token = self._dispatch_owners.get(task["task_id"])
                 if await self._still_running(task["task_id"]):
                     running.setdefault(provider_id, []).append(task)
                 else:
-                    self._release_ownership(task["task_id"], token)
+                    self._release_ownership(task["task_id"], tokens.get(task["task_id"]))
         if running:
-            await self.dispatch_resumable(running)
+            await self.dispatch_resumable(running, tokens)
 
     async def _still_running(self, task_id: str) -> bool:
         """核对失败时按仍在 running 处理：不派发的话任务要等下次启动才有人接手。"""
@@ -378,8 +381,12 @@ class RestartRecovery:
     async def dispatch_resumable(
         self,
         resumable_by_provider: dict[str, list[dict[str, Any]]],
+        tokens: Mapping[str, asyncio.Event] | None = None,
     ) -> None:
         """后台 dispatcher：按 provider 分桶并发，受 video 容量约束分批入 inflight。
+
+        ``tokens`` 是 ``_spawn_dispatcher`` 为这批任务发的归属令牌，任务续跑结束时据此放开归属；
+        不经 ``_spawn_dispatcher`` 直接调用时没有令牌，也就不放开任何归属。
 
         - 不同 provider 之间无容量耦合 → 并发跑独立 sub-task；
         - 同 provider 内顺序入队：满则 `asyncio.wait(inflight, FIRST_COMPLETED)` 等任一
@@ -392,7 +399,7 @@ class RestartRecovery:
             return
         sub_tasks = [
             asyncio.create_task(
-                self.dispatch_provider_bucket(provider_id, tasks),
+                self.dispatch_provider_bucket(provider_id, tasks, tokens),
                 name=f"orphan-dispatch-{provider_id}",
             )
             for provider_id, tasks in resumable_by_provider.items()
@@ -415,8 +422,10 @@ class RestartRecovery:
         self._retry_dispatch_tasks.add(dispatch)
         dispatch.add_done_callback(self._retry_dispatch_tasks.discard)
 
-    def _spawn_retry_dispatcher(self, task: dict[str, Any]) -> asyncio.Task | None:
-        return self._spawn_dispatcher({task["provider_id"]: [task]}, name=f"retry-download-{task['task_id']}")
+    def _spawn_retry_dispatcher(self, task: dict[str, Any], *, verify_running: bool = False) -> asyncio.Task | None:
+        return self._spawn_dispatcher(
+            {task["provider_id"]: [task]}, name=f"retry-download-{task['task_id']}", verify_running=verify_running
+        )
 
     async def _retry_after_holder_ends(self, task: dict[str, Any]) -> None:
         """「重试下载」撞上持有者：等它结束后核对任务，仍是 running 才派发。
@@ -435,8 +444,9 @@ class RestartRecovery:
                 continue
             if not await self._still_running(task_id):
                 return
-            # 读库期间又出现持有者时这里返回 None，回到循环开头继续等它。
-            if (dispatch := self._spawn_retry_dispatcher(task)) is not None:
+            # 读库期间又出现持有者时这里返回 None，回到循环开头继续等它。读库期间也可能有持有者来过又走、
+            # 把任务接续到终态，所以取得归属后再核对一次。
+            if (dispatch := self._spawn_retry_dispatcher(task, verify_running=True)) is not None:
                 await dispatch
                 return
 
@@ -444,6 +454,7 @@ class RestartRecovery:
         self,
         provider_id: str,
         tasks: list[dict[str, Any]],
+        tokens: Mapping[str, asyncio.Event] | None = None,
     ) -> None:
         """同 provider 桶并发跑 resume task，pending/inflight 用 phase 标志精确容量与 cancel 跟踪。
 
@@ -517,7 +528,7 @@ class RestartRecovery:
                 break
             # 父协程同步：先 create_task、再立即以 PENDING 登记——避免「create_task
             # 是异步调度，has_room 在调度未发生前看占用=0 误判可有容量」的瞬时 race。
-            token = self._dispatch_owners.get(t["task_id"])
+            token = None if tokens is None else tokens.get(t["task_id"])
             sub_task = asyncio.create_task(_run_one(t, token), name=f"resume-video-{t['task_id']}")
             self._slots.register(provider_id, "video", t["task_id"], sub_task, pending=True)
             sub.append(sub_task)
